@@ -1,0 +1,51 @@
+[package]
+name = "jmap_dumper"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description.workspace = true
+keywords.workspace = true
+license.workspace = true
+default-run = "jmap_dumper"
+
+[package.metadata.dist]
+dist = true
+
+[dependencies]
+anyhow.workspace = true
+bytemuck.workspace = true
+clap.workspace = true
+derive-where.workspace = true
+flate2 = "1.1.2"
+include_dir = "0.7"
+gospel-compiler = { version = "0.1.0", path = "../../gospel/gospel-compiler" }
+gospel-typelib = { version = "0.1.0", path = "../../gospel/gospel-typelib" }
+gospel-vm = { version = "0.1.0", path = "../../gospel/gospel-vm" }
+memmap2 = "0.9.8"
+minidump = "0.26.0"
+ordered-float = "5.0.0"
+ordermap = "0.5.12"
+# Lightweight async stack for the HTTP memory backend: smol (reactor + executor
+# + async-net) drives an async-h1 client; no tokio.
+smol = "2"
+async-trait = "0.1"
+event-listener = "5"
+futures-util = "0.3"
+patternsleuth = { workspace = true, features = ["image-pe", "process-external", "minidump"] }
+pretty-hex.workspace = true
+read-process-memory.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+time = "0.3.44"
+jmap = { version = "0.2.0", path = "../jmap" }
+usmap = { version = "0.2.0", path = "../usmap" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62.2", features = ["Win32_System_Diagnostics_ToolHelp", "Win32_System_Diagnostics_Debug"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+proc-maps = "0.4.0"
+

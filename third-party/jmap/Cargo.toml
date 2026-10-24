@@ -1,0 +1,36 @@
+[workspace]
+resolver = "2"
+members = ["jmap_dumper", "jmap", "usmap"]
+default-members = ["jmap_dumper", "jmap", "usmap"]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2024"
+authors = ["trumank"]
+repository = "https://github.com/trumank/jmap"
+homepage = "https://github.com/trumank/jmap"
+description = "Unreal Engine reflection data extractor"
+keywords = ["unreal-engine"]
+license = "MIT"
+
+[profile.release]
+debug = true
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
+[workspace.dependencies]
+bitflags = "2.9.4"
+bytemuck = "1.23.2"
+clap = { version = "4.5.48", features = ["derive"] }
+derive-where = "1.6.0"
+patternsleuth = { path = "../patternsleuth/patternsleuth" }
+pretty-hex = "0.4.1"
+read-process-memory = "0.1.6"
+serde = "1.0.227"
+serde_json = "1.0.145"
+ser-hex = { path = "../ser-hex/ser-hex" }
+anyhow = "1.0.100"
+

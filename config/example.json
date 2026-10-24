@@ -1,0 +1,9 @@
+{
+  "cacheDirectory": "../local/cache",
+  "autoDiscover": false,
+  "live": {
+    "enabled": false,
+    "helperFile": "../dist/starrupture-overlay-reader.exe",
+    "helperSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

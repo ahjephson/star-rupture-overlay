@@ -1,0 +1,284 @@
+use std::collections::HashMap;
+
+use anyhow::{Context, Result, anyhow, bail};
+use gospel_compiler::backend::{CompilerInstance, CompilerModuleBuilder, CompilerResultTrait};
+use gospel_compiler::parser::parse_source_file;
+use gospel_typelib::target_triplet::{
+    TargetArchitecture, TargetEnvironment, TargetOperatingSystem,
+};
+use gospel_typelib::type_model::{ResolvedUDTMemberLayout, Type, TypeGraphLike, TypeLayoutCache};
+use gospel_vm::vm::{GospelVMOptions, GospelVMRunContext, GospelVMState, GospelVMValue};
+use include_dir::{Dir, include_dir};
+use patternsleuth::resolvers::unreal::engine_version::EngineVersion;
+use serde::{Deserialize, Serialize};
+
+static UNREAL_MODULE_SRC: Dir = include_dir!("$CARGO_MANIFEST_DIR/unreal/src");
+
+#[derive(Serialize, Deserialize)]
+pub struct Structs(pub Vec<StructInfo>);
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct StructInfo {
+    pub name: String,
+    pub size: u64,
+    pub alignment: u64,
+    pub members: Vec<StructMember>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct StructMember {
+    pub name: String,
+    pub offset: u64,
+    pub size: u64,
+    //pub type_name: String,
+}
+
+pub use gospel_typelib::target_triplet::TargetTriplet;
+
+pub fn default_target_triplet() -> TargetTriplet {
+    TargetTriplet {
+        arch: TargetArchitecture::X86_64,
+        sys: TargetOperatingSystem::Win32,
+        env: Some(TargetEnvironment::MSVC),
+    }
+}
+
+pub fn macos_target_triplet() -> TargetTriplet {
+    TargetTriplet {
+        arch: TargetArchitecture::ARM64,
+        sys: TargetOperatingSystem::Darwin,
+        env: None,
+    }
+}
+
+pub fn parse_target_triplet(s: &str) -> Result<TargetTriplet, String> {
+    TargetTriplet::parse(s).ok_or_else(|| format!("invalid target triple {s:?}"))
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct BuildConfig {
+    #[serde(default)]
+    pub case_preserving: bool,
+    #[serde(default)]
+    pub pack_fuobject_item: bool,
+    #[serde(default)]
+    pub ue_editor: bool,
+    #[serde(default)]
+    pub with_editor: bool,
+    #[serde(default)]
+    pub with_editoronly_data: bool,
+    #[serde(default)]
+    pub stats: bool,
+    #[serde(default)]
+    pub fuobject_flags_refcount: bool,
+}
+
+impl BuildConfig {
+    pub fn editor() -> Self {
+        Self {
+            ue_editor: true,
+            with_editor: true,
+            with_editoronly_data: true,
+            ..Default::default()
+        }
+    }
+}
+
+pub fn get_struct_info_for_version(
+    version: &EngineVersion,
+    build_config: BuildConfig,
+    target_triplet: TargetTriplet,
+) -> Result<Structs> {
+    let compiler_instance = CompilerInstance::create(Default::default());
+    let module_writer = compiler_instance
+        .define_module("unreal")
+        .to_simple_result()?;
+
+    let mut source_files: Vec<_> = UNREAL_MODULE_SRC
+        .files()
+        .filter(|f| f.path().extension().is_some_and(|ext| ext == "gs"))
+        .collect();
+    source_files.sort_by_key(|f| f.path());
+
+    for file in source_files {
+        let filename = file.path().file_name().unwrap().to_string_lossy();
+        let contents = file.contents_utf8().unwrap();
+        let parsed = parse_source_file(&filename, contents)?;
+        module_writer.add_source_file(parsed).to_simple_result()?;
+    }
+
+    let container = module_writer.compile().to_simple_result()?;
+
+    let mut vm_state = GospelVMState::create();
+
+    let ue_version = (version.major as u64) * 100 + (version.minor as u64);
+
+    let struct_names: Vec<(&str, &str)> = vec![
+        ("uobjectarray", "FUObjectArray"),
+        ("uobjectarray", "FUObjectArrayOld"),
+        ("uobjectarray", "FUObjectArrayOlder"),
+        ("uobjectarray", "FUObjectItem"),
+        ("uobjectarray", "FFixedUObjectArray"),
+        ("uobjectarray", "FChunkedFixedUObjectArray"),
+        ("objects", "UObject"),
+        ("objects", "UField"),
+        ("objects", "UStruct"),
+        ("objects", "UClass"),
+        ("objects", "UEnum"),
+        ("objects", "UEnumNameTuple"),
+        ("objects", "FNameData"),
+        ("objects", "UFunction"),
+        ("objects", "UScriptStruct"),
+        ("properties", "ZField"),
+        ("properties", "ZProperty"),
+        ("properties", "ZStructProperty"),
+        ("properties", "ZArrayProperty"),
+        ("properties", "ZEnumProperty"),
+        ("properties", "ZByteProperty"),
+        ("properties", "ZBoolProperty"),
+        ("properties", "ZSetProperty"),
+        ("properties", "ZMapProperty"),
+        ("properties", "ZDelegateProperty"),
+        ("properties", "ZMulticastDelegateProperty"),
+        ("properties", "ZObjectPropertyBase"),
+        ("properties", "ZObjectProperty"),
+        ("properties", "ZClassProperty"),
+        ("properties", "ZSoftClassProperty"),
+        ("properties", "ZInterfaceProperty"),
+        ("properties", "FOptionalPropertyLayout"),
+        ("properties", "FScriptSparseArrayLayout"),
+        ("properties", "FScriptSetLayout"),
+        ("properties", "FScriptMapLayout"),
+        ("containers", "FDefaultAllocatorInstance"),
+        ("containers", "FDefaultBitArrayAllocator"),
+        ("containers", "FScriptArray"),
+        ("containers", "FScriptBitArray"),
+        ("containers", "FScriptSparseArray"),
+        ("containers", "FScriptSet"),
+        ("containers", "FScriptMap"),
+        ("unreal", "FName"),
+        ("unreal", "FNameEntryAllocator"),
+        ("unreal", "FImplementedInterface"),
+        ("properties", "FField"),
+        ("properties", "FFieldClass"),
+        ("properties", "FFieldVariant"),
+        ("package", "UPackage"),
+    ];
+
+    let mounted_container = vm_state.mount_container(container)?;
+
+    let mut structs = Vec::new();
+    let vm_options = GospelVMOptions::default()
+        .target_triplet(target_triplet)
+        .with_global("UE_VERSION", ue_version)
+        .with_global(
+            "WITH_CASE_PRESERVING_NAME",
+            build_config.case_preserving as u64,
+        )
+        .with_global(
+            "UE_PACK_FUOBJECT_ITEM",
+            build_config.pack_fuobject_item as u64,
+        )
+        .with_global("UE_EDITOR", build_config.ue_editor as u64)
+        .with_global("WITH_EDITOR", build_config.with_editor as u64)
+        .with_global(
+            "WITH_EDITORONLY_DATA",
+            build_config.with_editoronly_data as u64,
+        )
+        .with_global("STATS", build_config.stats as u64)
+        .with_global(
+            "UE_FUOBJECT_FLAGS_REFCOUNT",
+            build_config.fuobject_flags_refcount as u64,
+        );
+    let mut execution_context = GospelVMRunContext::create(vm_options);
+
+    for (file_name, struct_name) in struct_names {
+        if let Some(struct_info) = eval_struct_layout(
+            &mounted_container,
+            &mut execution_context,
+            &target_triplet,
+            file_name,
+            struct_name,
+        )? {
+            structs.push(struct_info);
+        }
+    }
+
+    Ok(Structs(structs))
+}
+
+fn eval_struct_layout(
+    container: &std::rc::Rc<gospel_vm::vm::GospelVMContainer>,
+    execution_context: &mut GospelVMRunContext,
+    target_triplet: &TargetTriplet,
+    file_name: &str,
+    struct_name: &str,
+) -> Result<Option<StructInfo>> {
+    let func_name = format!("{}${}", file_name, struct_name);
+    let eval_func = container
+        .find_named_function(&func_name)
+        .with_context(|| format!("{struct_name} not found in module (looked for {func_name})"))?;
+    match eval_func
+        .execute(Vec::new(), execution_context)
+        .map_err(|e| anyhow!("GospelVM exec failed: {e}"))?
+    {
+        GospelVMValue::TypeReference(type_index) => {
+            let type_tree = execution_context.type_tree(type_index);
+
+            let mut members = HashMap::new();
+            let mut layout_cache = TypeLayoutCache::create(*target_triplet);
+
+            let mut add_members = |type_index: usize, base: usize| -> Result<Vec<(usize, usize)>> {
+                let Type::UDT(udt) = &type_tree.types[type_index] else {
+                    bail!("Expected UserDefinedType");
+                };
+                let layout = udt.layout(type_index, &type_tree, &mut layout_cache)?;
+
+                for (member, member_layout) in udt.members.iter().zip(&layout.member_layouts) {
+                    if let Some(name) = member.name()
+                        && !members.contains_key(name)
+                        && let ResolvedUDTMemberLayout::Field(field) = member_layout
+                    {
+                        members.insert(
+                            name,
+                            StructMember {
+                                name: member.name().unwrap_or("<unknown>").to_string(),
+                                offset: (base + field.offset) as u64,
+                                size: field.size as u64,
+                            },
+                        );
+                    }
+                }
+
+                Ok(udt
+                    .base_class_indices
+                    .iter()
+                    .copied()
+                    .zip(layout.base_class_offsets.iter().copied())
+                    .collect())
+            };
+
+            let mut queue = vec![(type_tree.root_type_index, 0)];
+            while let Some((type_index, base)) = queue.pop() {
+                queue.extend(add_members(type_index, base)?);
+            }
+
+            let layout = match type_tree.root_type() {
+                Type::UDT(udt) => udt,
+                _ => unreachable!(),
+            }
+            .layout(type_tree.root_type_index, &type_tree, &mut layout_cache)?;
+
+            let mut members = members.into_values().collect::<Vec<_>>();
+            members.sort_by_key(|m| m.offset);
+
+            Ok(Some(StructInfo {
+                name: struct_name.to_string(),
+                size: layout.size as u64,
+                alignment: layout.alignment as u64,
+                members,
+            }))
+        }
+        _ => bail!("Unhandled GospelVMValue type for {struct_name}"),
+    }
+}

@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = ["ser-hex"]
+default-members = ["ser-hex"]
+
+[workspace.package]
+repository = "https://github.com/trumank/ser-hex"
+authors = ["trumank"]
+license = "MIT OR Apache-2.0"
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+anyhow = "1.0.95"
+serde = "1.0.217"
+serde_json = { version = "1.0.138", features = ["unbounded_depth"] }
+
+[workspace.metadata.release]
+tag-prefix = ""
+

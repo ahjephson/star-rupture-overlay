@@ -1,0 +1,36 @@
+{
+  "license": "SIL OFL1.1",
+  "upstreamCommit": "a8f39e0c71186190027a093e9001459410192d1e",
+  "files": [
+    {
+      "file": "Oxanium-Bold.ttf",
+      "sourceUrl": "https://raw.githubusercontent.com/sevmeyer/oxanium/a8f39e0c71186190027a093e9001459410192d1e/fonts/ttf/Oxanium-Bold.ttf",
+      "sha256": "15a44f661fd962c64cabe069a5f9f6fab85a412188f028d3e04da2ff917e37cc",
+      "bytes": 28808
+    },
+    {
+      "file": "Oxanium-SemiBold.ttf",
+      "sourceUrl": "https://raw.githubusercontent.com/sevmeyer/oxanium/a8f39e0c71186190027a093e9001459410192d1e/fonts/ttf/Oxanium-SemiBold.ttf",
+      "sha256": "e2d77ec4ee67b0152166adf5d6393360550a012c2066e0d4589053e14a733cdc",
+      "bytes": 28892
+    },
+    {
+      "file": "Oxanium-Regular.ttf",
+      "sourceUrl": "https://raw.githubusercontent.com/sevmeyer/oxanium/a8f39e0c71186190027a093e9001459410192d1e/fonts/ttf/Oxanium-Regular.ttf",
+      "sha256": "2b9c2a53ee0a8248ab901463838cc81075b410724046a09683b3cc91870fe52a",
+      "bytes": 28848
+    },
+    {
+      "file": "OFL.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/sevmeyer/oxanium/a8f39e0c71186190027a093e9001459410192d1e/OFL.txt",
+      "sha256": "fe17c0f2581d71b4e1ea7e636e7f4877c29223e11bb1dd1a871e8c3f2a86336b",
+      "bytes": 4384
+    },
+    {
+      "file": "Oxanium-ExtraBold.ttf",
+      "sourceUrl": "https://raw.githubusercontent.com/sevmeyer/oxanium/a8f39e0c71186190027a093e9001459410192d1e/fonts/ttf/Oxanium-ExtraBold.ttf",
+      "sha256": "ee2b56aa6a69d113c7bdf4cdf297bd752869674210860ce166b0b10fe0c926c6",
+      "bytes": 28872
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+# Extraction record
+
+Status: extracted2026-10-24 from the Rust MCP development workspace, with user authorization to treat the overlay as a separate system. Source remains installed unchanged.
+
+The renderer and stream client differ only in the local core crate import. Reader modules and wave presentation/IPC models were copied verbatim. The new wave-core retains the pure original validate_observation/process_response and live_wave_timing implementations. Only required error, JSON, number/time helpers were retained; one-shot orchestration and gameplay/save/data code were excluded. Config now accepts overlay settings only, preserving old explicit disabled/default behavior and lowercase helper pins. Original synthetic wave tests are retained; the obsolete one-shot runner test is excluded because that runner is not part of this project.
+
+Vendored source files were copied without modification. The source workspace had19 formatted gospel files with stale manifest hashes. Each was proven byte-identical to rustfmt output of the recorded upstream revision, and only this independent project's checksum manifest was updated, retaining original hashes. See vendor-format-verification.json. No parent-workspace path dependencies or data packs are required. Generated artifacts, runtime configuration, game-specific session caches and personal paths are ignored. docs/extracted-source-sha256.json records this extraction's source inventory before standalone build/validation updates.

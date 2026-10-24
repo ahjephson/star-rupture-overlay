@@ -1,0 +1,95 @@
+{
+  "date": "2026-10-24",
+  "status": "independent_project_tested_running",
+  "tests": {
+    "passed": 25,
+    "targets": 5,
+    "command": "cargo test --workspace --all-targets --locked --offline",
+    "warningsDenied": true
+  },
+  "releaseBuild": "passed",
+  "nativeWindow": {
+    "status": "passed",
+    "layered": true,
+    "backgroundAlpha": 230,
+    "textAlpha": 255,
+    "focusPreserved": true,
+    "windowDestroyed": true
+  },
+  "liveReader": {
+    "status": "passed",
+    "cases": [
+      {
+        "mode": "stop",
+        "readerPid": 17880,
+        "messageCount": 47,
+        "worldMessages": 24,
+        "menuMessages": 22,
+        "generations": [
+          1
+        ],
+        "lastStatistics": {
+          "menuReads": 93,
+          "worldReads": 24,
+          "sessions": 1,
+          "worldReadMillis": 46,
+          "menuMaxMicros": 2543
+        },
+        "shutdownMs": 14.999999999417923,
+        "exitCode": 0
+      },
+      {
+        "mode": "eof",
+        "readerPid": 44812,
+        "messageCount": 10,
+        "worldMessages": 5,
+        "menuMessages": 4,
+        "generations": [
+          1
+        ],
+        "lastStatistics": {
+          "menuReads": 17,
+          "worldReads": 5,
+          "sessions": 1,
+          "worldReadMillis": 32,
+          "menuMaxMicros": 1165
+        },
+        "shutdownMs": 0.0,
+        "exitCode": 0
+      }
+    ],
+    "activeServersChanged": false
+  },
+  "extractionParity": {
+    "readerFiles": "byte identical",
+    "pureValidation": "identical function bodies",
+    "liveTiming": "byte identical",
+    "renderer": "only local crate imports changed"
+  },
+  "runtime": {
+    "stage": "dist",
+    "overlayPid": 35272,
+    "launchSession": 36475,
+    "readOnly": true,
+    "priorRuntimeRetained": true,
+    "readerPid": 45972,
+    "singleOwnedHelperVerified": true
+  },
+  "activeMcpServersChanged": false,
+  "registrationsChanged": false,
+  "github": {
+    "url": "https://github.com/ahjephson/star-rupture-overlay",
+    "visibility": "private",
+    "initialPush": "pending"
+  },
+  "codexProject": {
+    "status": "manual_add_folder_required",
+    "reason": "Available app tools list projects but cannot add them; computer-use skill prohibits Codex UI automation"
+  },
+  "vendorVerification": {
+    "passed": true,
+    "files": 100,
+    "inheritedFormattedFiles": 19,
+    "proof": "vendor-format-verification.json"
+  }
+}

@@ -1,0 +1,20 @@
+[package]
+name = "jmap"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description.workspace = true
+keywords.workspace = true
+license.workspace = true
+
+[dependencies]
+base64 = "0.22"
+bitflags = { workspace = true, features = ["bytemuck", "serde"] }
+bytemuck = { workspace = true, features = ["derive"] }
+ordered-float = { version = "5.0.0", features = ["serde"] }
+ordermap = { version = "0.5.12", features = ["serde"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+strum = { version = "0.27", features = ["derive"] }

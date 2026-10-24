@@ -1,0 +1,23 @@
+[package]
+name = "usmap"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description.workspace = true
+keywords.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+byteorder = "1.5.0"
+clap.workspace = true
+ser-hex = { path = "../../ser-hex/ser-hex", version = "0.1.0" }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+serde_with = "3.14.1"
+strum = { version = "0.27.2", features = ["derive"] }
+tracing = "0.1.41"
+zstd = "0.13.3"
+
