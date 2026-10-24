@@ -1,5 +1,9 @@
 # StarRupture Wave Overlay handover
 
+## Content-only centering adjustment — 2026-10-24
+
+At Alex's request, moved the stage title, divider, label and countdown down2px within the existing frame. Box geometry,223x89 footprint, play/pause anchors, fonts, internal spacing and transparency are unchanged. Native pixel comparison confirmed identical canvas dimensions and exactly2px translation of both title and label/countdown pixels. All25 tests/5 targets, six-stage render and native window checks pass; reader Stop/EOF and fresh live data verified. Prior source/runtime retained in local/backups/before-content-centering-20261024. Old overlay44576 closed gracefully; current PID41396/session9604, private run local/run-content-centering-20261024, one owned reader. MCP/planning files unchanged.
+
 ## Small stage headroom adjustment — 2026-10-24
 
 Alex accepted the new game-style frame and requested a slightly taller box with a little more gap above the stage. Added4 pixels to the panel height and shifted the existing content down4 pixels; fonts, text allocation and internal line spacing keep their previous dimensions. At the current display the footprint is223x89 instead of223x85. Upper-left anchor and pause-border gap remain unchanged. Native six-stage renders preserve every title/countdown pixel count; PRE-WAVE title bounds were verified unchanged except for a4px vertical offset.

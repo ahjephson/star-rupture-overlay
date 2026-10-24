@@ -68,11 +68,11 @@
   },
   "runtime": {
     "stage": "dist",
-    "overlayPid": 44576,
-    "launchSession": 67278,
+    "overlayPid": 41396,
+    "launchSession": 9604,
     "readOnly": true,
     "priorRuntimeRetained": true,
-    "readerPid": 44456,
+    "readerPid": 37740,
     "singleOwnedHelperVerified": true
   },
   "activeMcpServersChanged": false,
@@ -154,5 +154,20 @@
     "overlayPid": 44576,
     "launchSession": 67278,
     "activeMcpServersChanged": false
+  },
+  "contentCentering": {
+    "date": "2026-10-24",
+    "status": "implemented_tested_running",
+    "contentOffsetPixels": 2,
+    "boxGeometryAndPositionUnchanged": true,
+    "fontsAndSpacingUnchanged": true,
+    "pixelComparison": "identical canvas and title/label/countdown pixels translated exactly2px",
+    "testsPassed": 25,
+    "nativeStageRenders": 6,
+    "nativeWindowCheck": "passed",
+    "readerStopAndEof": "passed",
+    "backup": "local/backups/before-content-centering-20261024",
+    "overlayPid": 41396,
+    "launchSession": 9604
   }
 }

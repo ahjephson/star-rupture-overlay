@@ -217,6 +217,7 @@ unsafe fn paint(window: HWND) {
     };
 }
 const STAGE_TOP_PADDING: i32 = 4;
+const CONTENT_OFFSET_Y: i32 = 2;
 const BACKGROUND_ALPHA: u8 = 230;
 const PANEL_EDGE: [u8; 3] = [220, 222, 218];
 // Game-style panel: raised left tab, stepped top, one clipped corner.
@@ -350,6 +351,7 @@ unsafe fn render_layer(window: HWND, screen: HDC, frame: &HudFrame) -> bool {
 unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
     let width = rect.right;
     let panel_height = rect.bottom;
+    let content_y = STAGE_TOP_PADDING + CONTENT_OFFSET_Y;
     // Extra headroom must not enlarge fonts or spread the existing content.
     let height = (panel_height - STAGE_TOP_PADDING).max(1);
     let background = unsafe { CreateSolidBrush(rgb([24, 30, 32])) };
@@ -364,13 +366,8 @@ unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
     let points = panel_points(width, panel_height, 1);
     unsafe {
         Polygon(dc, points.as_ptr(), points.len() as i32);
-        MoveToEx(
-            dc,
-            c + 3,
-            height / 2 - 2 + STAGE_TOP_PADDING,
-            std::ptr::null_mut(),
-        );
-        LineTo(dc, width - c - 3, height / 2 - 2 + STAGE_TOP_PADDING);
+        MoveToEx(dc, c + 3, height / 2 - 2 + content_y, std::ptr::null_mut());
+        LineTo(dc, width - c - 3, height / 2 - 2 + content_y);
         SelectObject(dc, old_pen);
         SelectObject(dc, old_brush);
         DeleteObject(edge);
@@ -402,9 +399,9 @@ unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
     let stage = wide(frame.stage);
     let mut title = RECT {
         left: c + 3,
-        top: height / 9 + STAGE_TOP_PADDING,
+        top: height / 9 + content_y,
         right: width - c,
-        bottom: height / 2 + STAGE_TOP_PADDING,
+        bottom: height / 2 + content_y,
     };
     unsafe {
         DrawTextW(
@@ -442,9 +439,9 @@ unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
     let label = wide(frame.next_label);
     let mut line = RECT {
         left: c + 3,
-        top: height / 2 + STAGE_TOP_PADDING,
+        top: height / 2 + content_y,
         right: width / 2 + width / 10,
-        bottom: height - c + STAGE_TOP_PADDING,
+        bottom: height - c + content_y,
     };
     unsafe {
         DrawTextW(
@@ -497,9 +494,9 @@ unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
     let old = unsafe { SelectObject(dc, digits) };
     let mut timer = RECT {
         left: width / 2,
-        top: height / 2 - 2 + STAGE_TOP_PADDING,
+        top: height / 2 - 2 + content_y,
         right: width - c - 3,
-        bottom: height - c + STAGE_TOP_PADDING,
+        bottom: height - c + content_y,
     };
     unsafe {
         DrawTextW(
