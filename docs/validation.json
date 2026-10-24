@@ -1,6 +1,6 @@
 {
   "date": "2026-10-24",
-  "status": "owner_icon_candidate_verified_not_activated",
+  "status": "owner_icon_activated_waiting_for_game_and_player_visual_acceptance",
   "publication": {
     "repositoryPrivate": true,
     "releaseCreated": false,
@@ -253,15 +253,31 @@
     "windowIconAssignment": "passed_large_and_small",
     "tray": "uses_embedded_small_system_metric_icon",
     "visualPreview": "reviewed_small_sizes_on_light_and_dark",
-    "actualTrayDpiAppearance": "pending_activation_and_owner_acceptance",
+    "actualTrayDpiAppearance": "pending owner visual acceptance of activated build",
     "formatClippyTestsRelease": "passed",
     "nativeWindowStackingEventsRendering": "passed",
     "packageRegression": "passed",
     "newRustDependencies": false,
     "extraRuntimeDependencies": false,
     "candidateBytes": 7329280,
-    "installedAppChanged": false,
+    "installedAppChanged": true,
     "mcpChanged": false,
     "backup": "local/backups/before-app-icon-20261024"
+  },
+  "iconActivation": {
+    "date": "2026-10-24",
+    "sourceRevision": "912fbab77a69b575c71abda1f686bf28dde9a154",
+    "executableSha256": "411ffcf0fccb5458057b9e3cf05dd5ad67c340077a4bd8f36d540feafc3cbc6f",
+    "committedTrackedBuildMatchesTestedCandidate": true,
+    "oldAppAlreadyClosed": true,
+    "gameRunningAtActivation": false,
+    "finiteLivePreflight": "unavailable_game_not_running_zero_readings",
+    "singleAppStarted": true,
+    "childProcesses": 0,
+    "assignedWindowIcons": "passed_large_small_class",
+    "hudHiddenWithoutGame": true,
+    "rollback": "local/backups/before-icon-activation-20261024T211832Z/rollback-dist",
+    "mcpChanged": false,
+    "liveGameplayVerification": "pending next game launch"
   }
 }

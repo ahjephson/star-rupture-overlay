@@ -43,7 +43,7 @@ Native diagnostic:20 notification round trips, zero timer messages, reader mutex
 ## Open work — updated 2026-10-24
 
 - Finish the real-game focus-return latency and displayed wave-cycle checks; the updated candidate is now activated and awaiting player feedback.
-- Owner-supplied app/tray icon is implemented and locally verified; candidate activation and visual acceptance on the actual taskbar/tray remain pending. Original PNG and nine-size ICO are retained with hashes. See the icon handover below.
+- Owner-supplied app/tray icon is implemented, locally verified and activated; visual acceptance on the actual taskbar/tray remains pending. Original PNG and nine-size ICO are retained with hashes. See the icon handover below.
 
 
 ## Phase display update — 2026-10-24
@@ -69,3 +69,12 @@ The Windows SDK resource compiler embeds the reviewed ICO as group1, available t
 All30 Rust tests, strict Clippy, formatting, vendor/font/icon checks, locked release build and native window/stacking/events/eight-panel rendering pass. Disposable package installation/upgrade/rollback and malformed archive regressions pass. Small-size artwork previews were visually inspected on light/dark backgrounds; actual taskbar/tray DPI appearance needs owner acceptance after activation. Candidate: local/icon-final-20261024; private tests: local/release-test-a83cea95955d474ca4045e3f0cc6e519. The executable is7329280 bytes,150016 more than the prior7179264-byte candidate; original high-resolution PNG stays in source only. Source rollback bundle: local/backups/before-app-icon-20261024.
 
 No activation performed for this icon candidate. Installed dist checksum remains29105e06bd4b55d53eef300e04995b465c82f79bc61e28d63ca793d814ada317. MCP/planning files, registrations, settings and existing rollback copies were unchanged. No tag, release or visibility change. Future activation remains an explicit operation.
+
+
+## Icon activation — 2026-10-24
+
+Following owner approval, dist now contains source912fbab77a69b575c71abda1f686bf28dde9a154, executable SHA256411ffcf0fccb5458057b9e3cf05dd5ad67c340077a4bd8f36d540feafc3cbc6f. Rebuilding the committed tracked source matched the tested icon candidate byte for byte. The unrelated untracked owner artwork copy was preserved. The prior overlay and game were already closed, so no running app needed stopping. The finite60-second preflight terminated normally with an unavailable result (zero readings, zero child processes); this does not establish live gameplay acceptance.
+
+The normal updated app was started once with its new tray controls. A read-only query confirms one overlay window, both embedded window icons assigned and matching class icon, with no child helper. The HUD is hidden while the game is absent, as intended; the app is ready for the next game launch. Actual tray appearance/DPI and live-cycle confirmation remain pending user feedback.
+
+Verified rollback: local/backups/before-icon-activation-20261024T211832Z/rollback-dist (SHA25629105e06bd4b55d53eef300e04995b465c82f79bc61e28d63ca793d814ada317); retired-dist and activation journal are retained there. Startup and own-window logs: local/run-icon-20261024. MCP servers, planning, registrations, settings and previous rollback copies were unchanged. No tag, release or visibility change.
