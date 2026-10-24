@@ -1,6 +1,6 @@
 {
   "date": "2026-10-24",
-  "status": "phase_display_candidate_verified_not_activated",
+  "status": "phase_display_and_notification_candidate_activated_manual_verification_pending",
   "publication": {
     "repositoryPrivate": true,
     "releaseCreated": false,
@@ -170,7 +170,7 @@
     "playerTwoMonitorAppearance": "covering behavior accepted; focus-return delay reported"
   },
   "focusReturnNotifications": {
-    "status": "candidate_only_not_activated",
+    "status": "activated_manual_latency_confirmation_pending",
     "playerReport": "about half a second to reappear; not repeated flickering",
     "architecture": "out-of-context queued Windows notifications; separate stacking-only UI handler",
     "gameCodeInjected": false,
@@ -192,7 +192,7 @@
       "foregroundPreserved": true
     },
     "existingStackingAndRenderChecks": "passed",
-    "realGamePerceivedLatency": "pending candidate activation and manual verification",
+    "realGamePerceivedLatency": "pending player feedback on running a718afc",
     "backup": "local/backups/before-focus-notifications-20261024"
   },
   "phaseDisplayUpdate": {
@@ -209,9 +209,28 @@
     "nativeRenders": 8,
     "renderVisualReview": "passed",
     "releasePackageRegression": "passed",
-    "runningAppChanged": false,
+    "runningAppChanged": true,
     "mcpChanged": false,
-    "liveCycleVerification": "pending explicit candidate activation",
+    "liveCycleVerification": "pending player visual confirmation after authorized activation",
     "sourceBackup": "local/backups/before-stage-labels-20261024"
+  },
+  "latestAuthorizedActivation": {
+    "date": "2026-10-24",
+    "sourceRevision": "a718afca53eb00c9d5a1526b5538836e25b5c965",
+    "cleanBuildMatchesTestedCandidate": true,
+    "executableSha256": "29105e06bd4b55d53eef300e04995b465c82f79bc61e28d63ca793d814ada317",
+    "rollback": "local/backups/before-stage-activation-20261024T205507Z/rollback-dist",
+    "oldGracefullyClosedAndReaderJoined": true,
+    "oneVisibleOrdinaryOverlay": true,
+    "freshValidatedLiveObservation": true,
+    "queuedWindowNotificationsActive": true,
+    "preflight": {
+      "worldReads": 24,
+      "menuReads": 93,
+      "sessions": 1,
+      "childProcesses": 0
+    },
+    "mcpChanged": false,
+    "manualVisualAcceptance": "pending"
   }
 }
