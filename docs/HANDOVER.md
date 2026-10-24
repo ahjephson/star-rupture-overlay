@@ -1,5 +1,11 @@
 # StarRupture Wave Overlay handover
 
+## Small stage headroom adjustment — 2026-10-24
+
+Alex accepted the new game-style frame and requested a slightly taller box with a little more gap above the stage. Added4 pixels to the panel height and shifted the existing content down4 pixels; fonts, text allocation and internal line spacing keep their previous dimensions. At the current display the footprint is223x89 instead of223x85. Upper-left anchor and pause-border gap remain unchanged. Native six-stage renders preserve every title/countdown pixel count; PRE-WAVE title bounds were verified unchanged except for a4px vertical offset.
+
+All25 tests/5 targets, warnings-denied locked/offline release build and hidden native window/layer/focus/lifecycle checks pass. Read-only Stop/EOF validation repeated successfully. Previous source/runtime is backed up under local/backups/before-stage-top-padding-20261024. Old PID34712 closed gracefully; current overlay PID44576/session67278, private run local/run-stage-padding-20261024, one reader and first validated live data confirmed. No MCP or planning files changed. This supersedes the prior223x85 height only.
+
 ## Game-style frame applied — 2026-10-24
 
 Alex requested a box resembling the supplied in-game Multiplayer settings panel after separation. Replaced the all-corners chamfered, stage-colored contour with a raised upper-left tab, diagonal top step, thin pale neutral outline, square left corners and one clipped bottom-right corner. Added a thin header divider. The renderer, per-pixel alpha mask and native window region use the same panel geometry. Stage colors remain on the title; Oxanium text, natural countdown proportions, alpha230 background, footprint, automatic play/pause position and read-only timer/reader behavior remain unchanged.

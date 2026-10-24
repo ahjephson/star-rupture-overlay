@@ -147,7 +147,7 @@ unsafe fn tick(window: HWND) {
     let w = rect.right.max(1);
     let h = rect.bottom.max(1);
     let width = ((w as f64 * 0.087).round() as i32).max(180);
-    let height = ((h as f64 * 0.059).round() as i32).max(60);
+    let height = ((h as f64 * 0.059).round() as i32).max(60) + STAGE_TOP_PADDING;
     if !a.user_moved {
         let mut current = RECT::default();
         unsafe { GetWindowRect(window, &mut current) };
@@ -216,6 +216,7 @@ unsafe fn paint(window: HWND) {
         EndPaint(window, &ps)
     };
 }
+const STAGE_TOP_PADDING: i32 = 4;
 const BACKGROUND_ALPHA: u8 = 230;
 const PANEL_EDGE: [u8; 3] = [220, 222, 218];
 // Game-style panel: raised left tab, stepped top, one clipped corner.
@@ -348,7 +349,9 @@ unsafe fn render_layer(window: HWND, screen: HDC, frame: &HudFrame) -> bool {
 }
 unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
     let width = rect.right;
-    let height = rect.bottom;
+    let panel_height = rect.bottom;
+    // Extra headroom must not enlarge fonts or spread the existing content.
+    let height = (panel_height - STAGE_TOP_PADDING).max(1);
     let background = unsafe { CreateSolidBrush(rgb([24, 30, 32])) };
     unsafe {
         FillRect(dc, &rect, background);
@@ -358,11 +361,16 @@ unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
     let old_pen = unsafe { SelectObject(dc, edge) };
     let old_brush = unsafe { SelectObject(dc, GetStockObject(NULL_BRUSH)) };
     let c = (height / 8).max(5);
-    let points = panel_points(width, height, 1);
+    let points = panel_points(width, panel_height, 1);
     unsafe {
         Polygon(dc, points.as_ptr(), points.len() as i32);
-        MoveToEx(dc, c + 3, height / 2 - 2, std::ptr::null_mut());
-        LineTo(dc, width - c - 3, height / 2 - 2);
+        MoveToEx(
+            dc,
+            c + 3,
+            height / 2 - 2 + STAGE_TOP_PADDING,
+            std::ptr::null_mut(),
+        );
+        LineTo(dc, width - c - 3, height / 2 - 2 + STAGE_TOP_PADDING);
         SelectObject(dc, old_pen);
         SelectObject(dc, old_brush);
         DeleteObject(edge);
@@ -394,9 +402,9 @@ unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
     let stage = wide(frame.stage);
     let mut title = RECT {
         left: c + 3,
-        top: height / 9,
+        top: height / 9 + STAGE_TOP_PADDING,
         right: width - c,
-        bottom: height / 2,
+        bottom: height / 2 + STAGE_TOP_PADDING,
     };
     unsafe {
         DrawTextW(
@@ -434,9 +442,9 @@ unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
     let label = wide(frame.next_label);
     let mut line = RECT {
         left: c + 3,
-        top: height / 2,
+        top: height / 2 + STAGE_TOP_PADDING,
         right: width / 2 + width / 10,
-        bottom: height - c,
+        bottom: height - c + STAGE_TOP_PADDING,
     };
     unsafe {
         DrawTextW(
@@ -489,9 +497,9 @@ unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
     let old = unsafe { SelectObject(dc, digits) };
     let mut timer = RECT {
         left: width / 2,
-        top: height / 2 - 2,
+        top: height / 2 - 2 + STAGE_TOP_PADDING,
         right: width - c - 3,
-        bottom: height - c,
+        bottom: height - c + STAGE_TOP_PADDING,
     };
     unsafe {
         DrawTextW(
@@ -728,7 +736,7 @@ pub fn run() -> Result<()> {
             100,
             100,
             220,
-            80,
+            80 + STAGE_TOP_PADDING,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
             module,
@@ -833,7 +841,7 @@ fn window_self_test() -> Result<()> {
             0,
             0,
             220,
-            80,
+            80 + STAGE_TOP_PADDING,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
             module,
@@ -925,7 +933,7 @@ fn self_test(dir: &std::path::Path) -> Result<()> {
     use std::io::Write;
     std::fs::create_dir_all(dir)?;
     let width = 220;
-    let height = 80;
+    let height = 80 + STAGE_TOP_PADDING;
     unsafe {
         let screen = GetDC(std::ptr::null_mut());
         let dc = CreateCompatibleDC(screen);

@@ -68,11 +68,11 @@
   },
   "runtime": {
     "stage": "dist",
-    "overlayPid": 34712,
-    "launchSession": 56733,
+    "overlayPid": 44576,
+    "launchSession": 67278,
     "readOnly": true,
     "priorRuntimeRetained": true,
-    "readerPid": 30876,
+    "readerPid": 44456,
     "singleOwnedHelperVerified": true
   },
   "activeMcpServersChanged": false,
@@ -120,5 +120,39 @@
     "launchSession": 56733,
     "activeMcpServersChanged": false,
     "readerPid": 30876
+  },
+  "stageTopPadding": {
+    "date": "2026-10-24",
+    "status": "implemented_tested_running",
+    "extraHeightPixels": 4,
+    "contentOffsetPixels": 4,
+    "glyphBoundsVerified": {
+      "before": [
+        16,
+        15,
+        132,
+        31
+      ],
+      "after": [
+        16,
+        19,
+        132,
+        35
+      ]
+    },
+    "fontsUnchanged": true,
+    "stagePixelCountsUnchanged": true,
+    "footprintAtCurrentDisplay": [
+      223,
+      89
+    ],
+    "testsPassed": 25,
+    "nativeStageRenders": 6,
+    "nativeWindowCheck": "passed",
+    "readerStopAndEof": "passed",
+    "backup": "local/backups/before-stage-top-padding-20261024",
+    "overlayPid": 44576,
+    "launchSession": 67278,
+    "activeMcpServersChanged": false
   }
 }
