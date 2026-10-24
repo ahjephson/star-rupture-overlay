@@ -2,7 +2,11 @@
 
 Status: prepared and verified locally and on a fresh Windows CI runner; publication requires explicit owner approval. Last updated2026-10-24. The repository remains private; no release, tag, deployment or visibility change was performed.
 
-## Latest candidate — 2026-10-24
+## Focus-return follow-up — 2026-10-24
+
+The player accepted the covering behavior and reported delayed reappearance (about half a second) on focus return. A separate candidate now subscribes to queued Windows notifications outside the game process and repairs only stacking, without reader locking or a timer wait. All28 local Rust tests and native window/stacking/render/event diagnostics pass. The event diagnostic performed20 repairs with the reader lock held and zero timer messages; maximum observed native recovery was662 microseconds. This does not measure real-game presentation latency. The running6c540d3 build remains unchanged while the candidate awaits a manual activation/check.
+
+## Earlier stacking candidate — 2026-10-24
 
 Game-relative ordinary stacking and the STABLE display label have since been implemented and locally verified. All27 Rust tests and native stacking/window/six-stage render checks pass. The new code's hosted run is separate from the earlier successful preparation run below. The running installation remains unchanged; real two-monitor appearance awaits an explicitly authorized switch. Native tests use only owned off-screen fixtures, never the player's game/browser windows. See ARCHITECTURE.md and validation.json.
 

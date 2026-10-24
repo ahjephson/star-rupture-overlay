@@ -1,6 +1,6 @@
 {
   "date": "2026-10-24",
-  "status": "stacking_active_live_confirmed_manual_display_check_pending",
+  "status": "focus_notification_candidate_verified_not_activated",
   "publication": {
     "repositoryPrivate": true,
     "releaseCreated": false,
@@ -11,7 +11,7 @@
     "installedOverlayChangeAuthorized": true
   },
   "tests": {
-    "passed": 27,
+    "passed": 28,
     "targets": 5,
     "clippyWarningsDenied": true,
     "formatting": "passed",
@@ -140,7 +140,7 @@
       "topmost": false,
       "minimized": false
     },
-    "manualTwoMonitorAppearance": "candidate active; awaiting player feedback",
+    "manualTwoMonitorAppearance": "player confirmed covering behavior; reported about half-second delayed reappearance on focus return",
     "backup": "local/backups/before-window-stacking-20261024"
   },
   "stableLabel": {
@@ -167,6 +167,32 @@
       "directlyAboveGame": true
     },
     "mcpChanged": false,
-    "playerTwoMonitorAppearance": "pending feedback"
+    "playerTwoMonitorAppearance": "covering behavior accepted; focus-return delay reported"
+  },
+  "focusReturnNotifications": {
+    "status": "candidate_only_not_activated",
+    "playerReport": "about half a second to reappear; not repeated flickering",
+    "architecture": "out-of-context queued Windows notifications; separate stacking-only UI handler",
+    "gameCodeInjected": false,
+    "readerLockRequired": false,
+    "extraMemoryPolling": false,
+    "normalOrderingPreserved": true,
+    "fallbackUiTickMilliseconds": 100,
+    "nativeDiagnostic": {
+      "status": "passed",
+      "ownedOffscreenWindows": 2,
+      "gameRead": false,
+      "actualWindowsModified": false,
+      "injectedCode": false,
+      "notificationRoundTrips": 20,
+      "timerMessages": 0,
+      "readerMutexHeldDuringRecovery": true,
+      "maxRecoveryMicros": 662,
+      "unregisterStopsDelivery": true,
+      "foregroundPreserved": true
+    },
+    "existingStackingAndRenderChecks": "passed",
+    "realGamePerceivedLatency": "pending candidate activation and manual verification",
+    "backup": "local/backups/before-focus-notifications-20261024"
   }
 }

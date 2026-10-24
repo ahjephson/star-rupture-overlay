@@ -8,6 +8,8 @@ mod stacking;
 mod stream_client;
 #[cfg(windows)]
 mod window;
+#[cfg(windows)]
+mod window_events;
 fn main() {
     #[cfg(windows)]
     if let Err(error) = window::run() {

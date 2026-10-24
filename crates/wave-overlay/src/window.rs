@@ -590,6 +590,18 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
             unsafe { SetWindowLongPtrW(window, GWLP_USERDATA, create.lpCreateParams as isize) };
             1
         }
+        crate::window_events::CHANGED => {
+            crate::window_events::acknowledge();
+            // Focus recovery must not wait for the reader mutex, timing/geometry
+            // work, or the next low-priority WM_TIMER. Reuse the checked game HWND.
+            if let Some(a) = unsafe { app(window) }
+                && !a.hidden
+                && a.preview.is_none()
+            {
+                crate::stacking::follow_game(window, a.game);
+            }
+            0
+        }
         WM_TIMER | READING_READY => {
             unsafe { tick(window) };
             0
@@ -685,6 +697,12 @@ pub fn run() -> Result<()> {
     let mut path: Option<PathBuf> = None;
     let mut preview_phase = None;
     if let Some(first) = args.next() {
+        if first == "--self-test-window-events" {
+            if args.next().is_some() {
+                return Err("Unexpected event-test argument".into());
+            }
+            return window_events_self_test();
+        }
         if first == "--self-test-stacking" {
             if args.next().is_some() {
                 return Err("Unexpected stacking test argument".into());
@@ -804,6 +822,20 @@ pub fn run() -> Result<()> {
         unsafe { DestroyWindow(window) };
         return Err("Could not create overlay exit/control tray icon".into());
     }
+    let window_events = if app.preview.is_none() {
+        match crate::window_events::WindowEvents::install(window) {
+            Ok(events) => {
+                eprintln!("OS window notifications active (out of context, no injection).");
+                Some(events)
+            }
+            Err(error) => {
+                eprintln!("Window notifications unavailable; UI timer fallback: {error}");
+                None
+            }
+        }
+    } else {
+        None
+    };
     let worker = if app.preview.is_none() {
         Some(reader(config, app.shared.clone(), stop.clone(), window as usize))
     } else {
@@ -828,11 +860,170 @@ pub fn run() -> Result<()> {
             DispatchMessageW(&message)
         };
     }
+    drop(window_events);
     stop.store(true, Ordering::Relaxed);
     if let Some(worker) = worker {
         let _ = worker.join();
     }
     Ok(())
+}
+
+/// Prove event -> posted message -> normal stacking with no UI timer and the
+/// reader mutex deliberately held. Uses only off-screen windows we own.
+fn window_events_self_test() -> Result<()> {
+    use std::time::{Duration, Instant};
+    use windows_sys::Win32::UI::Accessibility::NotifyWinEvent;
+    struct Fixture(HWND);
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            unsafe {
+                DestroyWindow(self.0);
+            }
+        }
+    }
+    unsafe {
+        let foreground = GetForegroundWindow();
+        let module = GetModuleHandleW(std::ptr::null());
+        let hud_class = wide("StarRuptureEventHudSelfTest");
+        let game_class = wide("StarRuptureEventGameSelfTest");
+        let classes: [(&[u16], WNDPROC); 2] =
+            [(&hud_class, Some(procedure)), (&game_class, Some(DefWindowProcW))];
+        for (class, callback) in classes {
+            let wc = WNDCLASSW {
+                lpfnWndProc: callback,
+                hInstance: module,
+                lpszClassName: class.as_ptr(),
+                ..Default::default()
+            };
+            if RegisterClassW(&wc) == 0 {
+                return Err(std::io::Error::last_os_error().into());
+            }
+        }
+        let shared = Arc::new(Mutex::new(Reading {
+            value: json!({}),
+            menu: None,
+            process: 0,
+        }));
+        let mut state = Box::new(App {
+            shared: shared.clone(),
+            stop: Arc::new(AtomicBool::new(false)),
+            frame: preview("waiting"),
+            presenter: HudPresenter::default(),
+            preview: None,
+            hidden: false,
+            unlocked: false,
+            user_moved: false,
+            pause_position: false,
+            last_rect: RECT::default(),
+            game: std::ptr::null_mut(),
+        });
+        let game = Fixture(CreateWindowExW(
+            WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+            game_class.as_ptr(),
+            wide("Offscreen event game").as_ptr(),
+            WS_POPUP,
+            -30000,
+            -30000,
+            1000,
+            800,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            module,
+            std::ptr::null(),
+        ));
+        if game.0.is_null() {
+            return Err("Cannot create event fixture game".into());
+        }
+        state.game = game.0;
+        let hud = Fixture(CreateWindowExW(
+            crate::stacking::EXTENDED_STYLE,
+            hud_class.as_ptr(),
+            wide("Offscreen event HUD").as_ptr(),
+            WS_POPUP,
+            -29992,
+            -29992,
+            220,
+            84,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            module,
+            (&mut *state as *mut App).cast(),
+        ));
+        if hud.0.is_null() {
+            return Err("Cannot create event fixture HUD".into());
+        }
+        let flags = SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER | SWP_SHOWWINDOW;
+        SetWindowPos(game.0, HWND_TOP, 0, 0, 0, 0, flags);
+        if !crate::stacking::follow_game(hud.0, game.0) {
+            return Err("Event fixture initial stacking failed".into());
+        }
+        let events = crate::window_events::WindowEvents::diagnostic(hud.0)?;
+        let reader_lock = shared.lock().map_err(|_| "Fixture reader mutex poisoned")?;
+        let mut handled = 0usize;
+        let mut timers = 0usize;
+        let mut max_micros = 0u128;
+        for _ in 0..20 {
+            SetWindowPos(game.0, HWND_TOP, 0, 0, 0, 0, flags);
+            if GetWindow(game.0, GW_HWNDPREV) == hud.0 {
+                return Err("Fixture did not reproduce returning-game order".into());
+            }
+            let before = handled;
+            let start = Instant::now();
+            // This is an allowed object notification, not a fabricated system
+            // foreground event. It uses the same callback/posted-message path.
+            NotifyWinEvent(EVENT_OBJECT_REORDER, game.0, OBJID_WINDOW, 0);
+            while handled == before || GetWindow(game.0, GW_HWNDPREV) != hud.0 {
+                if start.elapsed() > Duration::from_secs(2) {
+                    return Err("Window event did not repair stacking without the timer".into());
+                }
+                let mut message = MSG::default();
+                while PeekMessageW(&mut message, std::ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
+                    if message.message == crate::window_events::CHANGED {
+                        handled += 1;
+                    }
+                    if message.message == WM_TIMER {
+                        timers += 1;
+                    }
+                    TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                }
+                std::thread::yield_now();
+            }
+            max_micros = max_micros.max(start.elapsed().as_micros());
+        }
+        if timers != 0 || GetForegroundWindow() != foreground {
+            return Err("Event fixture changed focus or used a timer".into());
+        }
+        drop(reader_lock);
+        drop(events);
+        // Unregistered callbacks must not enqueue new work, including callbacks
+        // already queued before unregistration (the target has been disabled).
+        let before = handled;
+        let start = Instant::now();
+        NotifyWinEvent(EVENT_OBJECT_REORDER, game.0, OBJID_WINDOW, 0);
+        while start.elapsed() < Duration::from_millis(30) {
+            let mut message = MSG::default();
+            while PeekMessageW(&mut message, std::ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
+                if message.message == crate::window_events::CHANGED {
+                    handled += 1;
+                }
+                TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+            std::thread::yield_now();
+        }
+        if handled != before {
+            return Err("Notification teardown left queued stacking work".into());
+        }
+        println!(
+            "{}",
+            json!({"status":"passed","ownedOffscreenWindows":2,"gameRead":false,
+            "actualWindowsModified":false,"injectedCode":false,"notificationRoundTrips":20,
+            "timerMessages":timers,"readerMutexHeldDuringRecovery":true,"maxRecoveryMicros":max_micros,
+            "unregisterStopsDelivery":true,"foregroundPreserved":true})
+        );
+        Ok(())
+    }
 }
 
 /// Exercise our own hidden HWND only: no game reads, focus change or tray icon.

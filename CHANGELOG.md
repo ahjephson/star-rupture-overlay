@@ -2,6 +2,8 @@
 
 ## Unreleased — initial public-release preparation
 
+- Queued Windows focus/restore notifications repair HUD stacking without waiting for the UI timer or reader lock.
+
 - Game-relative ordinary window stacking; other apps can cover the HUD without hiding it merely on focus loss.
 - STABLE display label for the unchanged native waiting phase.
 - Standalone Windows x64 HUD with one embedded read-only sampling worker.
