@@ -80,7 +80,8 @@
   "github": {
     "url": "https://github.com/ahjephson/star-rupture-overlay",
     "visibility": "private",
-    "initialPush": "pending"
+    "initialPush": "verified",
+    "initialCommit": "540638b31cf3d68a84b2e5844583d5e2437d3891"
   },
   "codexProject": {
     "status": "manual_add_folder_required",

@@ -6,7 +6,7 @@ Status: independently extracted project,2026-10-24. The user accepted the persis
 
 25 tests across5 targets passed with warnings denied; release build passed. Live reader:93 menu checks/24 world observations over6sec, Stop/EOF clean within15ms. Hidden native window/layering/styles/hit-tests/focus/destruction passed. Reader files, pure world validation and timing code match the accepted source. Runtime now starts from this project's dist directory (overlay PID35272, launch session36475); the original runtime was closed gracefully and remains available for rollback. Validation details in docs/validation.json. Build dependencies used the existing development Cargo cache for this one offline verification; that cache is not a source/runtime dependency.
 
-Private GitHub repository:https://github.com/ahjephson/star-rupture-overlay. Initial source push pending. Codex app addition is the only manual setup step: Add project and choose this folder; current tools cannot create a local project, and the Windows automation skill forbids Codex UI automation. No task was created or project falsely marked added.
+Private GitHub repository:https://github.com/ahjephson/star-rupture-overlay. Initial source commit 540638b31cf3d68a84b2e5844583d5e2437d3891 pushed and verified on main. Codex app addition is the only manual setup step: Add project and choose this folder; current tools cannot create a local project, and the Windows automation skill forbids Codex UI automation. No task was created or project falsely marked added.
 
 ## Preserve
 
