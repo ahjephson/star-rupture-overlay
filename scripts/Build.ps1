@@ -15,9 +15,10 @@ try {
     $exe = Join-Path $target 'x86_64-pc-windows-msvc/release/starrupture-wave-overlay.exe'
     New-Item -ItemType Directory -Force -Path $output | Out-Null
     Copy-Item -LiteralPath $exe -Destination $output
-    foreach ($name in @('LICENSE', 'README.md', 'THIRD-PARTY-NOTICES.md')) {
+    foreach ($name in @('LICENSE', 'THIRD-PARTY-NOTICES.md')) {
         Copy-Item -LiteralPath (Join-Path $script:ProjectRoot $name) -Destination $output
     }
+    Copy-Item -LiteralPath (Join-Path $script:ProjectRoot 'docs/PORTABLE-README.md') -Destination (Join-Path $output 'README.md')
     & (Join-Path $PSScriptRoot 'Export-Notices.ps1') -OutputDirectory $output -Offline:$Offline
     $metadata = (& cargo metadata --no-deps --format-version 1 --locked | ConvertFrom-Json)
     if ($LASTEXITCODE -ne 0) { throw 'Could not read version metadata.' }

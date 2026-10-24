@@ -2,7 +2,7 @@
 
 PolyForm Strict 1.0.0 applies to first-party project code only, copyright (c) 2026 Alex Jephson. Dependencies retain their upstream licences and copyright notices. Release archives include their notice texts under licenses/ and a dependency-inventory.json with package versions/licence expressions.
 
-| Component | Upstream | Licence | Retained notice |
+| Component | Upstream | Licence | Source-checkout notice location |
 | --- | --- | --- | --- |
 | jmap | https://github.com/trumank/jmap | MIT | third-party/jmap/LICENSE |
 | gospel | https://github.com/trumank/gospel | MIT OR Apache-2.0 | third-party/gospel/LICENSE (MIT) |
