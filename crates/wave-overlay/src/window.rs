@@ -13,7 +13,10 @@ use std::{
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
-    System::{LibraryLoader::GetModuleHandleW, Threading::GetCurrentProcessId},
+    System::{
+        LibraryLoader::GetModuleHandleW,
+        Threading::{CreateMutexW, GetCurrentProcessId},
+    },
     UI::{HiDpi::*, Input::KeyboardAndMouse::ReleaseCapture, Shell::*, WindowsAndMessaging::*},
 };
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -650,12 +653,47 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
         _ => unsafe { DefWindowProcW(window, message, w, l) },
     }
 }
+// One normal HUD instance per interactive Windows session; tests bypass this.
+struct Instance(HANDLE);
+impl Instance {
+    fn acquire() -> Result<Self> {
+        let handle = unsafe {
+            CreateMutexW(
+                std::ptr::null(),
+                0,
+                wide("Local\\StarRuptureWaveOverlay").as_ptr(),
+            )
+        };
+        if handle.is_null() {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+            unsafe { CloseHandle(handle) };
+            return Ok(Self(std::ptr::null_mut()));
+        }
+        Ok(Self(handle))
+    }
+}
+impl Drop for Instance {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe { CloseHandle(self.0) };
+        }
+    }
+}
 pub fn run() -> Result<()> {
     let _fonts = crate::fonts::Fonts::load()?;
     let mut args = std::env::args().skip(1);
     let mut path: Option<PathBuf> = None;
     let mut preview_phase = None;
     if let Some(first) = args.next() {
+        if first == "--self-test-reader" {
+            let dir = args.next().ok_or("Missing reader test directory")?;
+            if args.next().is_some() {
+                return Err("Unexpected reader test argument".into());
+            }
+            return crate::stream_client::self_test(std::path::Path::new(&dir));
+        }
         if first == "--self-test-window" {
             if args.next().is_some() {
                 return Err("Unexpected window self-test argument".into());
@@ -688,10 +726,24 @@ pub fn run() -> Result<()> {
             return Err("Unknown preview stage".into());
         }
     }
-    let config = Config::load(path.as_deref())?;
-    if preview_phase.is_none() && !config.live.as_ref().is_some_and(|v| v.enabled) {
-        return Err("Overlay needs an explicitly enabled pinned live helper".into());
+    let mut config = Config::load(path.as_deref())?;
+    if preview_phase.is_none() && config.live.as_ref().is_some_and(|v| !v.enabled) {
+        return Err("Live reading is disabled by the supplied configuration".into());
     }
+    if config.cache_directory.is_none() {
+        let local = std::env::var_os("LOCALAPPDATA")
+            .ok_or("Local application-data directory unavailable")?;
+        config.cache_directory = Some(
+            PathBuf::from(local)
+                .join("StarRuptureWaveOverlay")
+                .join("cache"),
+        );
+    }
+    let _instance = Instance::acquire()?;
+    if _instance.0.is_null() {
+        return Ok(());
+    }
+
     let stop = Arc::new(AtomicBool::new(false));
     let shared = Arc::new(Mutex::new(Reading {
         value: json!({}),
@@ -1062,10 +1114,19 @@ fn reader(
                 }
             }
         };
-        if let Err(error) = crate::stream_client::run(config, stop.clone(), &publish) {
-            eprintln!("Persistent overlay reader unavailable: {error}");
-            publish(Update::Unavailable(error));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::stream_client::run(config, stop.clone(), &publish)
+        }));
+        match result {
+            Ok(Ok(stats)) => eprintln!("Embedded reader stopped: {stats}"),
+            Ok(Err(error)) => {
+                eprintln!("Embedded reader unavailable: {error}");
+                publish(Update::Unavailable(error));
+            }
+            Err(_) => publish(Update::Unavailable(
+                "Read-only worker failed; no fallback".into(),
+            )),
         }
-        eprintln!("Wave timer reader stopped; owned helper reaped, no reads remain in flight.");
+        eprintln!("Wave timer reader joined; no reads remain in flight.");
     })
 }

@@ -1,8 +1,8 @@
 {
   "date": "2026-10-24",
-  "status": "independent_project_tested_running",
+  "status": "single_executable_tested_running",
   "tests": {
-    "passed": 25,
+    "passed": 26,
     "targets": 5,
     "command": "cargo test --workspace --all-targets --locked --offline",
     "warningsDenied": true
@@ -18,62 +18,54 @@
   },
   "liveReader": {
     "status": "passed",
+    "live": {
+      "worldReads": 24,
+      "menuUpdates": 22,
+      "lastStatistics": {
+        "menuReads": 93,
+        "worldReads": 24,
+        "sessions": 1,
+        "worldReadMillis": 47,
+        "menuMaxMicros": 1183
+      },
+      "readerMode": "embedded_worker",
+      "childProcesses": 0
+    },
+    "singleInstance": "passed",
     "cases": [
       {
-        "mode": "stop",
-        "readerPid": 17880,
-        "messageCount": 47,
-        "worldMessages": 24,
-        "menuMessages": 22,
-        "generations": [
-          1
-        ],
-        "lastStatistics": {
-          "menuReads": 93,
-          "worldReads": 24,
-          "sessions": 1,
-          "worldReadMillis": 46,
-          "menuMaxMicros": 2543
-        },
-        "shutdownMs": 14.999999999417923,
+        "mode": "normal",
+        "noArguments": true,
+        "unrelatedWorkingDirectory": true,
+        "childProcesses": 0,
+        "shutdownMs": 15.0,
         "exitCode": 0
       },
       {
-        "mode": "eof",
-        "readerPid": 44812,
-        "messageCount": 10,
-        "worldMessages": 5,
-        "menuMessages": 4,
-        "generations": [
-          1
-        ],
-        "lastStatistics": {
-          "menuReads": 17,
-          "worldReads": 5,
-          "sessions": 1,
-          "worldReadMillis": 32,
-          "menuMaxMicros": 1165
-        },
-        "shutdownMs": 0.0,
+        "mode": "cold-cancel",
+        "noArguments": true,
+        "unrelatedWorkingDirectory": true,
+        "childProcesses": 0,
+        "shutdownMs": 297.0,
         "exitCode": 0
       }
     ],
     "activeServersChanged": false
   },
   "extractionParity": {
-    "readerFiles": "byte identical",
-    "pureValidation": "identical function bodies",
-    "liveTiming": "byte identical",
-    "renderer": "only local crate imports changed"
+    "status": "historical_baseline_retained_above",
+    "intentionalFork": "reader now embedded; startup and shutdown use one process; pure live validation/timing and approved rendering preserved"
   },
   "runtime": {
     "stage": "dist",
-    "overlayPid": 41396,
-    "launchSession": 9604,
+    "overlayPid": 13752,
+    "launchSession": 52263,
     "readOnly": true,
-    "priorRuntimeRetained": true,
-    "readerPid": 37740,
-    "singleOwnedHelperVerified": true
+    "childProcesses": 0,
+    "noArguments": true,
+    "readerMode": "embedded_worker",
+    "priorRuntimeRetainedInBackup": true,
+    "sha256": "3320cbb7f2db8f9b6f75530fc6f0ad2b27c19da5f236a639df006fd4b3f3df60"
   },
   "activeMcpServersChanged": false,
   "registrationsChanged": false,
@@ -169,5 +161,81 @@
     "backup": "local/backups/before-content-centering-20261024",
     "overlayPid": 41396,
     "launchSession": 9604
+  },
+  "historicalHelperValidation": {
+    "liveReader": {
+      "status": "passed",
+      "cases": [
+        {
+          "mode": "stop",
+          "readerPid": 17880,
+          "messageCount": 47,
+          "worldMessages": 24,
+          "menuMessages": 22,
+          "generations": [
+            1
+          ],
+          "lastStatistics": {
+            "menuReads": 93,
+            "worldReads": 24,
+            "sessions": 1,
+            "worldReadMillis": 46,
+            "menuMaxMicros": 2543
+          },
+          "shutdownMs": 14.999999999417923,
+          "exitCode": 0
+        },
+        {
+          "mode": "eof",
+          "readerPid": 44812,
+          "messageCount": 10,
+          "worldMessages": 5,
+          "menuMessages": 4,
+          "generations": [
+            1
+          ],
+          "lastStatistics": {
+            "menuReads": 17,
+            "worldReads": 5,
+            "sessions": 1,
+            "worldReadMillis": 32,
+            "menuMaxMicros": 1165
+          },
+          "shutdownMs": 0.0,
+          "exitCode": 0
+        }
+      ],
+      "activeServersChanged": false
+    },
+    "runtime": {
+      "stage": "dist",
+      "overlayPid": 41396,
+      "launchSession": 9604,
+      "readOnly": true,
+      "priorRuntimeRetained": true,
+      "readerPid": 37740,
+      "singleOwnedHelperVerified": true
+    },
+    "extractionParity": {
+      "readerFiles": "byte identical",
+      "pureValidation": "identical function bodies",
+      "liveTiming": "byte identical",
+      "renderer": "only local crate imports changed"
+    }
+  },
+  "singleExecutable": {
+    "date": "2026-10-24",
+    "approved": true,
+    "readerIsLibrary": true,
+    "defaultCache": "%LOCALAPPDATA%/StarRuptureWaveOverlay/cache",
+    "backgroundWorkerJoined": true,
+    "cancelAndExpiryBeforeMemoryReads": true,
+    "shutdownLimit": "cooperative cancellation; blocking OS calls not forcibly interrupted",
+    "backup": "local/backups/before-single-app-20261024",
+    "nativeStageRenders": 6,
+    "glyphCountsMatchPrevious": true,
+    "startupNoConsole": true,
+    "startupErrors": "native Windows dialog",
+    "mcpChanged": false
   }
 }

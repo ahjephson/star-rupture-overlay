@@ -1,5 +1,18 @@
 # StarRupture Wave Overlay handover
 
+## Current: one executable — 2026-10-24
+
+User approved combining the read-only reader and HUD into one app. This supersedes all dedicated-helper/Stop/EOF startup instructions below; earlier entries are historical validation.
+
+Double-click `dist/starrupture-wave-overlay.exe`, with no arguments or configuration required. One process runs the native HUD and embedded persistent read-only worker. The app is a Windows GUI executable, prevents duplicate normal instances with a session-local mutex, and reports startup failures in a native dialog. `scripts/Start-Overlay.ps1` remains optional. Default private discovery cache: `%LOCALAPPDATA%/StarRuptureWaveOverlay/cache`. Optional explicit configuration can override this; legacy helper fields are accepted but never execute another file. The former sidecar binary is removed from dist and is no longer a Cargo binary target; its source is now a library.
+
+Preserved build/path/process creation pins, read-only process rights, object/world/allocation/session guards, bounded sequence/generation envelopes, independent timer evidence and freshness, stage mapping and approved rendering. Sampling still targets50ms menu/250ms world intervals on one worker. Added cooperative cancellation before every memory read, process enumeration and executable-hash chunk, with monotonic60sec discovery/5sec sampling budgets. Closing joins the worker and releases handles. Removed child pipes, child hash configuration requirement, subprocess launches and process-exit watchdogs; caught worker panics show unavailable. A worker shares the application process and cannot provide the former process isolation. Cooperative budgets do not forcibly interrupt an individual blocking OS call. No game write, hook, injected code, save access or elevation added.
+
+Validation:26 workspace tests/5 targets pass with warnings denied, locked/offline release build,100 vendor-file hashes unchanged, hidden native window/style/layer/focus/destruction check and six native GDI stage renders pass. Glyph pixel counts match the accepted design. Actual supported game:24 validated world observations/93 menu reads, one session, no child process. No-argument launch from an unrelated directory/default cache works; second launch exits0. Closing a running reader exits0 in15ms; closing during cold discovery exits0 in297ms with no reads left in flight. These are measured cases, not universal shutdown latency guarantees. Run `python scripts/test_reader.py` for the bounded live/lifecycle checks.
+
+Rollback baseline commit `09c8289565560871ed540146e7b09dfc0ebb6141`, private source/runtime backup `local/backups/before-single-app-20261024/backup.zip` plus SHA256 manifest. Current dist executable SHA256 `3320cbb7f2db8f9b6f75530fc6f0ad2b27c19da5f236a639df006fd4b3f3df60`. Current app PID13752, managed launch session52263, private run logs `local/run-single-app-20261024`; first validated live reading and paused layout confirmed. No helper process. Private diagnostic evidence `local/single-app-20261024T173200369041` and `local/single-app-validation`. MCP/planning source, active servers and registrations unchanged. All development changes are confined to this standalone project.
+
+
 ## Content-only centering adjustment — 2026-10-24
 
 At Alex's request, moved the stage title, divider, label and countdown down2px within the existing frame. Box geometry,223x89 footprint, play/pause anchors, fonts, internal spacing and transparency are unchanged. Native pixel comparison confirmed identical canvas dimensions and exactly2px translation of both title and label/countdown pixels. All25 tests/5 targets, six-stage render and native window checks pass; reader Stop/EOF and fresh live data verified. Prior source/runtime retained in local/backups/before-content-centering-20261024. Old overlay44576 closed gracefully; current PID41396/session9604, private run local/run-content-centering-20261024, one owned reader. MCP/planning files unchanged.
@@ -28,7 +41,7 @@ Private GitHub repository:https://github.com/ahjephson/star-rupture-overlay. Ini
 
 ## Preserve
 
-Runtime consists of starrupture-wave-overlay.exe and one dedicated SHA-pinned starrupture-overlay-reader.exe plus private configuration/cache. No MCP dependency or registration. Read-only query/read process handle only; no injection, hooks or game writes. Unknown build/session data fails closed. Keep process creation/build, registry serial/world/player/subsystem guards, stream sequence/generation/freshness limits, clean child lifetime and no fallback to saves.
+Historical extraction runtime consisted of two executables; the current one-executable runtime is documented above. No MCP dependency or registration. Read-only query/read process handle only; no injection, hooks or game writes. Unknown build/session data fails closed. Keep process creation/build, registry serial/world/player/subsystem guards, stream sequence/generation/freshness limits, clean child lifetime and no fallback to saves.
 
 Current supported game executable SHA256:95f95eee0b1913b8716de7fa5bf19877a91abe86e63bf2b6f0a29bd48d1d76f1. The reader currently verifies the standard Steam installation path; alternative installation paths remain unsupported until explicitly designed and tested. Application rejects elevated execution.
 
@@ -44,4 +57,4 @@ Original workspace and working runtime/backups are retained for rollback. Do not
 
 ## Validation and next work
 
-Run scripts/Build.ps1 then the native --self-test-window check. Run bounded persistent protocol and parent lifecycle tests against the game before replacing a visible runtime. Never launch duplicate visible overlays. Record exact results in docs/validation.json. The Codex app project must point to this folder and must not inherit the gameplay workspace's MCP registrations.
+Run scripts/Build.ps1 then the native --self-test-window check. Run scripts/test_reader.py for embedded observations, no-argument startup, duplicate launch and joined cancellation against the game before replacing a visible runtime. Never launch duplicate visible overlays. Record exact results in docs/validation.json. The Codex app project must point to this folder and must not inherit the gameplay workspace's MCP registrations.

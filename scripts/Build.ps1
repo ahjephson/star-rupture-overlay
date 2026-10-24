@@ -11,10 +11,12 @@ try {
  & cargo test --workspace --all-targets @extra;if($LASTEXITCODE -ne 0){throw 'Tests failed'}
  & cargo build --release --workspace --bins @extra;if($LASTEXITCODE -ne 0){throw 'Build failed'}
  New-Item -ItemType Directory -Force -Path (Join-Path $root 'dist'),(Join-Path $root 'local') | Out-Null
+ $obsolete=Join-Path $root 'dist/starrupture-overlay-reader.exe'
+ if(Test-Path -LiteralPath $obsolete){Remove-Item -LiteralPath $obsolete}
  $files=@{}
- foreach($name in @('starrupture-wave-overlay.exe','starrupture-overlay-reader.exe')) {$src=Join-Path $root "target/release/$name";Copy-Item -LiteralPath $src -Destination (Join-Path $root "dist/$name");$files[$name]=@{sha256=(Get-FileHash -LiteralPath $src).Hash.ToLowerInvariant();bytes=(Get-Item -LiteralPath $src).Length}}
+ foreach($name in @('starrupture-wave-overlay.exe')) {$src=Join-Path $root "target/release/$name";Copy-Item -LiteralPath $src -Destination (Join-Path $root "dist/$name");$files[$name]=@{sha256=(Get-FileHash -LiteralPath $src).Hash.ToLowerInvariant();bytes=(Get-Item -LiteralPath $src).Length}}
  Copy-Item -LiteralPath (Join-Path $root 'crates/wave-overlay/assets/fonts/OFL.txt') -Destination (Join-Path $root 'dist/Oxanium-OFL.txt')
  @{files=$files;sha256=$files['starrupture-wave-overlay.exe'].sha256;status='built'} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $root 'dist/manifest.json') -Encoding utf8NoBOM
- @{autoDiscover=$false;cacheDirectory='../local/cache';live=@{enabled=$true;helperFile='../dist/starrupture-overlay-reader.exe';helperSha256=$files['starrupture-overlay-reader.exe'].sha256}} | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $root 'local/overlay.json') -Encoding utf8NoBOM
+ @{autoDiscover=$false;cacheDirectory='../local/cache'} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'local/overlay.json') -Encoding utf8NoBOM
 } finally {Pop-Location}
 

@@ -2132,9 +2132,10 @@ dependencies = [
 name = "starrupture-wave-overlay"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "serde_json",
- "sha2",
  "starrupture-observation-model",
+ "starrupture-overlay-reader",
  "starrupture-wave-core",
  "windows-sys",
 ]

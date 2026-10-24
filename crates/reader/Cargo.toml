@@ -19,6 +19,5 @@ iced-x86 = "1.21.0"
 starrupture-observation-model = {path="../observation-model"}
 
 
-[[bin]]
-name = "starrupture-overlay-reader"
-path = "src/overlay_reader_main.rs"
+[lib]
+path = "src/lib.rs"

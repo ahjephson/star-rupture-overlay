@@ -1,15 +1,14 @@
-//! One overlay-owned read-only process, independent pause/world schedules.
+//! Embedded read-only engine on the overlay worker thread; no child or IPC.
 use super::*;
 use serde_json::{Value, json};
 use starrupture_observation_model::overlay_stream::{
-    Command, GameIdentity, Kind, MAX_LINE, Message, read_line,
+    Command, GameIdentity, Kind, MAX_LINE, Message,
 };
 use std::{
-    io::{self, Write},
-    path::{Path, PathBuf},
+    path::Path,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
     },
     time::Duration,
 };
@@ -19,12 +18,13 @@ fn now() -> u64 {
         .unwrap_or_default()
         .as_millis() as u64
 }
-struct Output {
+struct Output<'a> {
+    sink: &'a mut dyn FnMut(Message) -> Result<()>,
     sequence: u64,
     generation: u64,
     process: Option<GameIdentity>,
 }
-impl Output {
+impl Output<'_> {
     fn send(&mut self, kind: Kind, data: Value) -> Result<()> {
         self.sequence = self
             .sequence
@@ -44,10 +44,7 @@ impl Output {
         };
         let bytes = serde_json::to_vec(&message)?;
         ensure!(bytes.len() < MAX_LINE, "Stream message bound");
-        let mut out = io::stdout().lock();
-        out.write_all(&bytes)?;
-        out.write_all(b"\n")?;
-        out.flush()?;
+        (self.sink)(message)?;
         Ok(())
     }
 }
@@ -56,12 +53,16 @@ struct Session {
     base: Cache,
     live: live_context::resident::Resident,
 }
-async fn attach(directory: &Path, retained: &mut Option<platform::Process>) -> Result<Session> {
+async fn attach(
+    directory: &Path,
+    retained: &mut Option<platform::Process>,
+    budget: Arc<platform::ReadBudget>,
+) -> Result<Session> {
     if retained.as_ref().is_some_and(|p| p.ensure_alive().is_err()) {
         *retained = None;
     }
     if retained.is_none() {
-        *retained = Some(platform::find_game()?);
+        *retained = Some(platform::find_game(budget)?);
     }
     let process = retained.as_ref().unwrap().clone();
     ensure!(
@@ -97,59 +98,28 @@ async fn attach(directory: &Path, retained: &mut Option<platform::Process>) -> R
         live,
     })
 }
-fn run() -> Result<()> {
-    ensure!(
-        !platform::is_elevated()?,
-        "Do not run overlay reader elevated"
-    );
-    let args: Vec<_> = std::env::args_os().skip(1).collect();
-    ensure!(
-        args.len() == 2 && args[0] == "--cache-dir",
-        "Usage: starrupture-overlay-reader --cache-dir PRIVATE_ABSOLUTE_DIRECTORY"
-    );
-    let directory = PathBuf::from(&args[1]);
+pub fn run(
+    directory: &Path,
+    stop: Arc<AtomicBool>,
+    mut sink: impl FnMut(Message) -> Result<()>,
+) -> Result<()> {
+    ensure!(!platform::is_elevated()?, "Do not run overlay elevated");
     ensure!(
         directory.is_absolute(),
         "Absolute private cache directory required"
     );
-    let mut input = io::BufReader::new(io::stdin());
-    let line = read_line(&mut input, 1024)?.context("No stream start command")?;
-    let command: Command = serde_json::from_slice(&line)?;
-    let (pause_ms, world_ms) = command.intervals().map_err(anyhow::Error::msg)?;
-    let stop = Arc::new(AtomicBool::new(false));
-    let input_stop = stop.clone();
-    std::thread::spawn(move || {
-        // EOF, malformed input or an explicit stop all end this owned reader.
-        let _ = read_line(&mut input, 1024).and_then(|line| match line {
-            None => Ok(()),
-            Some(line) => match serde_json::from_slice::<Command>(&line) {
-                Ok(Command::Stop) => Ok(()),
-                _ => Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "Only stop is accepted after start",
-                )),
-            },
-        });
-        input_stop.store(true, Ordering::Relaxed);
-    });
-    let deadline = Arc::new(AtomicU64::new(now() + 60000));
-    let watch_deadline = deadline.clone();
-    let watch_stop = stop.clone();
-    std::thread::spawn(move || {
-        loop {
-            if watch_stop.load(Ordering::Relaxed) {
-                std::process::exit(0);
-            }
-            if now() > watch_deadline.load(Ordering::Relaxed) {
-                eprintln!("Overlay reader watchdog expired");
-                std::process::exit(2);
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
-    });
+    let (pause_ms, world_ms) = Command::Start {
+        version: 1,
+        pause_interval_ms: 50,
+        world_interval_ms: 250,
+    }
+    .intervals()
+    .map_err(anyhow::Error::msg)?;
+    let budget = platform::ReadBudget::new(stop.clone());
     std::fs::create_dir_all(&directory)?;
     jmap_dumper::diag::set_verbosity(jmap_dumper::diag::Verbosity::Quiet);
     let mut output = Output {
+        sink: &mut sink,
         sequence: 0,
         generation: 0,
         process: None,
@@ -168,14 +138,14 @@ fn run() -> Result<()> {
         let mut last_menu = None;
         let mut menu_sent = Instant::now();
         while !stop.load(Ordering::Relaxed) {
-            deadline.store(now() + 5000, Ordering::Relaxed);
+            budget.renew(5000);
             if session.is_none() {
                 if Instant::now() < retry {
                     smol::Timer::after(Duration::from_millis(10)).await;
                     continue;
                 }
-                deadline.store(now() + 60000, Ordering::Relaxed);
-                match attach(&directory, &mut retained).await {
+                budget.renew(60000);
+                match attach(directory, &mut retained, budget.clone()).await {
                     Ok(s) => {
                         output.generation = output
                             .generation
@@ -208,7 +178,7 @@ fn run() -> Result<()> {
                     }
                 }
             }
-            deadline.store(now() + 5000, Ordering::Relaxed);
+            budget.renew(5000);
             let s = session.as_mut().unwrap();
             let result:Result<()>=async {
                 if Instant::now()>=pause_due {
@@ -263,10 +233,4 @@ fn run() -> Result<()> {
         "Overlay reader stopped: {sessions} sessions, {menu_reads} menu reads, {world_reads} world reads"
     );
     Ok(())
-}
-pub fn main() {
-    if let Err(e) = run() {
-        eprintln!("Overlay reader unavailable: {e:#}");
-        std::process::exit(2);
-    }
 }

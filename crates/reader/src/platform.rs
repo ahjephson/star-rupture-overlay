@@ -6,7 +6,11 @@ use std::{
     fs::File,
     io::Read,
     mem::{size_of, zeroed},
-    sync::Arc,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::{Duration, Instant},
 };
 use windows_sys::Win32::{
     Foundation::*,
@@ -30,6 +34,7 @@ impl Drop for OwnedHandle {
 pub struct Process {
     pub identity: Identity,
     handle: Arc<OwnedHandle>,
+    budget: Arc<ReadBudget>,
 }
 fn checked(ok: i32) -> Result<()> {
     if ok == 0 {
@@ -38,7 +43,32 @@ fn checked(ok: i32) -> Result<()> {
         Ok(())
     }
 }
-fn open(pid: u32) -> Result<Process> {
+pub(crate) struct ReadBudget {
+    stop: Arc<AtomicBool>,
+    deadline: Mutex<Instant>,
+}
+impl ReadBudget {
+    pub(crate) fn new(stop: Arc<AtomicBool>) -> Arc<Self> {
+        Arc::new(Self {
+            stop,
+            deadline: Mutex::new(Instant::now() + Duration::from_secs(60)),
+        })
+    }
+    pub(crate) fn renew(&self, millis: u64) {
+        *self.deadline.lock().unwrap_or_else(|p| p.into_inner()) =
+            Instant::now() + Duration::from_millis(millis);
+    }
+    fn check(&self) -> Result<()> {
+        ensure!(!self.stop.load(Ordering::Relaxed), "Reader cancelled");
+        ensure!(
+            Instant::now() <= *self.deadline.lock().unwrap_or_else(|p| p.into_inner()),
+            "Reader budget expired"
+        );
+        Ok(())
+    }
+}
+fn open(pid: u32, budget: Arc<ReadBudget>) -> Result<Process> {
+    budget.check()?;
     // Only query/read permissions. No debug privilege adjustment, writes or remote threads.
     let raw = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, 0, pid) };
     ensure!(
@@ -65,6 +95,7 @@ fn open(pid: u32) -> Result<Process> {
     let mut hash = Sha256::new();
     let mut buffer = [0; 65536];
     loop {
+        budget.check()?;
         let n = file.read(&mut buffer)?;
         if n == 0 {
             break;
@@ -79,19 +110,22 @@ fn open(pid: u32) -> Result<Process> {
             executable_sha256: format!("{:x}", hash.finalize()),
         },
         handle,
+        budget,
     };
     p.ensure_alive()?;
     Ok(p)
 }
 impl Process {
     pub fn ensure_alive(&self) -> Result<()> {
+        self.budget.check()?;
         let mut code = 0;
         checked(unsafe { GetExitCodeProcess(self.handle.0, &mut code) })?;
         ensure!(code == 259, "Game process exited");
         Ok(())
     }
 }
-pub fn find_game() -> Result<Process> {
+pub fn find_game(budget: Arc<ReadBudget>) -> Result<Process> {
+    budget.check()?;
     let raw = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
     ensure!(raw != INVALID_HANDLE_VALUE, "Cannot enumerate processes");
     let snapshot = OwnedHandle(raw);
@@ -100,6 +134,7 @@ pub fn find_game() -> Result<Process> {
     let mut ids = vec![];
     let mut ok = unsafe { Process32FirstW(snapshot.0, &mut entry) };
     while ok != 0 {
+        budget.check()?;
         let n = entry
             .szExeFile
             .iter()
@@ -117,11 +152,12 @@ pub fn find_game() -> Result<Process> {
         ids.len() == 1,
         "Multiple game processes; refusing ambiguous session"
     );
-    open(ids[0]).context("Opening installed StarRupture")
+    open(ids[0], budget).context("Opening installed StarRupture")
 }
 #[async_trait::async_trait(?Send)]
 impl Mem for Process {
     async fn read_buf(&self, address: u64, buf: &mut [u8]) -> Result<()> {
+        self.budget.check()?;
         ensure!(
             (0x10000..0x7fffffffffff).contains(&address) && buf.len() <= 16 * 1024 * 1024,
             "Invalid bounded memory read"
@@ -160,4 +196,22 @@ pub fn is_elevated() -> Result<bool> {
         )
     })?;
     Ok(e.TokenIsElevated != 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn cancelled_or_expired_budget_rejects_reads_before_os_access() {
+        let stop = Arc::new(AtomicBool::new(false));
+        let b = ReadBudget::new(stop.clone());
+        assert!(b.check().is_ok());
+        stop.store(true, Ordering::Relaxed);
+        assert!(b.check().is_err());
+        stop.store(false, Ordering::Relaxed);
+        *b.deadline.lock().unwrap() = Instant::now() - Duration::from_secs(1);
+        assert!(b.check().is_err());
+        b.renew(1000);
+        assert!(b.check().is_ok());
+    }
 }
