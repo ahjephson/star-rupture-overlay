@@ -68,11 +68,11 @@
   },
   "runtime": {
     "stage": "dist",
-    "overlayPid": 35272,
-    "launchSession": 36475,
+    "overlayPid": 34712,
+    "launchSession": 56733,
     "readOnly": true,
     "priorRuntimeRetained": true,
-    "readerPid": 45972,
+    "readerPid": 30876,
     "singleOwnedHelperVerified": true
   },
   "activeMcpServersChanged": false,
@@ -92,5 +92,33 @@
     "files": 100,
     "inheritedFormattedFiles": 19,
     "proof": "vendor-format-verification.json"
+  },
+  "gameStyleFrame": {
+    "date": "2026-10-24",
+    "status": "implemented_tested_running_visual_acceptance_pending",
+    "geometry": "raised left tab; diagonal top step; square left corners; clipped lower-right corner",
+    "borderColor": [
+      220,
+      222,
+      218
+    ],
+    "headerDivider": true,
+    "backgroundAlpha": 230,
+    "stageTitleColorsPreserved": true,
+    "timerAndReaderUnchanged": true,
+    "tests": {
+      "passed": 25,
+      "targets": 5,
+      "warningsDenied": true,
+      "lockedOffline": true
+    },
+    "nativeStageRenders": 6,
+    "nativeWindowLifecycle": "passed",
+    "liveReader": "Stop/EOF passed;93 menu checks/24 world reads in6sec",
+    "backup": "local/backups/before-game-panel-frame-20261024",
+    "overlayPid": 34712,
+    "launchSession": 56733,
+    "activeMcpServersChanged": false,
+    "readerPid": 30876
   }
 }

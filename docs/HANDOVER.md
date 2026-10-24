@@ -1,5 +1,13 @@
 # StarRupture Wave Overlay handover
 
+## Game-style frame applied — 2026-10-24
+
+Alex requested a box resembling the supplied in-game Multiplayer settings panel after separation. Replaced the all-corners chamfered, stage-colored contour with a raised upper-left tab, diagonal top step, thin pale neutral outline, square left corners and one clipped bottom-right corner. Added a thin header divider. The renderer, per-pixel alpha mask and native window region use the same panel geometry. Stage colors remain on the title; Oxanium text, natural countdown proportions, alpha230 background, footprint, automatic play/pause position and read-only timer/reader behavior remain unchanged.
+
+Backed up source/docs and both runtime executables under ignored local/backups/before-game-panel-frame-20261024. Updated the existing silhouette/alpha test; all25 workspace tests across5 targets pass, warnings denied/locked/offline. Release build, all six native stage renders and hidden window/layering/hit-test/focus/cleanup tests pass. Inspected the actual native WAITING render; no generated replacement fonts/assets. Read-only protocol Stop/EOF checks repeated successfully (93 menu reads/24 world reads over6sec, shutdown within15ms).
+
+Previous overlay PID35272 closed gracefully, then new dist binary launched as PID34712, session56733. New private run local/run-game-panel-20261024. One owned reader and first validated live observation verified; no MCP/planning source or active-server changes. User appearance acceptance pending. Header/contour change is intentionally confined to this independent project. GitHub main receives the reviewed change; do not copy it back into the MCP workspace.
+
 Status: independently extracted project,2026-10-24. The user accepted the persistent-reader responsiveness and requested a separate folder, GitHub repository and Codex project.
 
 ## Independent-project validation

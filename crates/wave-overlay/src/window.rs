@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
-use starrupture_wave_core::{config::Config, saves::now_ms};
 use starrupture_observation_model::wave::{HudFrame, HudPresenter, style};
+use starrupture_wave_core::{config::Config, saves::now_ms};
 use std::{
     ffi::c_void,
     mem::size_of,
@@ -217,14 +217,51 @@ unsafe fn paint(window: HWND) {
     };
 }
 const BACKGROUND_ALPHA: u8 = 230;
-fn layer_alpha(pixels: &mut [u8], width: usize, height: usize) {
+const PANEL_EDGE: [u8; 3] = [220, 222, 218];
+// Game-style panel: raised left tab, stepped top, one clipped corner.
+fn panel_points(width: i32, height: i32, inset: i32) -> [POINT; 7] {
     let cut = (height / 8).max(5);
+    let tab = width * 26 / 100;
+    let right = width - 1 - inset;
+    let bottom = height - 1 - inset;
+    [
+        POINT { x: inset, y: inset },
+        POINT { x: tab, y: inset },
+        POINT {
+            x: tab + cut,
+            y: inset + cut,
+        },
+        POINT {
+            x: right,
+            y: inset + cut,
+        },
+        POINT {
+            x: right,
+            y: bottom - cut,
+        },
+        POINT {
+            x: right - cut,
+            y: bottom,
+        },
+        POINT {
+            x: inset,
+            y: bottom,
+        },
+    ]
+}
+fn panel_contains(x: usize, y: usize, width: usize, height: usize) -> bool {
+    let cut = (height / 8).max(5);
+    let tab = width * 26 / 100;
+    x < width
+        && y < height
+        && (x <= tab || y >= (x - tab).min(cut))
+        && x + y <= width.saturating_sub(1) + height.saturating_sub(1) - cut
+}
+fn layer_alpha(pixels: &mut [u8], width: usize, height: usize) {
     for (i, pixel) in pixels.chunks_exact_mut(4).enumerate() {
         let x = i % width;
         let y = i / width;
-        let dx = x.min(width - 1 - x);
-        let dy = y.min(height - 1 - y);
-        if dx + dy < cut {
+        if !panel_contains(x, y, width, height) {
             pixel.fill(0);
             continue;
         }
@@ -317,37 +354,15 @@ unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
         FillRect(dc, &rect, background);
         DeleteObject(background)
     };
-    let edge = unsafe { CreatePen(PS_SOLID, 1, rgb(frame.colour)) };
+    let edge = unsafe { CreatePen(PS_SOLID, 1, rgb(PANEL_EDGE)) };
     let old_pen = unsafe { SelectObject(dc, edge) };
     let old_brush = unsafe { SelectObject(dc, GetStockObject(NULL_BRUSH)) };
     let c = (height / 8).max(5);
-    let points = [
-        POINT { x: c, y: 1 },
-        POINT {
-            x: width - c - 1,
-            y: 1,
-        },
-        POINT { x: width - 2, y: c },
-        POINT {
-            x: width - 2,
-            y: height - c - 1,
-        },
-        POINT {
-            x: width - c - 1,
-            y: height - 2,
-        },
-        POINT {
-            x: c,
-            y: height - 2,
-        },
-        POINT {
-            x: 1,
-            y: height - c - 1,
-        },
-        POINT { x: 1, y: c },
-    ];
+    let points = panel_points(width, height, 1);
     unsafe {
         Polygon(dc, points.as_ptr(), points.len() as i32);
+        MoveToEx(dc, c + 3, height / 2 - 2, std::ptr::null_mut());
+        LineTo(dc, width - c - 3, height / 2 - 2);
         SelectObject(dc, old_pen);
         SelectObject(dc, old_brush);
         DeleteObject(edge);
@@ -576,27 +591,8 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
         WM_SIZE => {
             let width = (l as u32 & 0xffff) as i32;
             let height = ((l as u32 >> 16) & 0xffff) as i32;
-            let c = (height / 8).max(5);
-            let points = [
-                POINT { x: c, y: 0 },
-                POINT { x: width - c, y: 0 },
-                POINT { x: width, y: c },
-                POINT {
-                    x: width,
-                    y: height - c,
-                },
-                POINT {
-                    x: width - c,
-                    y: height,
-                },
-                POINT { x: c, y: height },
-                POINT {
-                    x: 0,
-                    y: height - c,
-                },
-                POINT { x: 0, y: c },
-            ];
-            let region = unsafe { CreatePolygonRgn(points.as_ptr(), 8, WINDING) };
+            let points = panel_points(width, height, 0);
+            let region = unsafe { CreatePolygonRgn(points.as_ptr(), points.len() as i32, WINDING) };
             if !region.is_null() && unsafe { SetWindowRgn(window, region, 1) } == 0 {
                 unsafe { DeleteObject(region) };
             }
@@ -885,12 +881,19 @@ fn window_self_test() -> Result<()> {
 mod tests {
     use super::*;
     #[test]
-    fn background_translucency_does_not_fade_text_and_corners_are_clear() {
+    fn game_panel_mask_keeps_square_corners_step_and_translucent_background() {
         let mut pixels = [32u8, 30, 24, 0].repeat(20 * 20);
         let text = (10 * 20 + 10) * 4;
         pixels[text..text + 4].copy_from_slice(&[248, 247, 245, 0]);
         layer_alpha(&mut pixels, 20, 20);
-        assert_eq!(&pixels[..4], &[0, 0, 0, 0]);
+        // Upper-left and lower-left corners remain square; the top step
+        // and lower-right cut are transparent outside the frame.
+        assert_eq!(&pixels[..4], &[29, 27, 22, 230]);
+        assert_eq!(&pixels[19 * 4..20 * 4], &[0, 0, 0, 0]);
+        assert_eq!(&pixels[399 * 4..400 * 4], &[0, 0, 0, 0]);
+        assert!(panel_contains(0, 19, 20, 20));
+        assert!(panel_contains(19, 5, 20, 20));
+        assert!(!panel_contains(19, 4, 20, 20));
         assert_eq!(&pixels[text..text + 4], &[248, 247, 245, 255]);
         let background = (10 * 20 + 8) * 4;
         assert_eq!(&pixels[background..background + 4], &[29, 27, 22, 230]);
@@ -985,7 +988,7 @@ fn self_test(dir: &std::path::Path) -> Result<()> {
                 .filter(|b| b[0] > 230 && b[1] > 230 && b[2] > 230)
                 .count();
             if coloured < 100 || white < 30 {
-                return Err("Rendered panel lacks expected stage border/white timer".into());
+                return Err("Rendered panel lacks expected stage title/white timer".into());
             }
             let mut header = Vec::new();
             header.extend(b"BM");
@@ -1041,8 +1044,10 @@ fn reader(
                 Update::World(value) => r.value = value,
                 Update::Unavailable(reason) => {
                     r.menu = None;
-                    r.value =
-                        starrupture_wave_core::live::unavailable("OVERLAY_READER_UNAVAILABLE", reason);
+                    r.value = starrupture_wave_core::live::unavailable(
+                        "OVERLAY_READER_UNAVAILABLE",
+                        reason,
+                    );
                 }
             }
             drop(r);
