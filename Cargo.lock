@@ -1285,15 +1285,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mach"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b823e83b2affd8f40a9ee8c29dbc56404c1e34cd2710921f2801e2cf29527afa"
-dependencies = [
- "libc",
-]
-
-[[package]]
 name = "mach2"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1301,6 +1292,12 @@ checksum = "d640282b302c0bb0a2a8e0233ead9035e3bed871f0b7e81fe4a1ec829765db44"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "mach2"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0d28e293f2b8c9d2b2d1c0193bd3c1cbdc0d2cf396888dc01162f7cf9d6c3f3"
 
 [[package]]
 name = "memchr"
@@ -1611,7 +1608,7 @@ dependencies = [
  "bindgen 0.70.1",
  "libc",
  "libproc",
- "mach2",
+ "mach2 0.4.3",
  "winapi",
 ]
 
@@ -1719,14 +1716,14 @@ dependencies = [
 
 [[package]]
 name = "read-process-memory"
-version = "0.1.6"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8497683b2f0b6887786f1928c118f26ecc6bb3d78bbb6ed23e8e7ba110af3bb0"
+checksum = "f211d14261b13964b23ca96e18910e1a430d886013ce9dca97389673d42ec01f"
 dependencies = [
  "libc",
  "log",
- "mach",
- "winapi",
+ "mach2 0.7.0",
+ "windows-sys",
 ]
 
 [[package]]
