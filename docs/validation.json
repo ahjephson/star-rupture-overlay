@@ -1,13 +1,14 @@
 {
   "date": "2026-10-24",
-  "status": "stacking_candidate_locally_verified_not_activated",
+  "status": "stacking_active_live_confirmed_manual_display_check_pending",
   "publication": {
     "repositoryPrivate": true,
     "releaseCreated": false,
     "versionTagCreated": false,
-    "installedOverlayChanged": false,
+    "installedOverlayChanged": true,
     "mcpChanged": false,
-    "activeExecutableSha256Unchanged": "3320cbb7f2db8f9b6f75530fc6f0ad2b27c19da5f236a639df006fd4b3f3df60"
+    "activeExecutableSha256Unchanged": "3320cbb7f2db8f9b6f75530fc6f0ad2b27c19da5f236a639df006fd4b3f3df60",
+    "installedOverlayChangeAuthorized": true
   },
   "tests": {
     "passed": 27,
@@ -111,7 +112,7 @@
   },
   "windowStacking": {
     "date": "2026-10-24",
-    "status": "implemented_native_tested_candidate_only",
+    "status": "activated_with_explicit_owner_authorization",
     "globalTopmost": false,
     "ordinaryGameRelativeOrdering": true,
     "foreignOwnerOrParentAssigned": false,
@@ -139,7 +140,7 @@
       "topmost": false,
       "minimized": false
     },
-    "manualTwoMonitorAppearance": "pending explicit candidate activation; current app not replaced",
+    "manualTwoMonitorAppearance": "candidate active; awaiting player feedback",
     "backup": "local/backups/before-window-stacking-20261024"
   },
   "stableLabel": {
@@ -150,5 +151,22 @@
     "nativeStagePixels": 512,
     "nativeCountdownWhitePixels": 510,
     "otherStageGlyphCountsUnchanged": true
+  },
+  "authorizedActivation": {
+    "date": "2026-10-24",
+    "sourceRevision": "6c540d3236104c5f1f50747013a69e4c8efa0674",
+    "newExecutableSha256": "b96804f92f5ce7353092be94262b4369ac2603e218155c4af8759fb8bf2a9428",
+    "oldExecutableSha256": "3320cbb7f2db8f9b6f75530fc6f0ad2b27c19da5f236a639df006fd4b3f3df60",
+    "rollback": "local/backups/before-stacking-activation-20261024T194604Z/rollback-dist",
+    "oldAppGracefullyExited": true,
+    "oneNewApp": true,
+    "freshValidatedLiveReading": true,
+    "actualWindowQuery": {
+      "globallyTopmost": false,
+      "visibleFlag": true,
+      "directlyAboveGame": true
+    },
+    "mcpChanged": false,
+    "playerTwoMonitorAppearance": "pending feedback"
   }
 }
