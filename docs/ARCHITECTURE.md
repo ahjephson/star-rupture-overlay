@@ -30,3 +30,5 @@ The HUD floors seconds and suppresses isolated one-second upward flicker within 
 ## Native API boundary
 
 Win32 handles close through RAII. The process handle remains on the worker thread using Rc; cancellation and deadlines use thread-safe shared state. Reads validate pointer/size bounds before ReadProcessMemory. The supported path and SHA256 remain pinned. No process write, remote execution, hook, debug-privilege or save-editing path exists.
+
+The font-count output for AddFontMemResourceEx uses writable raw storage even though the generated Windows binding declares a const pointer. This follows the API's actual output behavior; a shared reference would permit an invalid aliasing assumption. See the [Win32 font API remarks](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-addfontmemresourceex).

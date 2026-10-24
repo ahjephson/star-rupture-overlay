@@ -36,7 +36,7 @@ jobs:
         run: ./scripts/Build.ps1 -OutputDirectory local/ci-build
       - name: Package candidate
         run: ./scripts/Package-Release.ps1 -BuildDirectory local/ci-build -OutputDirectory local/ci-package
-      - name: Verify package, native rendering and reversible deployment
+      - name: Verify package, native rendering and disposable installer regressions
         run: |
           $archive = Get-ChildItem local/ci-package/*.zip
           ./scripts/Test-Release.ps1 -ArchivePath $archive.FullName
