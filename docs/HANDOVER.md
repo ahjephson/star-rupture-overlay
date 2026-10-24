@@ -43,7 +43,7 @@ Native diagnostic:20 notification round trips, zero timer messages, reader mutex
 ## Open work — updated 2026-10-24
 
 - Finish the real-game focus-return latency and displayed wave-cycle checks; the updated candidate is now activated and awaiting player feedback.
-- Requested app/tray icon: design an original icon consistent with the HUD, embed it in the Windows executable (Explorer/window/taskbar) and use a legible small-size version in the system tray. Retain editable source and a multi-resolution ICO; verify small sizes, high DPI and light/dark taskbars. No extracted game artwork. Status: requested/to do; no icon design or implementation started.
+- Owner-supplied app/tray icon is implemented and locally verified; candidate activation and visual acceptance on the actual taskbar/tray remain pending. Original PNG and nine-size ICO are retained with hashes. See the icon handover below.
 
 
 ## Phase display update — 2026-10-24
@@ -58,3 +58,14 @@ All30 Rust tests, strict Clippy, formatting, locked release build, vendor/font c
 Owner explicitly requested switching the running overlay for testing. Active dist now runs source a718afca53eb00c9d5a1526b5538836e25b5c965, executable SHA256 29105e06bd4b55d53eef300e04995b465c82f79bc61e28d63ca793d814ada317. A clean committed-source build matched the previously tested candidate byte for byte. Its finite live preflight received24 world readings and93 menu readings in one session, with zero child processes. The previous app closed gracefully and joined its reader; one new visible ordinary (not globally topmost) overlay received its first fresh validated live observation, with queued OS notifications active. This activates both the phase-label changes and the previously pending focus-return notification improvement.
 
 Rollback: ignored local/backups/before-stage-activation-20261024T205507Z/rollback-dist, executable SHA256 b96804f92f5ce7353092be94262b4369ac2603e218155c4af8759fb8bf2a9428. The original directory is also retained as retired-dist with a private activation journal. New run logs and window validation are in local/run-stage-labels-20261024. Real-game visual acceptance of the APPROACHING / seven-second INCINERATING / COOLING sequence and perceived focus-return latency remain for the owner to confirm. MCP servers, registrations and standalone settings were unchanged. No public release, tag or visibility change.
+
+
+## Owner-supplied icon candidate — 2026-10-24
+
+The owner supplied the PNG for app/tray use. Preserved it unchanged as crates/wave-overlay/assets/icon/source.png (SHA256 ff79227df8870c7395a23e5ccfc42589f273f0d4ca231f47efe940e20064dc01); app.ico includes16,20,24,32,40,48,64,128 and256px versions with the original transparency/composition. scripts/Make-Icon.py regenerates the ICO with Pillow12.3.0; Pillow is authoring-only, not a build/runtime dependency. Asset hashes are checked by Test-PublicContent.ps1. No new Rust dependencies or game assets. A separate untracked owner artwork copy in assets/icon-artwork.png was left untouched and is not part of this commit.
+
+The Windows SDK resource compiler embeds the reviewed ICO as group1, available to Explorer. Normal startup loads process-lifetime shared resource handles at system large/small icon metrics, assigns class/window icons and uses the small icon in the tray. Shared LR_SHARED handles remain Windows-owned; GetIconInfo diagnostic bitmap copies are deleted. Native --self-test-icons confirms one executable icon group and all nine dimensions; the hidden-window test confirms both assigned window icons. No added polling or memory-reader changes.
+
+All30 Rust tests, strict Clippy, formatting, vendor/font/icon checks, locked release build and native window/stacking/events/eight-panel rendering pass. Disposable package installation/upgrade/rollback and malformed archive regressions pass. Small-size artwork previews were visually inspected on light/dark backgrounds; actual taskbar/tray DPI appearance needs owner acceptance after activation. Candidate: local/icon-final-20261024; private tests: local/release-test-a83cea95955d474ca4045e3f0cc6e519. The executable is7329280 bytes,150016 more than the prior7179264-byte candidate; original high-resolution PNG stays in source only. Source rollback bundle: local/backups/before-app-icon-20261024.
+
+No activation performed for this icon candidate. Installed dist checksum remains29105e06bd4b55d53eef300e04995b465c82f79bc61e28d63ca793d814ada317. MCP/planning files, registrations, settings and existing rollback copies were unchanged. No tag, release or visibility change. Future activation remains an explicit operation.

@@ -23,7 +23,7 @@ Keep the included licence notices with the executable. Configuration is optional
 
 ## Build from source
 
-Install Rust through rustup and Visual Studio C++ Build Tools with the Windows SDK. The repository pins Rust **1.99.1**, including Clippy and rustfmt. PowerShell 7, Git and Python 3 are used by the release checks.
+Install Rust through rustup and Visual Studio C++ Build Tools with the Windows SDK. The repository pins Rust **1.99.1**, including Clippy and rustfmt. PowerShell 7, Git and Python 3 are used by the release checks. The Windows SDK resource compiler embeds the supplied multi-resolution icon; no extra runtime dependency is added.
 
 ```powershell
 ./scripts/Install-QualityTools.ps1
@@ -61,3 +61,5 @@ Fast menu checks target 50 ms; complete timer observations target 250 ms. A full
 First-party project code is licensed under **PolyForm Strict 1.0.0**, copyright (c) 2026 Alex Jephson. See [LICENSE](LICENSE) for the permitted uses and restrictions. Dependencies and embedded Oxanium fonts retain their own licences; redistribution notices are included in release archives. See [third-party notices](THIRD-PARTY-NOTICES.md).
 
 This is an unofficial community utility, not affiliated with or endorsed by the game's developers or publisher. No game binaries, extracted assets, datasets, saves or memory captures are distributed.
+
+Icon artwork was supplied by the project owner. The unchanged raster source, generated ICO and hash inventory are in `crates/wave-overlay/assets/icon/`. Regeneration is optional using `scripts/Make-Icon.py` with Pillow 12.3.0; ordinary builds use the checked-in ICO.

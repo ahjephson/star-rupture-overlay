@@ -3,6 +3,8 @@
 #[cfg(windows)]
 mod fonts;
 #[cfg(windows)]
+mod icons;
+#[cfg(windows)]
 mod stacking;
 #[cfg(windows)]
 mod stream_client;

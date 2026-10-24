@@ -701,6 +701,12 @@ pub fn run() -> Result<()> {
     let mut path: Option<PathBuf> = None;
     let mut preview_phase = None;
     if let Some(first) = args.next() {
+        if first == "--self-test-icons" {
+            if args.next().is_some() {
+                return Err("Unexpected icon-test argument".into());
+            }
+            return Ok(crate::icons::self_test()?);
+        }
         if first == "--self-test-window-events" {
             if args.next().is_some() {
                 return Err("Unexpected event-test argument".into());
@@ -777,7 +783,9 @@ pub fn run() -> Result<()> {
     unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
     let class = wide("StarRuptureWaveTimer");
     let module = unsafe { GetModuleHandleW(std::ptr::null()) };
+    let app_icons = crate::icons::Icons::load()?;
     let wc = WNDCLASSW {
+        hIcon: app_icons.large,
         lpfnWndProc: Some(procedure),
         hInstance: module,
         lpszClassName: class.as_ptr(),
@@ -820,13 +828,14 @@ pub fn run() -> Result<()> {
         stop.store(true, Ordering::Relaxed);
         return Err(std::io::Error::last_os_error().into());
     }
+    app_icons.set_window(window);
     let mut icon = NOTIFYICONDATAW {
         cbSize: size_of::<NOTIFYICONDATAW>() as u32,
         hWnd: window,
         uID: 1,
         uFlags: NIF_ICON | NIF_MESSAGE | NIF_TIP,
         uCallbackMessage: TRAY,
-        hIcon: unsafe { LoadIconW(std::ptr::null_mut(), IDI_APPLICATION) },
+        hIcon: app_icons.small,
         ..Default::default()
     };
     let tip = wide("StarRupture Wave Timer â€” right-click for controls");
@@ -1090,6 +1099,11 @@ fn window_self_test() -> Result<()> {
         if window.is_null() {
             return Err(std::io::Error::last_os_error().into());
         }
+        let app_icons = crate::icons::Icons::load()?;
+        app_icons.set_window(window);
+        let assigned_icons = SendMessageW(window, WM_GETICON, ICON_BIG as usize, 0)
+            == app_icons.large as isize
+            && SendMessageW(window, WM_GETICON, ICON_SMALL as usize, 0) == app_icons.small as isize;
         let screen = GetDC(std::ptr::null_mut());
         let alpha_update = render_layer(window, screen, &state.frame);
         ReleaseDC(std::ptr::null_mut(), screen);
@@ -1106,7 +1120,8 @@ fn window_self_test() -> Result<()> {
         DestroyWindow(window);
         let destroyed = IsWindow(window) == 0 && stop.load(Ordering::Relaxed);
         let focus_preserved = foreground == GetForegroundWindow();
-        if !(alpha_update
+        if !(assigned_icons
+            && alpha_update
             && locked
             && movable
             && no_activate
@@ -1120,7 +1135,7 @@ fn window_self_test() -> Result<()> {
         }
         println!(
             "{}",
-            json!({"status":"ok","mode":"hidden_native_window_self_test","gameRead":false,"visibleOverlayLaunched":false,"perPixelLayerUpdate":alpha_update,"backgroundAlpha":BACKGROUND_ALPHA,"textAndBorderAlpha":255,"clickThroughHitTest":locked,"movableHitTest":movable,"noActivate":no_activate,"styles":styles,"chamferedRegion":shaped,"hidden":invisible,"destroyed":destroyed,"foregroundPreserved":focus_preserved})
+            json!({"status":"ok","mode":"hidden_native_window_self_test","gameRead":false,"visibleOverlayLaunched":false,"assignedWindowIcons":assigned_icons,"perPixelLayerUpdate":alpha_update,"backgroundAlpha":BACKGROUND_ALPHA,"textAndBorderAlpha":255,"clickThroughHitTest":locked,"movableHitTest":movable,"noActivate":no_activate,"styles":styles,"chamferedRegion":shaped,"hidden":invisible,"destroyed":destroyed,"foregroundPreserved":focus_preserved})
         );
         Ok(())
     }

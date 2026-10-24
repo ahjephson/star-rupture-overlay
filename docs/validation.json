@@ -1,6 +1,6 @@
 {
   "date": "2026-10-24",
-  "status": "phase_display_and_notification_candidate_activated_manual_verification_pending",
+  "status": "owner_icon_candidate_verified_not_activated",
   "publication": {
     "repositoryPrivate": true,
     "releaseCreated": false,
@@ -232,5 +232,36 @@
     },
     "mcpChanged": false,
     "manualVisualAcceptance": "pending"
+  },
+  "appIcon": {
+    "date": "2026-10-24",
+    "provenance": "owner-supplied PNG retained unchanged",
+    "sourceSha256": "ff79227df8870c7395a23e5ccfc42589f273f0d4ca231f47efe940e20064dc01",
+    "icoSizes": [
+      16,
+      20,
+      24,
+      32,
+      40,
+      48,
+      64,
+      128,
+      256
+    ],
+    "nativeExecutableExtraction": "passed_one_group",
+    "nativeLoads": "passed_all_nine_sizes",
+    "windowIconAssignment": "passed_large_and_small",
+    "tray": "uses_embedded_small_system_metric_icon",
+    "visualPreview": "reviewed_small_sizes_on_light_and_dark",
+    "actualTrayDpiAppearance": "pending_activation_and_owner_acceptance",
+    "formatClippyTestsRelease": "passed",
+    "nativeWindowStackingEventsRendering": "passed",
+    "packageRegression": "passed",
+    "newRustDependencies": false,
+    "extraRuntimeDependencies": false,
+    "candidateBytes": 7329280,
+    "installedAppChanged": false,
+    "mcpChanged": false,
+    "backup": "local/backups/before-app-icon-20261024"
   }
 }

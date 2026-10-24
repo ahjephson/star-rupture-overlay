@@ -7,7 +7,7 @@ Nothing in this preparation makes the repository public or publishes a release. 
 1. Update CHANGELOG.md and the app workspace version. Preserve the reader's internal schema version unless its validator changes deliberately.
 2. Use a clean checkout with the pinned Rust toolchain. Run Install-QualityTools.ps1, Test-Dependencies.ps1 and Test-PublicContent.ps1.
 3. Run Build.ps1 into a new output folder. This checks formatting, Clippy with warnings denied, all first-party tests and vendor hashes before the release build.
-4. Run Package-Release.ps1 and Test-Release.ps1. Verify the executable, eight native stage renders (including both FADEOUT display substages and unknown timing), licence inventory, extraction guards and install/upgrade/rollback regressions.
+4. Run Package-Release.ps1 and Test-Release.ps1. Verify the executable, eight native stage renders (including both FADEOUT display substages and unknown timing), native icon extraction/loading/window assignment, licence inventory, extraction guards and install/upgrade/rollback regressions.
 5. Check a candidate against the supported game using its bounded --self-test-reader diagnostic. Reader/timing/compatibility changes need appropriate live verification. Keep all captures and caches private. CI cannot verify a running proprietary game.
 6. Review public content and all Git history again, including any newly added binary assets. Review the documented maintenance exception in deny.toml. Decide whether unsigned distribution is acceptable or establish publisher signing/provenance before publication.
 
