@@ -1,12 +1,13 @@
 {
   "date": "2026-10-24",
-  "status": "public_preparation_locally_validated_hosted_ci_pending",
+  "status": "prepared_verified_private_not_deployed",
   "publication": {
     "repositoryPrivate": true,
     "releaseCreated": false,
     "versionTagCreated": false,
     "installedOverlayChanged": false,
-    "mcpChanged": false
+    "mcpChanged": false,
+    "activeExecutableSha256Unchanged": "3320cbb7f2db8f9b6f75530fc6f0ad2b27c19da5f236a639df006fd4b3f3df60"
   },
   "tests": {
     "passed": 27,
@@ -61,8 +62,22 @@
   },
   "workflow": {
     "actionlint": "passed1.7.12",
-    "hostedCi": "pending",
-    "draftReleaseWorkflow": "not dispatched; no release creation authorized"
+    "hostedCi": {
+      "status": "passed",
+      "runUrl": "https://github.com/ahjephson/star-rupture-overlay/actions/runs/40124395614",
+      "sourceRevision": "b227eabd1263c4f819e40e54b8506b5daa675a5e",
+      "checks": [
+        "privacy/font provenance",
+        "dependency advisories/licences/sources",
+        "formatting/Clippy/tests/build",
+        "portable package",
+        "native rendering",
+        "archive integrity and disposable installer regressions",
+        "private candidate artifact upload"
+      ]
+    },
+    "draftReleaseWorkflow": "not dispatched; no release creation authorized",
+    "nonblockingAnnotation": "Pinned official v4 actions run under GitHub Node24 compatibility with a Node20 deprecation notice; proposed major action updates remain unmerged. No Node runtime dependency in app."
   },
   "historyAudit": {
     "historicalTextBlobs": 174,
@@ -72,8 +87,22 @@
   "size": {
     "previousExecutableBytes": 7726592,
     "candidateExecutableBytes": 7135232,
-    "candidateArchiveApproxBytes": 3566320,
+    "candidateArchiveApproxBytes": 3566186,
     "fontBytes": 115420
   },
-  "privateEvidence": "ignored local/public-preparation-* and local/backups/before-public-preparation-20261024"
+  "privateEvidence": "ignored local/public-preparation-* and local/backups/before-public-preparation-20261024",
+  "cleanCheckout": {
+    "vendorHashes": 100,
+    "fontHashes": "passed",
+    "formatting": "passed",
+    "trackedSensitiveDataPatterns": "passed"
+  },
+  "preparedCandidate": {
+    "sourceRevision": "b227eabd1263c4f819e40e54b8506b5daa675a5e",
+    "firstPartyLicence": "PolyForm Strict1.0.0",
+    "copyright": "2026 Alex Jephson",
+    "archiveVerifiedFiles": 440,
+    "deployed": false,
+    "appLaunched": false
+  }
 }

@@ -1,6 +1,6 @@
 # Public-release readiness
 
-Status: prepared locally, awaiting hosted CI verification and explicit owner approval for publication. Last updated2026-10-24. The repository remains private; no release, tag, deployment or visibility change was performed.
+Status: prepared and verified locally and on a fresh Windows CI runner; publication requires explicit owner approval. Last updated2026-10-24. The repository remains private; no release, tag, deployment or visibility change was performed.
 
 ## Prepared
 
@@ -19,6 +19,12 @@ Status: prepared locally, awaiting hosted CI verification and explicit owner app
 27 Rust tests across5 targets, warnings-denied Clippy, native hidden-window checks, all six native stage renders, read-only live sampling and disposable deployment regressions passed locally. Live sample:24 world observations,93 menu reads, one session, zero child processes. No installed app or MCP server was replaced. Native import inspection confirms GUI/x64 and no separate VC runtime dependency. See validation.json for aggregate records; full logs/captures remain ignored locally.
 
 The targeted review inspected174 historical text blobs across all six pre-preparation commits. No Windows account path or tested credential/private-key format matched. Tracked-content/font checks cover the new tree. These are bounded checks, not an exhaustive guarantee against all sensitive information. History was preserved; old development prose contains historical names/session identifiers, without distributed saves or memory dumps. Re-review before the actual visibility change.
+
+## Hosted verification
+
+[Windows CI run40124395614](https://github.com/ahjephson/star-rupture-overlay/actions/runs/40124395614) passed for source `b227eabd1263c4f819e40e54b8506b5daa675a5e`. This includes the complete build, package, native rendering and disposable installer regressions, with private artifact retention. No game installation, release record, version tag or visibility change was made. Fresh Git checkout checks also preserved all100 vendor hashes, font provenance and first-party formatting.
+
+One nonblocking hosted annotation remains: the pinned official v4 actions run through GitHub's Node24 compatibility path and emit a Node20 deprecation notice. Dependency-update proposals for newer action majors are open for review and have not been merged automatically. This concerns hosted tooling only; the app remains independent of Node. Review those proposals before a later workflow refresh.
 
 ## Owner decisions before public launch
 

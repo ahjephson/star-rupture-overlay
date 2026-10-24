@@ -1,6 +1,6 @@
 # Maintainer handover
 
-Status: public-release preparation in progress; repository remains private. No release or visibility change is authorized by this preparation.
+Status: public-release preparation verified locally and by fresh Windows CI; repository remains private. No release or visibility change is authorized by this preparation.
 
 Read README.md, docs/ARCHITECTURE.md, docs/COMPATIBILITY.md and docs/RELEASING.md before changes. docs/validation.json records the latest completed checks. Historic session-specific development notes and the pre-preparation Git bundle are retained only in ignored local backups. Existing Git history is preserved; a targeted historical secret/account-path review found no matching formats, with limitations recorded in docs/PUBLIC-READINESS.md.
 
@@ -19,3 +19,5 @@ No signing identity, public visibility change, version tag or release publicatio
 This project is independent. Do not modify any planning workspace, MCP server, registrations, controller journals, datasets or old server copies while maintaining it. Local caches, builds, captures and private notes stay outside Git.
 
 The owner reiterated preparation only: do not deploy, switch or replace the installed app. Deployment validation records refer to disposable test fixtures, never the actual installation.
+
+Latest verified code/package commit: `b227eabd1263c4f819e40e54b8506b5daa675a5e`; [Windows CI](https://github.com/ahjephson/star-rupture-overlay/actions/runs/40124395614) passed. The final follow-up changes only readiness records. The manually dispatched draft workflow was not invoked. No deployment, app replacement, public release, tag or visibility change was performed.
