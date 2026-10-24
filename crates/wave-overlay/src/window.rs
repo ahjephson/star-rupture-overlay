@@ -183,30 +183,17 @@ unsafe fn tick(window: HWND) {
             unsafe {
                 SetWindowPos(
                     window,
-                    HWND_TOPMOST,
+                    std::ptr::null_mut(),
                     x,
                     y,
                     width,
                     height,
-                    SWP_NOACTIVATE | SWP_SHOWWINDOW,
-                )
-            };
-        }
-    } else {
-        if unsafe { IsWindowVisible(window) } == 0 {
-            unsafe {
-                SetWindowPos(
-                    window,
-                    HWND_TOPMOST,
-                    0,
-                    0,
-                    0,
-                    0,
-                    SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                    SWP_NOACTIVATE | SWP_NOZORDER,
                 )
             };
         }
     }
+    crate::stacking::follow_game(window, a.game);
     if rect.right != a.last_rect.right || rect.bottom != a.last_rect.bottom {
         a.last_rect = rect;
         unsafe { InvalidateRect(window, std::ptr::null(), 0) };
@@ -698,6 +685,12 @@ pub fn run() -> Result<()> {
     let mut path: Option<PathBuf> = None;
     let mut preview_phase = None;
     if let Some(first) = args.next() {
+        if first == "--self-test-stacking" {
+            if args.next().is_some() {
+                return Err("Unexpected stacking test argument".into());
+            }
+            return crate::stacking::self_test();
+        }
         if first == "--self-test-reader" {
             let dir = args.next().ok_or("Missing reader test directory")?;
             if args.next().is_some() {
@@ -778,7 +771,7 @@ pub fn run() -> Result<()> {
     });
     let window = unsafe {
         CreateWindowExW(
-            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_LAYERED,
+            crate::stacking::EXTENDED_STYLE,
             class.as_ptr(),
             wide("StarRupture Wave Timer").as_ptr(),
             WS_POPUP,
@@ -875,8 +868,7 @@ fn window_self_test() -> Result<()> {
             last_rect: RECT::default(),
             game: std::ptr::null_mut(),
         });
-        let flags =
-            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_LAYERED;
+        let flags = crate::stacking::EXTENDED_STYLE;
         let window = CreateWindowExW(
             flags,
             class.as_ptr(),
@@ -901,7 +893,8 @@ fn window_self_test() -> Result<()> {
         state.unlocked = true;
         let movable = SendMessageW(window, WM_NCHITTEST, 0, 0) == HTCLIENT as isize;
         let no_activate = SendMessageW(window, WM_MOUSEACTIVATE, 0, 0) == MA_NOACTIVATE as isize;
-        let styles = GetWindowLongPtrW(window, GWL_EXSTYLE) as u32 & flags == flags;
+        let styles = GetWindowLongPtrW(window, GWL_EXSTYLE) as u32 & flags == flags
+            && GetWindowLongPtrW(window, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST == 0;
         let region = CreateRectRgn(0, 0, 0, 0);
         let shaped = GetWindowRgn(window, region) == COMPLEXREGION;
         DeleteObject(region);

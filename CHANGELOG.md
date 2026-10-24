@@ -2,6 +2,8 @@
 
 ## Unreleased — initial public-release preparation
 
+- Game-relative ordinary window stacking; other apps can cover the HUD without hiding it merely on focus loss.
+- STABLE display label for the unchanged native waiting phase.
 - Standalone Windows x64 HUD with one embedded read-only sampling worker.
 - Game-style frame, Oxanium typography, stage colors and INCINERATING label.
 - Simulation-aware countdown, pause layout and unavailable/stale evidence handling.

@@ -21,3 +21,7 @@ This project is independent. Do not modify any planning workspace, MCP server, r
 The owner reiterated preparation only: do not deploy, switch or replace the installed app. Deployment validation records refer to disposable test fixtures, never the actual installation.
 
 Latest verified code/package commit: `b227eabd1263c4f819e40e54b8506b5daa675a5e`; [Windows CI](https://github.com/ahjephson/star-rupture-overlay/actions/runs/40124395614) passed. The final follow-up changes only readiness records. The manually dispatched draft workflow was not invoked. No deployment, app replacement, public release, tag or visibility change was performed.
+
+## New candidate: ordinary stacking and STABLE label — 2026-10-24
+
+Implemented the owner's requested game-relative stacking: HUD remains above the visible game when focus moves elsewhere, but applications above the game can cover it. Removed global topmost style and all normal HWND_TOPMOST placement. Changed only the display label WAITING to STABLE, retaining native waiting identifiers and timing. Candidate-only development: do not deploy or replace the running overlay. The controlled-window diagnostic and existing native/render checks verify the change; actual two-monitor user appearance remains pending an explicitly authorized candidate switch. No MCP or memory-reader changes. Pre-change source is recoverable under ignored local/backups/before-window-stacking-20261024.

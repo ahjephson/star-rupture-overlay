@@ -8,8 +8,8 @@ $null = Expand-VerifiedRelease -ArchivePath $ArchivePath -Destination $unpacked
 $exe = Join-Path $unpacked 'starrupture-wave-overlay.exe'
 & python (Join-Path $PSScriptRoot 'inspect_pe.py') $exe
 if ($LASTEXITCODE -ne 0) { throw 'Executable format or runtime dependency check failed.' }
-foreach ($case in @('window', 'render')) {
-    $arguments = if ($case -eq 'window') { @('--self-test-window') } else { @('--self-test-dir', ('"' + (Join-Path $work 'render') + '"')) }
+foreach ($case in @('window', 'stacking', 'render')) {
+    $arguments = if ($case -eq 'window') { @('--self-test-window') } elseif ($case -eq 'stacking') { @('--self-test-stacking') } else { @('--self-test-dir', ('"' + (Join-Path $work 'render') + '"')) }
     $process = Start-Process -FilePath $exe -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $work "$case.json") -RedirectStandardError (Join-Path $work "$case-stderr.txt")
     if (-not $process.WaitForExit(30000)) { $process.Kill(); throw 'Own-window diagnostic exceeded its deadline.' }
     if ($process.ExitCode -ne 0) { throw "Native $case check failed." }

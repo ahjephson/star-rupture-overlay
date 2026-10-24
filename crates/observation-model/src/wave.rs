@@ -88,7 +88,7 @@ impl HudPresenter {
 }
 pub fn style(phase: &str) -> (&'static str, [u8; 3]) {
     match phase {
-        "waiting" => ("WAITING", [0x79, 0xdd, 0xe5]),
+        "waiting" => ("STABLE", [0x79, 0xdd, 0xe5]),
         "PreWave" => ("PRE-WAVE", [0xff, 0xc4, 0x5c]),
         "Moving" => ("INCINERATING", [0xff, 0x71, 0x69]),
         "Fadeout" => ("FADEOUT", [0xff, 0xaa, 0x66]),

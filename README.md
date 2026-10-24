@@ -2,7 +2,7 @@
 
 A small, standalone Windows HUD showing StarRupture's current wave stage and the countdown to the next stage. One executable draws the overlay and reads the running game; no Node.js, Codex, MCP server or save files are required.
 
-The HUD uses Oxanium, stage-specific colors and a game-style frame. It freezes with verified simulation pause, moves below the pause-menu border, stays visible when the game loses focus and hides when the game is minimized or closed. The native Moving phase is displayed as **INCINERATING**.
+The HUD uses Oxanium, stage-specific colors and a game-style frame. It freezes with verified simulation pause, moves below the pause-menu border, stays over the visible game when focus moves to another monitor, and lets windows covering the game also cover the HUD. It hides when the game is minimized or closed. The native waiting phase is displayed as **STABLE**, and Moving as **INCINERATING**.
 
 ## Run
 

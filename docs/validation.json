@@ -1,6 +1,6 @@
 {
   "date": "2026-10-24",
-  "status": "prepared_verified_private_not_deployed",
+  "status": "stacking_candidate_locally_verified_not_activated",
   "publication": {
     "repositoryPrivate": true,
     "releaseCreated": false,
@@ -34,10 +34,10 @@
   "nativeChecks": {
     "hiddenWindow": "passed",
     "stageRenders": 6,
-    "approvedGlyphCountsPreserved": true,
     "guiSubsystem": true,
     "target": "windows-x64",
-    "separateVcRuntimeRequired": false
+    "separateVcRuntimeRequired": false,
+    "unchangedLabelsAndCountdownGlyphCountsPreserved": true
   },
   "liveReader": {
     "worldReads": 24,
@@ -63,18 +63,8 @@
   "workflow": {
     "actionlint": "passed1.7.12",
     "hostedCi": {
-      "status": "passed",
-      "runUrl": "https://github.com/ahjephson/star-rupture-overlay/actions/runs/40124395614",
-      "sourceRevision": "b227eabd1263c4f819e40e54b8506b5daa675a5e",
-      "checks": [
-        "privacy/font provenance",
-        "dependency advisories/licences/sources",
-        "formatting/Clippy/tests/build",
-        "portable package",
-        "native rendering",
-        "archive integrity and disposable installer regressions",
-        "private candidate artifact upload"
-      ]
+      "status": "pending for new stacking candidate",
+      "previousSuccessfulSource": "b227eabd1263c4f819e40e54b8506b5daa675a5e"
     },
     "draftReleaseWorkflow": "not dispatched; no release creation authorized",
     "nonblockingAnnotation": "Pinned official v4 actions run under GitHub Node24 compatibility with a Node20 deprecation notice; proposed major action updates remain unmerged. No Node runtime dependency in app."
@@ -104,5 +94,61 @@
     "archiveVerifiedFiles": 440,
     "deployed": false,
     "appLaunched": false
+  },
+  "priorHostedCodeVerification": {
+    "status": "passed",
+    "runUrl": "https://github.com/ahjephson/star-rupture-overlay/actions/runs/40124395614",
+    "sourceRevision": "b227eabd1263c4f819e40e54b8506b5daa675a5e",
+    "checks": [
+      "privacy/font provenance",
+      "dependency advisories/licences/sources",
+      "formatting/Clippy/tests/build",
+      "portable package",
+      "native rendering",
+      "archive integrity and disposable installer regressions",
+      "private candidate artifact upload"
+    ]
+  },
+  "windowStacking": {
+    "date": "2026-10-24",
+    "status": "implemented_native_tested_candidate_only",
+    "globalTopmost": false,
+    "ordinaryGameRelativeOrdering": true,
+    "foreignOwnerOrParentAssigned": false,
+    "onlyOwnHwndChanged": true,
+    "uiTickMilliseconds": 100,
+    "nativeFixture": {
+      "status": "passed",
+      "gameRead": false,
+      "actualWindowsModified": false,
+      "visibleHudLaunched": false,
+      "offscreenOwnedFixtures": 4,
+      "otherMonitor": true,
+      "overlappingWindow": true,
+      "partialCover": true,
+      "returnToGame": true,
+      "manualPositionPreserved": true,
+      "repeatedSyncs": 100,
+      "hiddenMinimizedDestroyed": true,
+      "topmostFailsClosed": true,
+      "accidentalPromotionRecovered": true,
+      "foregroundPreserved": true
+    },
+    "visibleUnrealWindowQuery": {
+      "readOnly": true,
+      "topmost": false,
+      "minimized": false
+    },
+    "manualTwoMonitorAppearance": "pending explicit candidate activation; current app not replaced",
+    "backup": "local/backups/before-window-stacking-20261024"
+  },
+  "stableLabel": {
+    "nativePhase": "waiting",
+    "displayLabel": "STABLE",
+    "timerLogicChanged": false,
+    "colourChanged": false,
+    "nativeStagePixels": 512,
+    "nativeCountdownWhitePixels": 510,
+    "otherStageGlyphCountsUnchanged": true
   }
 }

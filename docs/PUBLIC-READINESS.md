@@ -2,6 +2,10 @@
 
 Status: prepared and verified locally and on a fresh Windows CI runner; publication requires explicit owner approval. Last updated2026-10-24. The repository remains private; no release, tag, deployment or visibility change was performed.
 
+## Latest candidate — 2026-10-24
+
+Game-relative ordinary stacking and the STABLE display label have since been implemented and locally verified. All27 Rust tests and native stacking/window/six-stage render checks pass. The new code's hosted run is separate from the earlier successful preparation run below. The running installation remains unchanged; real two-monitor appearance awaits an explicitly authorized switch. Native tests use only owned off-screen fixtures, never the player's game/browser windows. See ARCHITECTURE.md and validation.json.
+
 ## Prepared
 
 - First-party code consistently formatted and strict Clippy clean; observation validation/ownership documented and source-include shim removed.
