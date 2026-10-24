@@ -84,7 +84,11 @@ unsafe extern "system" fn find_game(window: HWND, param: isize) -> i32 {
     1
 }
 fn preview(phase: &str) -> HudFrame {
-    let (stage, colour) = style(phase);
+    let (stage, colour) = match phase {
+        "FadeoutEarly" => ("INCINERATING", [0xff, 0x71, 0x69]),
+        "FadeoutCooling" => ("COOLING", [0xff, 0xaa, 0x66]),
+        _ => style(phase),
+    };
     HudFrame {
         stage,
         colour,
@@ -732,11 +736,20 @@ pub fn run() -> Result<()> {
         args = std::env::args().skip(1);
     }
     while let Some(arg) = args.next() {
-        match arg.as_str(){"--config"=>path=Some(args.next().ok_or("Missing configuration path")?.into()),"--preview-stage"=>preview_phase=Some(args.next().ok_or("Missing preview phase")?),_=>return Err("Usage: starrupture-wave-overlay --config FILE [--preview-stage waiting|PreWave|Moving|Fadeout|Growback|unavailable]".into())}
+        match arg.as_str(){"--config"=>path=Some(args.next().ok_or("Missing configuration path")?.into()),"--preview-stage"=>preview_phase=Some(args.next().ok_or("Missing preview phase")?),_=>return Err("Usage: starrupture-wave-overlay --config FILE [--preview-stage waiting|PreWave|Moving|FadeoutEarly|FadeoutCooling|Fadeout|Growback|unavailable]".into())}
     }
     if let Some(phase) = &preview_phase
-        && !["waiting", "PreWave", "Moving", "Fadeout", "Growback", "unavailable"]
-            .contains(&phase.as_str())
+        && ![
+            "waiting",
+            "PreWave",
+            "Moving",
+            "FadeoutEarly",
+            "FadeoutCooling",
+            "Fadeout",
+            "Growback",
+            "unavailable",
+        ]
+        .contains(&phase.as_str())
     {
         return Err("Unknown preview stage".into());
     }
@@ -1141,7 +1154,16 @@ fn self_test(dir: &std::path::Path) -> Result<()> {
         }
         let old = SelectObject(dc, bitmap);
         let mut checks = Vec::new();
-        for phase in ["waiting", "PreWave", "Moving", "Fadeout", "Growback", "unavailable"] {
+        for phase in [
+            "waiting",
+            "PreWave",
+            "Moving",
+            "FadeoutEarly",
+            "FadeoutCooling",
+            "Fadeout",
+            "Growback",
+            "unavailable",
+        ] {
             let frame = preview(phase);
             draw(
                 dc,

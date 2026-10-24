@@ -8,7 +8,7 @@ Read README.md, docs/ARCHITECTURE.md, docs/COMPATIBILITY.md and docs/RELEASING.m
 
 One Windows GUI app owns the native HUD and embedded read-only worker. Never add memory writes, injection, game hooks, save access, debug privileges or an arbitrary helper executable. Preserve exact game-build/path pins, object/world/allocation guards, bounded observations and cooperative cancellation. Fast menu evidence controls layout only; timer evidence and simulation pause remain independent.
 
-Keep the approved Oxanium frame, stage colors, INCINERATING label, slight background transparency and play/pause positioning. Do not deploy a candidate over a running app. Build into a fresh ignored output folder; Deploy.ps1 is a separate explicit operation.
+Keep the approved Oxanium frame, stage colors and approved phase display labels, slight background transparency and play/pause positioning. Do not deploy a candidate over a running app. Build into a fresh ignored output folder; Deploy.ps1 is a separate explicit operation.
 
 ## Current decisions
 
@@ -44,3 +44,10 @@ Native diagnostic:20 notification round trips, zero timer messages, reader mutex
 
 - Finish the real-game focus-return latency check for the notification candidate; it is built/tested but not activated.
 - Requested app/tray icon: design an original icon consistent with the HUD, embed it in the Windows executable (Explorer/window/taskbar) and use a legible small-size version in the system tray. Retain editable source and a multi-resolution ICO; verify small sizes, high DPI and light/dark taskbars. No extracted game artwork. Status: requested/to do; no icon design or implementation started.
+
+
+## Phase display update — 2026-10-24
+
+Owner requested APPROACHING instead of the Moving display label, then INCINERATING during the first seven simulation seconds of native Fadeout and COOLING afterward. Implemented in presentation only: native phase identities, reader, timing calculation and evidence remain unchanged. Early Fadeout uses the existing red; cooling uses the existing orange. Its countdown targets the seven-second display boundary first, then the native phase end. Presenter debounce resets at the display boundary. Unknown/invalid substage timing retains FADEOUT with an unavailable countdown, never a wall-time guess.
+
+All30 Rust tests, strict Clippy, formatting, locked release build, vendor/font checks and disposable package/install/rollback regressions pass. Eight off-screen native panels (including both Fadeout labels and unknown timing), hidden window, stacking and queued-event diagnostics pass; rendered labels fit the approved frame and unchanged stages/timer retain their glyph counts. This is synthetic boundary/render verification, not a live rupture-cycle observation. Source backup: local/backups/before-stage-labels-20261024. Candidate: local/stage-labels-final-20261024. No real installation or running app was replaced; active source6c540d3 and its rollback remain preserved. Candidate includes the previously pending focus-return notification change. MCP and planning workspaces remain unchanged. No release/tag/visibility change. Manual activation and real-game cycle/focus confirmation remain pending.

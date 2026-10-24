@@ -2,7 +2,7 @@
 
 Extract this complete folder and double-click starrupture-wave-overlay.exe. No configuration, installer, administrator rights, extra runtime or MCP server is required. Version, source revision and per-file hashes are recorded in manifest.json.
 
-Right-click the tray icon to show/hide, unlock/move/lock, reset position or exit. Exit there before starting a different version. The app moves below the pause-menu border and freezes its countdown only when simulation pause is verified. STABLE is the game's native waiting phase; INCINERATING is Moving. The HUD stays immediately above the ordinary game window. Other windows covering the game also cover it; focus on another monitor alone does not hide it. Unavailable/stale timer evidence displays --:--.
+Right-click the tray icon to show/hide, unlock/move/lock, reset position or exit. Exit there before starting a different version. The app moves below the pause-menu border and freezes its countdown only when simulation pause is verified. STABLE is the game's native waiting phase; APPROACHING is Moving. FADEOUT displays INCINERATING for its first seven simulation seconds, then COOLING. The HUD stays immediately above the ordinary game window. Other windows covering the game also cover it; focus on another monitor alone does not hide it. Unavailable/stale timer evidence displays --:--.
 
 ## Supported game
 

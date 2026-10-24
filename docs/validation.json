@@ -1,6 +1,6 @@
 {
   "date": "2026-10-24",
-  "status": "focus_notification_candidate_verified_not_activated",
+  "status": "phase_display_candidate_verified_not_activated",
   "publication": {
     "repositoryPrivate": true,
     "releaseCreated": false,
@@ -11,7 +11,7 @@
     "installedOverlayChangeAuthorized": true
   },
   "tests": {
-    "passed": 28,
+    "passed": 30,
     "targets": 5,
     "clippyWarningsDenied": true,
     "formatting": "passed",
@@ -34,7 +34,7 @@
   },
   "nativeChecks": {
     "hiddenWindow": "passed",
-    "stageRenders": 6,
+    "stageRenders": 8,
     "guiSubsystem": true,
     "target": "windows-x64",
     "separateVcRuntimeRequired": false,
@@ -194,5 +194,24 @@
     "existingStackingAndRenderChecks": "passed",
     "realGamePerceivedLatency": "pending candidate activation and manual verification",
     "backup": "local/backups/before-focus-notifications-20261024"
+  },
+  "phaseDisplayUpdate": {
+    "date": "2026-10-24",
+    "nativeMoving": "APPROACHING",
+    "nativeFadeout": {
+      "elapsedLessThanSevenSeconds": "INCINERATING",
+      "elapsedAtLeastSevenSeconds": "COOLING",
+      "timing": "validated native duration minus remaining simulation seconds",
+      "countdown": "next displayed boundary",
+      "unsupportedTiming": "FADEOUT / --:--"
+    },
+    "boundaryPauseStaleInvalidTimingTests": "passed",
+    "nativeRenders": 8,
+    "renderVisualReview": "passed",
+    "releasePackageRegression": "passed",
+    "runningAppChanged": false,
+    "mcpChanged": false,
+    "liveCycleVerification": "pending explicit candidate activation",
+    "sourceBackup": "local/backups/before-stage-labels-20261024"
   }
 }

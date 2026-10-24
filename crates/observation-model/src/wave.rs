@@ -58,6 +58,7 @@ impl HudPresenter {
             v["data"]["world"],
             wave["waveCount"],
             wave["phase"],
+            frame.stage,
             wave["waitingIntervalSeconds"],
             wave["warningDurationSeconds"]
         ])
@@ -90,11 +91,31 @@ pub fn style(phase: &str) -> (&'static str, [u8; 3]) {
     match phase {
         "waiting" => ("STABLE", [0x79, 0xdd, 0xe5]),
         "PreWave" => ("PRE-WAVE", [0xff, 0xc4, 0x5c]),
-        "Moving" => ("INCINERATING", [0xff, 0x71, 0x69]),
+        "Moving" => ("APPROACHING", [0xff, 0x71, 0x69]),
         "Fadeout" => ("FADEOUT", [0xff, 0xaa, 0x66]),
         "Growback" => ("GROWBACK", [0x8d, 0xdb, 0x9a]),
         _ => ("UNAVAILABLE", [0xa6, 0xaf, 0xb5]),
     }
+}
+/// The first seven native Fadeout simulation seconds are displayed as burning.
+/// The remaining native phase is cooling. Unknown timing retains FADEOUT.
+fn fadeout_presentation(w: &Value) -> Option<(&'static str, [u8; 3], f64)> {
+    let duration = w["phaseDurations"]["fadeout"].as_f64()?;
+    let remaining = w["nextPhaseRemainingSeconds"].as_f64()?;
+    if !duration.is_finite()
+        || duration < 7.0
+        || duration > 604800.0
+        || !remaining.is_finite()
+        || !(0.0..=duration).contains(&remaining)
+    {
+        return None;
+    }
+    let elapsed = duration - remaining;
+    Some(if elapsed < 7.0 {
+        ("INCINERATING", [0xff, 0x71, 0x69], remaining - (duration - 7.0))
+    } else {
+        ("COOLING", [0xff, 0xaa, 0x66], remaining)
+    })
 }
 pub fn hud(v: &Value, now_ms: u64, stale_after_ms: u64) -> HudFrame {
     let validated = display(v, now_ms, stale_after_ms);
@@ -108,7 +129,7 @@ pub fn hud(v: &Value, now_ms: u64, stale_after_ms: u64) -> HudFrame {
         };
     }
     let phase = &validated.phase;
-    let (stage, colour) = style(phase);
+    let (mut stage, mut colour) = style(phase);
     let w = &v["data"]["wave"];
     let (time, verification) = if phase == "waiting" {
         (&w["ruptureRemainingSeconds"], &w["ruptureTimingVerification"])
@@ -118,8 +139,19 @@ pub fn hud(v: &Value, now_ms: u64, stale_after_ms: u64) -> HudFrame {
     let supported = ["verified", "corroborated", "progress_based_estimate", "conditional_estimate"]
         .iter()
         .any(|s| verification == *s);
-    let countdown = time
-        .as_f64()
+    let mut seconds = time.as_f64();
+    // Display substages only when native simulation timing is supported. Never
+    // infer elapsed phase time from observation age, wall time or actor deadlines.
+    if phase == "Fadeout" && supported {
+        if let Some((label, shade, remaining)) = fadeout_presentation(w) {
+            stage = label;
+            colour = shade;
+            seconds = Some(remaining);
+        } else {
+            seconds = None;
+        }
+    }
+    let countdown = seconds
         .filter(|n| n.is_finite() && *n >= 0. && *n <= 604800. && supported)
         .map(|n| {
             // Match the whole-seconds portion of the game's fractional timer.
@@ -210,11 +242,56 @@ mod tests {
         assert_eq!(frame.countdown, "04:18");
         assert_eq!(frame.colour, [0x8d, 0xdb, 0x9a]);
         v["data"]["wave"]["phase"] = json!("Moving");
-        assert_eq!(hud(&v, 1000, 5000).stage, "INCINERATING");
+        assert_eq!(hud(&v, 1000, 5000).stage, "APPROACHING");
         assert_eq!(hud(&v, 1000, 5000), hud(&v, 4000, 5000));
         assert_eq!(hud(&v, 7000, 5000).countdown, "--:--");
         assert_eq!(style("unknown").0, "UNAVAILABLE");
         assert_ne!(style("PreWave").1, style("Fadeout").1);
+    }
+    #[test]
+    fn fadeout_labels_follow_native_simulation_boundary_and_pause() {
+        let mut v = source();
+        v["data"]["wave"]["phase"] = json!("Fadeout");
+        v["data"]["wave"]["phaseDurations"]["fadeout"] = json!(80.0);
+        v["data"]["wave"]["stageTimingVerification"] = json!("progress_based_estimate");
+        let mut presenter = HudPresenter::default();
+        for (remaining, stage, countdown) in [
+            (80.0, "INCINERATING", "00:07"),
+            (73.001, "INCINERATING", "00:00"),
+            (73.0, "COOLING", "01:13"),
+            (0.0, "COOLING", "00:00"),
+        ] {
+            v["data"]["wave"]["nextPhaseRemainingSeconds"] = json!(remaining);
+            v["observation"]["window"]["completedAtUnixMilliseconds"] =
+                json!(1000 + (80.0 - remaining) as u64);
+            let frame = presenter.update(&v, 1100, 5000);
+            assert_eq!((frame.stage, frame.countdown.as_str()), (stage, countdown));
+            assert_eq!(frame, presenter.update(&v, 4000, 5000));
+            assert_eq!(display(&v, 1100, 5000).phase, "Fadeout");
+        }
+        assert_eq!(hud(&v, 7000, 5000).stage, "UNAVAILABLE");
+    }
+    #[test]
+    fn fadeout_split_rejects_unknown_or_invalid_timing() {
+        let mut v = source();
+        v["data"]["wave"]["phase"] = json!("Fadeout");
+        v["data"]["wave"]["stageTimingVerification"] = json!("progress_based_estimate");
+        for (duration, remaining) in [
+            (Value::Null, json!(75.0)),
+            (json!(80.0), Value::Null),
+            (json!(80.0), json!(-1.0)),
+            (json!(80.0), json!(81.0)),
+            (json!(6.0), json!(5.0)),
+        ] {
+            v["data"]["wave"]["phaseDurations"]["fadeout"] = duration;
+            v["data"]["wave"]["nextPhaseRemainingSeconds"] = remaining;
+            let frame = hud(&v, 1000, 5000);
+            assert_eq!((frame.stage, frame.countdown.as_str()), ("FADEOUT", "--:--"));
+        }
+        v["data"]["wave"]["phaseDurations"]["fadeout"] = json!(80.0);
+        v["data"]["wave"]["nextPhaseRemainingSeconds"] = json!(75.0);
+        v["data"]["wave"]["stageTimingVerification"] = json!("unknown");
+        assert_eq!(hud(&v, 1000, 5000).stage, "FADEOUT");
     }
     #[test]
     fn hud_debounce_requires_new_observations_and_preserves_real_corrections() {
