@@ -101,10 +101,7 @@ pub fn live_wave_timing(w: &Value, clock: f64) -> Value {
     if p["waveType"].as_f64() != Some(1.0) {
         return unknown(w, &configuration, "unsupported_wave_type");
     }
-    if !p["progress"]
-        .as_f64()
-        .is_some_and(|n| (0.0..=1.0).contains(&n))
-    {
+    if !p["progress"].as_f64().is_some_and(|n| (0.0..=1.0).contains(&n)) {
         return unknown(w, &configuration, "invalid_phase_progress");
     }
     if stage != 1
@@ -122,11 +119,7 @@ pub fn live_wave_timing(w: &Value, clock: f64) -> Value {
         return unknown(w, &configuration, "uncalibrated_wave_settings");
     }
     if warning.is_some_and(|v| (v - number(&p["settings"]["preWaveDuration"])).abs() > 0.001) {
-        return unknown(
-            w,
-            &configuration,
-            "warning_duration_conflicts_with_active_heat_settings",
-        );
+        return unknown(w, &configuration, "warning_duration_conflicts_with_active_heat_settings");
     }
     let duration = [0.0, 120.0, 10.0, 80.0, 735.0][stage];
     let phase = &p["phaseClockEvidence"];
@@ -135,9 +128,7 @@ pub fn live_wave_timing(w: &Value, clock: f64) -> Value {
         .is_some_and(|v| v > 0.0 && (v * duration - 1.0).abs() <= 0.00001)
         || phase["status"] != "ok"
         || phase["nativeUpdateBindingVerified"] != true
-        || !phase["deltaCapSeconds"]
-            .as_f64()
-            .is_some_and(|v| (v - 0.1).abs() <= 0.000001)
+        || !phase["deltaCapSeconds"].as_f64().is_some_and(|v| (v - 0.1).abs() <= 0.000001)
     {
         return unknown(w, &configuration, "invalid_or_unverified_phase_clock");
     }

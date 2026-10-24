@@ -1,4 +1,5 @@
 [package]
+publish = false
 name = "gospel-typelib"
 description = "Type Representation Library utilized by Gospel VM"
 repository.workspace = true

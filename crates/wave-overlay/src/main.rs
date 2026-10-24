@@ -15,10 +15,7 @@ fn main() {
                 .encode_utf16()
                 .chain([0])
                 .collect();
-            let title: Vec<u16> = "StarRupture Wave Overlay"
-                .encode_utf16()
-                .chain([0])
-                .collect();
+            let title: Vec<u16> = "StarRupture Wave Overlay".encode_utf16().chain([0]).collect();
             unsafe {
                 windows_sys::Win32::UI::WindowsAndMessaging::MessageBoxW(
                     std::ptr::null_mut(),

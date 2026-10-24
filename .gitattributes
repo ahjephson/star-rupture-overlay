@@ -1,3 +1,7 @@
 * text=auto eol=lf
 /third-party/** -text
 *.ttf -text
+
+# Preserve exact upstream notice bytes used by the reviewed SHA256 inventory.
+/licenses/registry/** -text
+/licenses/registry/index.json text eol=lf

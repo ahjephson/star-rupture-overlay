@@ -33,11 +33,7 @@ const FIELDS: &[(&str, &str, usize)] = &[
     ("Chimera.CrEnviroWaveTimerSubsystem", "TimerActor", 8),
     ("Chimera.CrEnviroWaveSubsystem", "CurrentPreWaveSubstage", 1),
     ("Chimera.CrEnviroWaveSubsystem", "CurrentFadeoutSubstage", 1),
-    (
-        "Chimera.CrEnviroWaveSubsystem",
-        "CurrentGrowbackSubstage",
-        1,
-    ),
+    ("Chimera.CrEnviroWaveSubsystem", "CurrentGrowbackSubstage", 1),
     ("Chimera.CrWaveTimerActor", "NextTime", 4),
     ("Chimera.CrWaveTimerActor", "NextPhase", 4),
     ("Chimera.CrWaveTimerActor", "bPause", 1),
@@ -65,31 +61,19 @@ fn property_key(class: &str, field: &str) -> String {
 }
 impl Bindings {
     fn offset(&self, c: &str, f: &str) -> Result<u64> {
-        self.offsets
-            .get(&property_key(c, f))
-            .copied()
-            .context("Missing live field")
+        self.offsets.get(&property_key(c, f)).copied().context("Missing live field")
     }
     async fn ptr(&self, ctx: &Ctx, a: u64, c: &str, f: &str) -> Result<u64> {
         ctx.read(a + self.offset(c, f)?).await
     }
     async fn boolean(&self, ctx: &Ctx, a: u64, c: &str, f: &str) -> Result<bool> {
-        let mask = self
-            .masks
-            .get(&property_key(c, f))
-            .context("Missing boolean mask")?;
+        let mask = self.masks.get(&property_key(c, f)).context("Missing boolean mask")?;
         Ok(ctx.read::<u8>(a + self.offset(c, f)?).await? & mask != 0)
     }
     fn validate(&self, id: &Identity) -> Result<()> {
-        ensure!(
-            self.version == 2 && self.identity == *id,
-            "Stale live-context cache"
-        );
+        ensure!(self.version == 2 && self.identity == *id, "Stale live-context cache");
         for &(c, f, _) in FIELDS {
-            ensure!(
-                (8..=262144).contains(&self.offset(c, f)?),
-                "Invalid context offset"
-            );
+            ensure!((8..=262144).contains(&self.offset(c, f)?), "Invalid context offset");
             if f.starts_with('b') {
                 ensure!(
                     self.masks.get(&property_key(c, f)).is_some_and(|x| *x != 0),
@@ -99,9 +83,7 @@ impl Bindings {
         }
         for g in GETTERS {
             ensure!(
-                self.getters
-                    .get(*g)
-                    .is_some_and(|o| (512..8192).contains(o)),
+                self.getters.get(*g).is_some_and(|o| (512..8192).contains(o)),
                 "Invalid getter field"
             );
         }
@@ -110,19 +92,13 @@ impl Bindings {
 }
 async fn world(ctx: &Ctx, cache: &Cache, b: &Bindings) -> Result<(u64, u64)> {
     let controller = Ptr::<UObject>::new(cache.controller.address, ctx.clone())?;
-    let level = controller
-        .outer_private()
-        .read()
-        .await?
-        .context("Player level unavailable")?
-        .address();
+    let level =
+        controller.outer_private().read().await?.context("Player level unavailable")?.address();
     stamp(ctx, level).await?;
     let world = b.ptr(ctx, level, "Engine.Level", "OwningWorld").await?;
     let persistent = b.ptr(ctx, world, "Engine.World", "PersistentLevel").await?;
     ensure!(
-        b.ptr(ctx, persistent, "Engine.Level", "OwningWorld")
-            .await?
-            == world,
+        b.ptr(ctx, persistent, "Engine.Level", "OwningWorld").await? == world,
         "World/level mismatch"
     );
     Ok((world, persistent))
@@ -185,10 +161,7 @@ async fn discover(process: &platform::Process, base: &Cache) -> Result<Bindings>
             );
             getters.insert(name.clone(), found[0]);
         }
-        if FIELDS
-            .iter()
-            .any(|(c, _, _)| object_path == format!("/Script/{c}"))
-        {
+        if FIELDS.iter().any(|(c, _, _)| object_path == format!("/Script/{c}")) {
             let mut props = obj.cast::<UStruct>().properties(false);
             let mut visits = 0;
             while let Some(prop) = props.next().await {
@@ -245,10 +218,7 @@ async fn discover(process: &platform::Process, base: &Cache) -> Result<Bindings>
             selected.push((address, stamp(&ctx, address).await?));
         }
     }
-    ensure!(
-        selected.len() == 2,
-        "Live wave subsystems unavailable or ambiguous"
-    );
+    ensure!(selected.len() == 2, "Live wave subsystems unavailable or ambiguous");
     b.timer_subsystem = selected
         .iter()
         .find(|(_, s)| s.name.starts_with("CrEnviroWaveTimerSubsystem_"))
@@ -282,9 +252,14 @@ fn countdown(remaining: f64, waiting: bool, stopped: bool) -> Result<Option<f64>
 async fn read(process: &platform::Process, base: &Cache, b: &Bindings) -> Result<Value> {
     b.validate(&process.identity)?;
     let ctx = jmap_dumper::connect_manual(process.clone(), base.config.clone(), None).await?;
-    read_context(process,base,b,ctx).await
+    read_context(process, base, b, ctx).await
 }
-async fn read_context(process:&platform::Process,base:&Cache,b:&Bindings,ctx:Ctx)->Result<Value> {
+async fn read_context(
+    process: &platform::Process,
+    base: &Cache,
+    b: &Bindings,
+    ctx: Ctx,
+) -> Result<Value> {
     b.validate(&process.identity)?;
     let (world, persistent) = world(&ctx, base, b).await?;
     ensure!(
@@ -298,21 +273,13 @@ async fn read_context(process:&platform::Process,base:&Cache,b:&Bindings,ctx:Ctx
         world_path == "/Game/Chimera/Maps/ChimeraMain/ChimeraMain.ChimeraMain",
         "Unsupported world frame"
     );
-    let settings = b
-        .ptr(&ctx, persistent, "Engine.Level", "WorldSettings")
-        .await?;
+    let settings = b.ptr(&ctx, persistent, "Engine.Level", "WorldSettings").await?;
     let state = b.ptr(&ctx, world, "Engine.World", "GameState").await?;
     let settings_stamp = stamp(&ctx, settings).await?;
     let state_stamp = stamp(&ctx, state).await?;
     let controller = base.controller.address;
-    let character = b
-        .ptr(
-            &ctx,
-            controller,
-            "Chimera.CrPlayerControllerBase",
-            "PlayerMainCharacter",
-        )
-        .await?;
+    let character =
+        b.ptr(&ctx, controller, "Chimera.CrPlayerControllerBase", "PlayerMainCharacter").await?;
     let character_stamp = stamp(&ctx, character).await?;
     ensure!(
         ctx.read::<u64>(
@@ -322,106 +289,48 @@ async fn read_context(process:&platform::Process,base:&Cache,b:&Bindings,ctx:Ctx
             == character,
         "Main character and possession disagree"
     );
-    let timer = b
-        .ptr(&ctx, state, "Chimera.CrGameStateBase", "WaveTimerActor")
-        .await?;
+    let timer = b.ptr(&ctx, state, "Chimera.CrGameStateBase", "WaveTimerActor").await?;
     let timer_stamp = stamp(&ctx, timer).await?;
     ensure!(
-        b.ptr(
-            &ctx,
-            b.timer_subsystem.address,
-            "Chimera.CrEnviroWaveTimerSubsystem",
-            "TimerActor"
-        )
-        .await?
+        b.ptr(&ctx, b.timer_subsystem.address, "Chimera.CrEnviroWaveTimerSubsystem", "TimerActor")
+            .await?
             == timer,
         "Independent timer references disagree"
     );
     let observed_start = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
     let time = finite(ctx.read::<f64>(world + b.getters["GetTimeSeconds"]).await?)?;
-    let audio = finite(
-        ctx.read::<f64>(world + b.getters["GetAudioTimeSeconds"])
-            .await?,
-    )?;
-    let real = finite(
-        ctx.read::<f64>(world + b.getters["GetRealTimeSeconds"])
-            .await?,
-    )?;
-    let unpaused = finite(
-        ctx.read::<f64>(world + b.getters["GetUnpausedTimeSeconds"])
-            .await?,
-    )?;
+    let audio = finite(ctx.read::<f64>(world + b.getters["GetAudioTimeSeconds"]).await?)?;
+    let real = finite(ctx.read::<f64>(world + b.getters["GetRealTimeSeconds"]).await?)?;
+    let unpaused = finite(ctx.read::<f64>(world + b.getters["GetUnpausedTimeSeconds"]).await?)?;
     let origin_offset = b.getters["GetWorldOriginLocation"];
     let origin = [
         ctx.read::<i32>(world + origin_offset).await?,
         ctx.read::<i32>(world + origin_offset + 4).await?,
         ctx.read::<i32>(world + origin_offset + 8).await?,
     ];
-    let rebasing = b
-        .boolean(
-            &ctx,
-            settings,
-            "Engine.WorldSettings",
-            "bEnableWorldOriginRebasing",
-        )
-        .await?;
-    let pauser = b
-        .ptr(&ctx, settings, "Engine.WorldSettings", "PauserPlayerState")
-        .await?;
+    let rebasing =
+        b.boolean(&ctx, settings, "Engine.WorldSettings", "bEnableWorldOriginRebasing").await?;
+    let pauser = b.ptr(&ctx, settings, "Engine.WorldSettings", "PauserPlayerState").await?;
     if pauser != 0 {
         stamp(&ctx, pauser).await?;
     }
     // Exact build pinned at entry. This native IsPaused offset/branch was disassembled and calibrated.
     let pause_delay = signed_finite(ctx.read::<f64>(world + 0x860).await?)?;
-    let menu = b
-        .boolean(
-            &ctx,
-            controller,
-            "Chimera.CrPlayerControllerBase",
-            "bReplInPauseMenu",
-        )
-        .await?;
-    let game_flag = b
-        .boolean(&ctx, state, "Chimera.CrGameStateBase", "bIsGamePaused")
-        .await?;
-    let fpp = b
-        .ptr(
-            &ctx,
-            character,
-            "Chimera.CrCharacterPlayerBase",
-            "FPPCamera",
-        )
-        .await?;
-    let drone_camera = b
-        .ptr(
-            &ctx,
-            character,
-            "Chimera.CrCharacterPlayerBase",
-            "DroneCamera",
-        )
-        .await?;
+    let menu =
+        b.boolean(&ctx, controller, "Chimera.CrPlayerControllerBase", "bReplInPauseMenu").await?;
+    let game_flag = b.boolean(&ctx, state, "Chimera.CrGameStateBase", "bIsGamePaused").await?;
+    let fpp = b.ptr(&ctx, character, "Chimera.CrCharacterPlayerBase", "FPPCamera").await?;
+    let drone_camera =
+        b.ptr(&ctx, character, "Chimera.CrCharacterPlayerBase", "DroneCamera").await?;
     stamp(&ctx, fpp).await?;
     stamp(&ctx, drone_camera).await?;
-    let fpp_active = b
-        .boolean(&ctx, fpp, "Engine.ActorComponent", "bIsActive")
-        .await?;
-    let drone_active = b
-        .boolean(&ctx, drone_camera, "Engine.ActorComponent", "bIsActive")
-        .await?;
-    let drone = b
-        .ptr(
-            &ctx,
-            character,
-            "Chimera.CrCharacterPlayerBase",
-            "BuildingDrone",
-        )
-        .await?;
+    let fpp_active = b.boolean(&ctx, fpp, "Engine.ActorComponent", "bIsActive").await?;
+    let drone_active = b.boolean(&ctx, drone_camera, "Engine.ActorComponent", "bIsActive").await?;
+    let drone = b.ptr(&ctx, character, "Chimera.CrCharacterPlayerBase", "BuildingDrone").await?;
     if drone != 0 {
         stamp(&ctx, drone).await?;
     }
-    let dead = b
-        .boolean(&ctx, character, "Chimera.CrCharacterPlayerBase", "bDead")
-        .await?;
+    let dead = b.boolean(&ctx, character, "Chimera.CrCharacterPlayerBase", "bDead").await?;
     let view = if !dead && drone != 0 && drone_active && !fpp_active {
         "builder_drone"
     } else if !dead && drone == 0 && fpp_active && !drone_active {
@@ -437,25 +346,18 @@ async fn read_context(process:&platform::Process,base:&Cache,b:&Bindings,ctx:Ctx
         };
     // These private fields were mapped through native OnPreSaveStart and exact paused-save joins.
     let remaining = signed_finite(ctx.read::<f32>(sub + 0x7c).await? as f64)?;
-    ensure!(
-        remaining <= 86400.,
-        "Waiting countdown out of supported range"
-    );
+    ensure!(remaining <= 86400., "Waiting countdown out of supported range");
     let waiting = ctx.read::<u8>(sub + 0x80).await? != 0;
     let wave_pause = ctx.read::<u8>(sub + 0x81).await? != 0;
     let previous = ctx.read::<u8>(sub + 0x82).await?;
     let stopped = ctx.read::<u8>(sub + 0x83).await? != 0;
     let waves = ctx.read::<i64>(sub + 0x88).await?;
     ensure!((0..=10000000).contains(&waves), "Invalid wave counter");
-    let actor_next_time = ctx
-        .read::<f32>(timer + b.offset("Chimera.CrWaveTimerActor", "NextTime")?)
-        .await?;
-    let actor_next_phase = ctx
-        .read::<i32>(timer + b.offset("Chimera.CrWaveTimerActor", "NextPhase")?)
-        .await?;
-    let actor_pause = b
-        .boolean(&ctx, timer, "Chimera.CrWaveTimerActor", "bPause")
-        .await?;
+    let actor_next_time =
+        ctx.read::<f32>(timer + b.offset("Chimera.CrWaveTimerActor", "NextTime")?).await?;
+    let actor_next_phase =
+        ctx.read::<i32>(timer + b.offset("Chimera.CrWaveTimerActor", "NextPhase")?).await?;
+    let actor_pause = b.boolean(&ctx, timer, "Chimera.CrWaveTimerActor", "bPause").await?;
     let phase_pointer = ctx.read::<u64>(b.wave_subsystem.address + 0x1f8).await?;
     let phase_evidence =
         match crate::live_phase::read(&ctx, b.wave_subsystem.address, base.config.image_base).await
@@ -467,11 +369,7 @@ async fn read_context(process:&platform::Process,base:&Cache,b:&Bindings,ctx:Ctx
             Err(error) => json!({"status":"unavailable","reason":format!("{error:#}")}),
         };
     let mut substages = serde_json::Map::new();
-    for field in [
-        "CurrentPreWaveSubstage",
-        "CurrentFadeoutSubstage",
-        "CurrentGrowbackSubstage",
-    ] {
+    for field in ["CurrentPreWaveSubstage", "CurrentFadeoutSubstage", "CurrentGrowbackSubstage"] {
         substages.insert(
             field.to_string(),
             json!(
@@ -489,9 +387,7 @@ async fn read_context(process:&platform::Process,base:&Cache,b:&Bindings,ctx:Ctx
         "Simulation clock jumped during live observation"
     );
     ensure!(
-        b.ptr(&ctx, state, "Chimera.CrGameStateBase", "WaveTimerActor")
-            .await?
-            == timer
+        b.ptr(&ctx, state, "Chimera.CrGameStateBase", "WaveTimerActor").await? == timer
             && stamp(&ctx, world).await? == b.world
             && stamp(&ctx, settings).await? == settings_stamp
             && stamp(&ctx, state).await? == state_stamp
@@ -500,13 +396,7 @@ async fn read_context(process:&platform::Process,base:&Cache,b:&Bindings,ctx:Ctx
         "Live identities changed during observation"
     );
     ensure!(
-        b.ptr(
-            &ctx,
-            controller,
-            "Chimera.CrPlayerControllerBase",
-            "PlayerMainCharacter"
-        )
-        .await?
+        b.ptr(&ctx, controller, "Chimera.CrPlayerControllerBase", "PlayerMainCharacter").await?
             == character,
         "Player changed during observation"
     );
@@ -516,9 +406,7 @@ async fn read_context(process:&platform::Process,base:&Cache,b:&Bindings,ctx:Ctx
             ctx.read::<f32>(sub + 0x78).await? as f64
                 == timing_configuration["intervalSeconds"].as_f64().unwrap()
                 && ctx.read::<f32>(sub + 0x64).await? as f64
-                    == timing_configuration["warningDurationSeconds"]
-                        .as_f64()
-                        .unwrap(),
+                    == timing_configuration["warningDurationSeconds"].as_f64().unwrap(),
             "Timer configuration changed during observation"
         );
     }
@@ -573,14 +461,11 @@ pub async fn snapshot(
     directory: &FilePath,
 ) -> Result<Value> {
     let file = directory.join("live-context.json");
-    let cached = std::fs::read(&file)
-        .ok()
-        .filter(|b| b.len() <= 65536)
-        .and_then(|b| serde_json::from_slice::<Bindings>(&b).ok());
-    if let Some(b) = cached.filter(|b| b.validate(&process.identity).is_ok()) {
-        if let Ok(value) = read(process, base, &b).await {
-            return Ok(value);
-        }
+    let cached = crate::cache::read_json::<Bindings>(&file, 65536).ok();
+    if let Some(b) = cached.filter(|b| b.validate(&process.identity).is_ok())
+        && let Ok(value) = read(process, base, &b).await
+    {
+        return Ok(value);
     }
     let b = discover(process, base).await?;
     let value = read(process, base, &b).await?;

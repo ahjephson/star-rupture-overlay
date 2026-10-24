@@ -13,10 +13,7 @@ use std::{
     time::Duration,
 };
 fn now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64
 }
 struct Output<'a> {
     sink: &'a mut dyn FnMut(Message) -> Result<()>,
@@ -26,10 +23,7 @@ struct Output<'a> {
 }
 impl Output<'_> {
     fn send(&mut self, kind: Kind, data: Value) -> Result<()> {
-        self.sequence = self
-            .sequence
-            .checked_add(1)
-            .context("Stream sequence exhausted")?;
+        self.sequence = self.sequence.checked_add(1).context("Stream sequence exhausted")?;
         let message = Message {
             version: 1,
             reader_pid: std::process::id(),
@@ -65,15 +59,10 @@ async fn attach(
         *retained = Some(platform::find_game(budget)?);
     }
     let process = retained.as_ref().unwrap().clone();
-    ensure!(
-        process.identity.executable_sha256 == BUILD_HASH,
-        "Unsupported game executable"
-    );
+    ensure!(process.identity.executable_sha256 == BUILD_HASH, "Unsupported game executable");
     let path = directory.join("session.json");
-    let cached = std::fs::read(&path)
+    let cached = crate::cache::read_json::<Cache>(&path, 100000)
         .ok()
-        .filter(|b| b.len() <= 100000)
-        .and_then(|b| serde_json::from_slice::<Cache>(&b).ok())
         .filter(|c| cache_matches(c, &process.identity));
     let base = if let Some(c) = cached {
         if sample(&process, &c).await.is_ok() {
@@ -104,10 +93,7 @@ pub fn run(
     mut sink: impl FnMut(Message) -> Result<()>,
 ) -> Result<()> {
     ensure!(!platform::is_elevated()?, "Do not run overlay elevated");
-    ensure!(
-        directory.is_absolute(),
-        "Absolute private cache directory required"
-    );
+    ensure!(directory.is_absolute(), "Absolute private cache directory required");
     let (pause_ms, world_ms) = Command::Start {
         version: 1,
         pause_interval_ms: 50,
@@ -116,7 +102,7 @@ pub fn run(
     .intervals()
     .map_err(anyhow::Error::msg)?;
     let budget = platform::ReadBudget::new(stop.clone());
-    std::fs::create_dir_all(&directory)?;
+    std::fs::create_dir_all(directory)?;
     jmap_dumper::diag::set_verbosity(jmap_dumper::diag::Verbosity::Quiet);
     let mut output = Output {
         sink: &mut sink,
@@ -147,10 +133,8 @@ pub fn run(
                 budget.renew(60000);
                 match attach(directory, &mut retained, budget.clone()).await {
                     Ok(s) => {
-                        output.generation = output
-                            .generation
-                            .checked_add(1)
-                            .context("Generation exhausted")?;
+                        output.generation =
+                            output.generation.checked_add(1).context("Generation exhausted")?;
                         output.process = Some(GameIdentity {
                             pid: s.process.identity.pid,
                             creation_ticks: s.process.identity.creation_ticks.to_string(),

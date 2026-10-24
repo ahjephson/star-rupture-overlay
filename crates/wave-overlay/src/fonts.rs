@@ -13,13 +13,13 @@ impl Fonts {
             include_bytes!("../assets/fonts/Oxanium-Bold.ttf").as_slice(),
             include_bytes!("../assets/fonts/Oxanium-ExtraBold.ttf").as_slice(),
         ] {
-            let mut count = 0;
+            let count = 0;
             let handle = unsafe {
                 AddFontMemResourceEx(
                     bytes.as_ptr().cast(),
                     bytes.len() as u32,
                     std::ptr::null(),
-                    &mut count,
+                    &count,
                 )
             };
             if handle.is_null() || count == 0 {

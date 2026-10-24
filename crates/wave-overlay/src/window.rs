@@ -1,6 +1,11 @@
+//! Owns the native window, GDI rendering and tray controls on the UI thread.
+//!
+//! Win32 handles and the boxed App remain alive through the message loop. The
+//! reader only publishes locked data and posts a notification; it never touches
+//! GDI resources. Shutdown cancels and joins it before the shared state drops.
 use serde_json::{Value, json};
 use starrupture_observation_model::wave::{HudFrame, HudPresenter, style};
-use starrupture_wave_core::{config::Config, saves::now_ms};
+use starrupture_wave_core::{config::Config, formatting::now_ms};
 use std::{
     ffi::c_void,
     mem::size_of,
@@ -112,13 +117,14 @@ unsafe fn tick(window: HWND) {
             a.pause_position = paused;
             eprintln!(
                 "Wave timer layout: {}",
-                if paused { "paused" } else { "gameplay" }
+                if paused {
+                    "paused"
+                } else {
+                    "gameplay"
+                }
             );
         }
-        (
-            a.presenter.update(&r.value, now_ms().max(0) as u64, 5000),
-            r.process,
-        )
+        (a.presenter.update(&r.value, now_ms().max(0) as u64, 5000), r.process)
     };
     if a.frame != frame {
         a.frame = frame;
@@ -145,7 +151,10 @@ unsafe fn tick(window: HWND) {
         unsafe { ShowWindow(window, SW_HIDE) };
         return;
     }
-    let mut origin = POINT { x: 0, y: 0 };
+    let mut origin = POINT {
+        x: 0,
+        y: 0,
+    };
     unsafe { ClientToScreen(a.game, &mut origin) };
     let w = rect.right.max(1);
     let h = rect.bottom.max(1);
@@ -230,8 +239,14 @@ fn panel_points(width: i32, height: i32, inset: i32) -> [POINT; 7] {
     let right = width - 1 - inset;
     let bottom = height - 1 - inset;
     [
-        POINT { x: inset, y: inset },
-        POINT { x: tab, y: inset },
+        POINT {
+            x: inset,
+            y: inset,
+        },
+        POINT {
+            x: tab,
+            y: inset,
+        },
         POINT {
             x: tab + cut,
             y: inset + cut,
@@ -263,7 +278,7 @@ fn panel_contains(x: usize, y: usize, width: usize, height: usize) -> bool {
         && x + y <= width.saturating_sub(1) + height.saturating_sub(1) - cut
 }
 fn layer_alpha(pixels: &mut [u8], width: usize, height: usize) {
-    for (i, pixel) in pixels.chunks_exact_mut(4).enumerate() {
+    for (i, pixel) in pixels.as_chunks_mut::<4>().0.iter_mut().enumerate() {
         let x = i % width;
         let y = i / width;
         if !panel_contains(x, y, width, height) {
@@ -298,16 +313,8 @@ unsafe fn render_layer(window: HWND, screen: HDC, frame: &HudFrame) -> bool {
     info.bmiHeader.biBitCount = 32;
     info.bmiHeader.biCompression = BI_RGB;
     let mut bits = std::ptr::null_mut();
-    let bitmap = unsafe {
-        CreateDIBSection(
-            dc,
-            &info,
-            DIB_RGB_COLORS,
-            &mut bits,
-            std::ptr::null_mut(),
-            0,
-        )
-    };
+    let bitmap =
+        unsafe { CreateDIBSection(dc, &info, DIB_RGB_COLORS, &mut bits, std::ptr::null_mut(), 0) };
     if bitmap.is_null() || bits.is_null() {
         unsafe { DeleteDC(dc) };
         return false;
@@ -320,7 +327,10 @@ unsafe fn render_layer(window: HWND, screen: HDC, frame: &HudFrame) -> bool {
     let pixels =
         unsafe { std::slice::from_raw_parts_mut(bits as *mut u8, (width * height * 4) as usize) };
     layer_alpha(pixels, width as usize, height as usize);
-    let source = POINT { x: 0, y: 0 };
+    let source = POINT {
+        x: 0,
+        y: 0,
+    };
     let size = SIZE {
         cx: width,
         cy: height,
@@ -523,7 +533,12 @@ unsafe fn menu(window: HWND) {
             m,
             MF_STRING,
             1,
-            wide(if a.hidden { "Show" } else { "Hide" }).as_ptr(),
+            wide(if a.hidden {
+                "Show"
+            } else {
+                "Hide"
+            })
+            .as_ptr(),
         );
         AppendMenuW(
             m,
@@ -616,14 +631,14 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
             }
         }
         WM_LBUTTONDOWN => {
-            if let Some(a) = unsafe { app(window) } {
-                if a.unlocked {
-                    a.user_moved = true;
-                    unsafe {
-                        ReleaseCapture();
-                        SendMessageW(window, WM_NCLBUTTONDOWN, HTCAPTION as usize, 0)
-                    };
-                }
+            if let Some(a) = unsafe { app(window) }
+                && a.unlocked
+            {
+                a.user_moved = true;
+                unsafe {
+                    ReleaseCapture();
+                    SendMessageW(window, WM_NCLBUTTONDOWN, HTCAPTION as usize, 0)
+                };
             }
             0
         }
@@ -637,14 +652,14 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
             if let Some(a) = unsafe { app(window) } {
                 a.stop.store(true, Ordering::Relaxed)
             };
-            let mut icon = NOTIFYICONDATAW {
+            let icon = NOTIFYICONDATAW {
                 cbSize: size_of::<NOTIFYICONDATAW>() as u32,
                 hWnd: window,
                 uID: 1,
                 ..Default::default()
             };
             unsafe {
-                Shell_NotifyIconW(NIM_DELETE, &mut icon);
+                Shell_NotifyIconW(NIM_DELETE, &icon);
                 KillTimer(window, 1);
                 PostQuitMessage(0)
             };
@@ -658,11 +673,7 @@ struct Instance(HANDLE);
 impl Instance {
     fn acquire() -> Result<Self> {
         let handle = unsafe {
-            CreateMutexW(
-                std::ptr::null(),
-                0,
-                wide("Local\\StarRuptureWaveOverlay").as_ptr(),
-            )
+            CreateMutexW(std::ptr::null(), 0, wide("Local\\StarRuptureWaveOverlay").as_ptr())
         };
         if handle.is_null() {
             return Err(std::io::Error::last_os_error().into());
@@ -712,19 +723,11 @@ pub fn run() -> Result<()> {
     while let Some(arg) = args.next() {
         match arg.as_str(){"--config"=>path=Some(args.next().ok_or("Missing configuration path")?.into()),"--preview-stage"=>preview_phase=Some(args.next().ok_or("Missing preview phase")?),_=>return Err("Usage: starrupture-wave-overlay --config FILE [--preview-stage waiting|PreWave|Moving|Fadeout|Growback|unavailable]".into())}
     }
-    if let Some(phase) = &preview_phase {
-        if ![
-            "waiting",
-            "PreWave",
-            "Moving",
-            "Fadeout",
-            "Growback",
-            "unavailable",
-        ]
-        .contains(&phase.as_str())
-        {
-            return Err("Unknown preview stage".into());
-        }
+    if let Some(phase) = &preview_phase
+        && !["waiting", "PreWave", "Moving", "Fadeout", "Growback", "unavailable"]
+            .contains(&phase.as_str())
+    {
+        return Err("Unknown preview stage".into());
     }
     let mut config = Config::load(path.as_deref())?;
     if preview_phase.is_none() && config.live.as_ref().is_some_and(|v| !v.enabled) {
@@ -733,11 +736,8 @@ pub fn run() -> Result<()> {
     if config.cache_directory.is_none() {
         let local = std::env::var_os("LOCALAPPDATA")
             .ok_or("Local application-data directory unavailable")?;
-        config.cache_directory = Some(
-            PathBuf::from(local)
-                .join("StarRuptureWaveOverlay")
-                .join("cache"),
-        );
+        config.cache_directory =
+            Some(PathBuf::from(local).join("StarRuptureWaveOverlay").join("cache"));
     }
     let _instance = Instance::acquire()?;
     if _instance.0.is_null() {
@@ -807,17 +807,12 @@ pub fn run() -> Result<()> {
     };
     let tip = wide("StarRupture Wave Timer â€” right-click for controls");
     icon.szTip[..tip.len()].copy_from_slice(&tip);
-    if unsafe { Shell_NotifyIconW(NIM_ADD, &mut icon) } == 0 {
+    if unsafe { Shell_NotifyIconW(NIM_ADD, &icon) } == 0 {
         unsafe { DestroyWindow(window) };
         return Err("Could not create overlay exit/control tray icon".into());
     }
     let worker = if app.preview.is_none() {
-        Some(reader(
-            config,
-            app.shared.clone(),
-            stop.clone(),
-            window as usize,
-        ))
+        Some(reader(config, app.shared.clone(), stop.clone(), window as usize))
     } else {
         None
     };
@@ -934,50 +929,6 @@ fn window_self_test() -> Result<()> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn game_panel_mask_keeps_square_corners_step_and_translucent_background() {
-        let mut pixels = [32u8, 30, 24, 0].repeat(20 * 20);
-        let text = (10 * 20 + 10) * 4;
-        pixels[text..text + 4].copy_from_slice(&[248, 247, 245, 0]);
-        layer_alpha(&mut pixels, 20, 20);
-        // Upper-left and lower-left corners remain square; the top step
-        // and lower-right cut are transparent outside the frame.
-        assert_eq!(&pixels[..4], &[29, 27, 22, 230]);
-        assert_eq!(&pixels[19 * 4..20 * 4], &[0, 0, 0, 0]);
-        assert_eq!(&pixels[399 * 4..400 * 4], &[0, 0, 0, 0]);
-        assert!(panel_contains(0, 19, 20, 20));
-        assert!(panel_contains(19, 5, 20, 20));
-        assert!(!panel_contains(19, 4, 20, 20));
-        assert_eq!(&pixels[text..text + 4], &[248, 247, 245, 255]);
-        let background = (10 * 20 + 8) * 4;
-        assert_eq!(&pixels[background..background + 4], &[29, 27, 22, 230]);
-        assert!(
-            pixels
-                .chunks_exact(4)
-                .all(|p| p[..3].iter().all(|c| *c <= p[3]))
-        );
-    }
-    #[test]
-    fn menu_layout_is_independent_of_simulation_pause_and_unknown_preserves_position() {
-        assert!(pause_menu_layout(
-            &json!({"status":"ok","data":{"pause":{"pauseMenuOpen":true,"paused":false}}}),
-            false
-        ));
-        assert!(!pause_menu_layout(
-            &json!({"status":"ok","data":{"pause":{"pauseMenuOpen":false,"paused":null}}}),
-            true
-        ));
-        assert!(pause_menu_layout(&json!({"status":"unavailable"}), true));
-        assert!(pause_menu_layout(
-            &json!({"status":"ok","data":{"pause":{"paused":true}}}),
-            false
-        ));
-    }
-}
-
 fn self_test(dir: &std::path::Path) -> Result<()> {
     use std::io::Write;
     std::fs::create_dir_all(dir)?;
@@ -997,14 +948,8 @@ fn self_test(dir: &std::path::Path) -> Result<()> {
         info.bmiHeader.biBitCount = 32;
         info.bmiHeader.biCompression = BI_RGB;
         let mut bits = std::ptr::null_mut();
-        let bitmap = CreateDIBSection(
-            dc,
-            &info,
-            DIB_RGB_COLORS,
-            &mut bits,
-            std::ptr::null_mut(),
-            0,
-        );
+        let bitmap =
+            CreateDIBSection(dc, &info, DIB_RGB_COLORS, &mut bits, std::ptr::null_mut(), 0);
         if bitmap.is_null() || bits.is_null() {
             DeleteDC(dc);
             ReleaseDC(std::ptr::null_mut(), screen);
@@ -1012,14 +957,7 @@ fn self_test(dir: &std::path::Path) -> Result<()> {
         }
         let old = SelectObject(dc, bitmap);
         let mut checks = Vec::new();
-        for phase in [
-            "waiting",
-            "PreWave",
-            "Moving",
-            "Fadeout",
-            "Growback",
-            "unavailable",
-        ] {
+        for phase in ["waiting", "PreWave", "Moving", "Fadeout", "Growback", "unavailable"] {
             let frame = preview(phase);
             draw(
                 dc,
@@ -1035,13 +973,17 @@ fn self_test(dir: &std::path::Path) -> Result<()> {
             let pixels =
                 std::slice::from_raw_parts(bits as *const u8, (width * height * 4) as usize);
             let coloured = pixels
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|b| {
                     b[0] == frame.colour[2] && b[1] == frame.colour[1] && b[2] == frame.colour[0]
                 })
                 .count();
             let white = pixels
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|b| b[0] > 230 && b[1] > 230 && b[2] > 230)
                 .count();
             if coloured < 100 || white < 30 {
@@ -1123,10 +1065,45 @@ fn reader(
                 eprintln!("Embedded reader unavailable: {error}");
                 publish(Update::Unavailable(error));
             }
-            Err(_) => publish(Update::Unavailable(
-                "Read-only worker failed; no fallback".into(),
-            )),
+            Err(_) => publish(Update::Unavailable("Read-only worker failed; no fallback".into())),
         }
         eprintln!("Wave timer reader joined; no reads remain in flight.");
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn game_panel_mask_keeps_square_corners_step_and_translucent_background() {
+        let mut pixels = [32u8, 30, 24, 0].repeat(20 * 20);
+        let text = (10 * 20 + 10) * 4;
+        pixels[text..text + 4].copy_from_slice(&[248, 247, 245, 0]);
+        layer_alpha(&mut pixels, 20, 20);
+        // Upper-left and lower-left corners remain square; the top step
+        // and lower-right cut are transparent outside the frame.
+        assert_eq!(&pixels[..4], &[29, 27, 22, 230]);
+        assert_eq!(&pixels[19 * 4..20 * 4], &[0, 0, 0, 0]);
+        assert_eq!(&pixels[399 * 4..400 * 4], &[0, 0, 0, 0]);
+        assert!(panel_contains(0, 19, 20, 20));
+        assert!(panel_contains(19, 5, 20, 20));
+        assert!(!panel_contains(19, 4, 20, 20));
+        assert_eq!(&pixels[text..text + 4], &[248, 247, 245, 255]);
+        let background = (10 * 20 + 8) * 4;
+        assert_eq!(&pixels[background..background + 4], &[29, 27, 22, 230]);
+        assert!(pixels.as_chunks::<4>().0.iter().all(|p| p[..3].iter().all(|c| *c <= p[3])));
+    }
+    #[test]
+    fn menu_layout_is_independent_of_simulation_pause_and_unknown_preserves_position() {
+        assert!(pause_menu_layout(
+            &json!({"status":"ok","data":{"pause":{"pauseMenuOpen":true,"paused":false}}}),
+            false
+        ));
+        assert!(!pause_menu_layout(
+            &json!({"status":"ok","data":{"pause":{"pauseMenuOpen":false,"paused":null}}}),
+            true
+        ));
+        assert!(pause_menu_layout(&json!({"status":"unavailable"}), true));
+        assert!(pause_menu_layout(&json!({"status":"ok","data":{"pause":{"paused":true}}}), false));
+    }
 }

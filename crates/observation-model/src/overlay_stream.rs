@@ -67,21 +67,12 @@ pub fn read_line(reader: &mut impl BufRead, max: usize) -> io::Result<Option<Vec
             return if line.is_empty() {
                 Ok(None)
             } else {
-                Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    "Truncated IPC line",
-                ))
+                Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Truncated IPC line"))
             };
         }
-        let n = chunk
-            .iter()
-            .position(|b| *b == b'\n')
-            .map_or(chunk.len(), |n| n + 1);
+        let n = chunk.iter().position(|b| *b == b'\n').map_or(chunk.len(), |n| n + 1);
         if line.len() + n > max {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "IPC line exceeds bound",
-            ));
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "IPC line exceeds bound"));
         }
         line.extend_from_slice(&chunk[..n]);
         reader.consume(n);

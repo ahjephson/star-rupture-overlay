@@ -1,3 +1,7 @@
+//! Narrow OS boundary: bounded reads through query/read-only handles.
+//!
+//! Buffers remain owned across each synchronous Win32 call. Handles close via
+//! RAII on the reader thread; no process write, code execution or privilege APIs.
 use crate::{Identity, Mem};
 use anyhow::{Context, Result, bail, ensure};
 use sha2::{Digest, Sha256};
@@ -6,6 +10,7 @@ use std::{
     fs::File,
     io::Read,
     mem::{size_of, zeroed},
+    rc::Rc,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -33,7 +38,7 @@ impl Drop for OwnedHandle {
 #[derive(Clone)]
 pub struct Process {
     pub identity: Identity,
-    handle: Arc<OwnedHandle>,
+    handle: Rc<OwnedHandle>,
     budget: Arc<ReadBudget>,
 }
 fn checked(ok: i32) -> Result<()> {
@@ -71,20 +76,14 @@ fn open(pid: u32, budget: Arc<ReadBudget>) -> Result<Process> {
     budget.check()?;
     // Only query/read permissions. No debug privilege adjustment, writes or remote threads.
     let raw = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, 0, pid) };
-    ensure!(
-        !raw.is_null(),
-        "Cannot open game read-only: {}",
-        std::io::Error::last_os_error()
-    );
-    let handle = Arc::new(OwnedHandle(raw));
+    ensure!(!raw.is_null(), "Cannot open game read-only: {}", std::io::Error::last_os_error());
+    // Process handles stay on the reader thread; only cancellation is shared.
+    let handle = Rc::new(OwnedHandle(raw));
     let mut chars = vec![0u16; 32768];
     let mut count = chars.len() as u32;
     checked(unsafe { QueryFullProcessImageNameW(raw, 0, chars.as_mut_ptr(), &mut count) })?;
     let executable = String::from_utf16(&chars[..count as usize])?;
-    ensure!(
-        executable.eq_ignore_ascii_case(EXPECTED),
-        "Unexpected game executable path"
-    );
+    ensure!(executable.eq_ignore_ascii_case(EXPECTED), "Unexpected game executable path");
     let mut created = unsafe { zeroed() };
     let mut exited = unsafe { zeroed() };
     let mut kernel = unsafe { zeroed() };
@@ -135,11 +134,7 @@ pub fn find_game(budget: Arc<ReadBudget>) -> Result<Process> {
     let mut ok = unsafe { Process32FirstW(snapshot.0, &mut entry) };
     while ok != 0 {
         budget.check()?;
-        let n = entry
-            .szExeFile
-            .iter()
-            .position(|x| *x == 0)
-            .unwrap_or(entry.szExeFile.len());
+        let n = entry.szExeFile.iter().position(|x| *x == 0).unwrap_or(entry.szExeFile.len());
         if String::from_utf16_lossy(&entry.szExeFile[..n]).eq_ignore_ascii_case(GAME) {
             ids.push(entry.th32ProcessID);
         }
@@ -148,10 +143,7 @@ pub fn find_game(budget: Arc<ReadBudget>) -> Result<Process> {
     if ids.is_empty() {
         bail!("Game is not running")
     }
-    ensure!(
-        ids.len() == 1,
-        "Multiple game processes; refusing ambiguous session"
-    );
+    ensure!(ids.len() == 1, "Multiple game processes; refusing ambiguous session");
     open(ids[0], budget).context("Opening installed StarRupture")
 }
 #[async_trait::async_trait(?Send)]
@@ -162,9 +154,7 @@ impl Mem for Process {
             (0x10000..0x7fffffffffff).contains(&address) && buf.len() <= 16 * 1024 * 1024,
             "Invalid bounded memory read"
         );
-        address
-            .checked_add(buf.len() as u64)
-            .context("Address overflow")?;
+        address.checked_add(buf.len() as u64).context("Address overflow")?;
         let mut got = 0;
         checked(unsafe {
             ReadProcessMemory(

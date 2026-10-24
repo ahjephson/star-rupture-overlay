@@ -1,6 +1,11 @@
 //! Pure validation of read-only world observations; no MCP or process orchestration.
-use crate::{AppError,facts::{Result,check},live_timing::live_wave_timing,saves::iso};
-use serde_json::{Value,json};
+use crate::{
+    AppError,
+    facts::{Result, check},
+    formatting::iso,
+    live_timing::live_wave_timing,
+};
+use serde_json::{Value, json};
 pub const GAME_HASH: &str = "95f95eee0b1913b8716de7fa5bf19877a91abe86e63bf2b6f0a29bd48d1d76f1";
 const LIMIT: usize = 65536;
 pub fn unavailable(code: &str, message: impl Into<String>) -> Value {
@@ -13,8 +18,7 @@ fn finite(v: &Value) -> bool {
     v.as_f64().is_some_and(f64::is_finite)
 }
 fn integer(v: &Value) -> bool {
-    v.as_f64()
-        .is_some_and(|v| v.fract() == 0.0 && v.abs() <= 9_007_199_254_740_991.0)
+    v.as_f64().is_some_and(|v| v.fract() == 0.0 && v.abs() <= 9_007_199_254_740_991.0)
 }
 /// Pure validation entry point for offline retained-evidence replay; production always runs a pinned helper first.
 pub fn validate_observation(tool: &str, r: &Value, start: i64, now: i64) -> Result<Value> {
@@ -46,26 +50,17 @@ pub fn validate_observation(tool: &str, r: &Value, start: i64, now: i64) -> Resu
     )?;
     valid(
         r["position"].is_object()
-            && ["x", "y", "z"].iter().all(|k| {
-                r["position"][k]
-                    .as_f64()
-                    .is_some_and(|v| v.abs() < 100000000.0)
-            }),
+            && ["x", "y", "z"]
+                .iter()
+                .all(|k| r["position"][k].as_f64().is_some_and(|v| v.abs() < 100000000.0)),
         "Invalid live position.",
     )?;
     let l = &r["live"];
     valid(
         l.is_object()
-            && [
-                "player",
-                "world",
-                "clocks",
-                "pause",
-                "wave",
-                "observationWindow",
-            ]
-            .iter()
-            .all(|k| l[k].is_object()),
+            && ["player", "world", "clocks", "pause", "wave", "observationWindow"]
+                .iter()
+                .all(|k| l[k].is_object()),
         "Missing live context.",
     )?;
     valid(
@@ -79,9 +74,7 @@ pub fn validate_observation(tool: &str, r: &Value, start: i64, now: i64) -> Resu
     valid(
         l["world"]["worldPath"] == "/Game/Chimera/Maps/ChimeraMain/ChimeraMain.ChimeraMain"
             && l["world"]["origin"].is_object()
-            && ["x", "y", "z"]
-                .iter()
-                .all(|k| integer(&l["world"]["origin"][k]))
+            && ["x", "y", "z"].iter().all(|k| integer(&l["world"]["origin"][k]))
             && l["world"]["originRebasingEnabled"].is_boolean()
             && l["world"]["mapCoordinatesCompatible"].is_boolean(),
         "Unsupported world frame.",
@@ -100,9 +93,7 @@ pub fn validate_observation(tool: &str, r: &Value, start: i64, now: i64) -> Resu
         "Invalid live clocks.",
     )?;
     valid(
-        l["pause"]
-            .get("paused")
-            .is_some_and(|v| v.is_null() || v.is_boolean())
+        l["pause"].get("paused").is_some_and(|v| v.is_null() || v.is_boolean())
             && l["pause"]["pauseMenuOpen"].is_boolean()
             && l["pause"]["pauserPresent"].is_boolean(),
         "Invalid pause evidence.",
@@ -135,20 +126,15 @@ pub fn validate_observation(tool: &str, r: &Value, start: i64, now: i64) -> Resu
     )?;
     let map = l["world"]["mapCoordinatesCompatible"] == true
         && l["world"]["originRebasingEnabled"] == false
-        && ["x", "y", "z"]
-            .iter()
-            .all(|k| l["world"]["origin"][k].as_f64() == Some(0.0))
+        && ["x", "y", "z"].iter().all(|k| l["world"]["origin"][k].as_f64() == Some(0.0))
         && l["player"]["dead"] == false;
-    let wave = live_wave_timing(
-        &l["wave"],
-        l["clocks"]["simulationSeconds"].as_f64().unwrap(),
-    );
+    let wave = live_wave_timing(&l["wave"], l["clocks"]["simulationSeconds"].as_f64().unwrap());
     let data = if tool == "get_live_player_context" {
         json!({"position":r["position"],"mapPosition":if map{r["position"].clone()}else{Value::Null},"player":l["player"],"world":l["world"]})
     } else {
         json!({"world":l["world"],"clocks":l["clocks"],"pause":l["pause"],"wave":wave})
     };
-    let mut observation = json!({"observationId":uuid::Uuid::new_v4().to_string(),"source":"live_process_memory","observedAt":iso(observed.trunc() as i64),"window":w,"processId":process["pid"],"creationTicks":process["creation_ticks"],"processStartedAtUtc":iso(ms as i64),"sessionId":format!("{}:{}:{GAME_HASH}",crate::saves::js_json(&process["pid"]),ticks.unwrap()),"helperVersion":r["helperVersion"],"gameExecutableSha256":GAME_HASH});
+    let mut observation = json!({"observationId":uuid::Uuid::new_v4().to_string(),"source":"live_process_memory","observedAt":iso(observed.trunc() as i64),"window":w,"processId":process["pid"],"creationTicks":process["creation_ticks"],"processStartedAtUtc":iso(ms as i64),"sessionId":format!("{}:{}:{GAME_HASH}",crate::formatting::js_json(&process["pid"]),ticks.unwrap()),"helperVersion":r["helperVersion"],"gameExecutableSha256":GAME_HASH});
     if let Some(v) = r.get("readerIsElevated") {
         observation["readerIsElevated"] = v.clone();
     }

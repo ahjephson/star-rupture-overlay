@@ -46,7 +46,7 @@
     },
     {
       "path": "third-party/gospel/gospel-compiler/Cargo.toml",
-      "sha256": "d42e821908ca284dc7e0d2c97a2b41ba7918e6853fe1ee94f82059aaf35ddfec"
+      "sha256": "b35f1a751fe6c2695560f3175b4dfae11ce3999e6c28df6f54a912577298385c"
     },
     {
       "path": "third-party/gospel/gospel-compiler/res/compiler_rt/sys.gs",
@@ -99,7 +99,7 @@
     },
     {
       "path": "third-party/gospel/gospel-typelib/Cargo.toml",
-      "sha256": "bdb57fa9537e9f8db73f3a8b9140d2735ddfe51ec0b3422b223fd02ce4daf21b"
+      "sha256": "0453c4629ece4d3e672d8f85ec38985bd4929b67a3a1529ad95f852e7a4e9a83"
     },
     {
       "path": "third-party/gospel/gospel-typelib/src/lib.rs",
@@ -118,7 +118,7 @@
     },
     {
       "path": "third-party/gospel/gospel-vm/Cargo.toml",
-      "sha256": "17dd96a77de80444c6748383779391c0cbdfa40231b83bbb7bfcfbd895075bad"
+      "sha256": "f435dee2fd318d4fe070a7caac8d23f72e850fcdc17515787e82a84afb625be5"
     },
     {
       "path": "third-party/gospel/gospel-vm/src/bytecode.rs",
@@ -169,7 +169,7 @@
     },
     {
       "path": "third-party/jmap/jmap/Cargo.toml",
-      "sha256": "c9803d35d147f7c56bf49e9a342da2dea26244e0d650635b0ab9a0ea3863e47b"
+      "sha256": "e69ca2748dc690c54506c353572df15cfb009bcd8c61bd72e44dff9546ad9016"
     },
     {
       "path": "third-party/jmap/jmap/src/lib.rs",
@@ -177,7 +177,7 @@
     },
     {
       "path": "third-party/jmap/jmap_dumper/Cargo.toml",
-      "sha256": "af8147bd023188c1f411901790db39553455be35ee8cc6063cb2b709f804f764"
+      "sha256": "fb5791427127f69b0f79232535a1a6f5ea0607b84e8e8b5e40bb4e583aabf4d7"
     },
     {
       "path": "third-party/jmap/jmap_dumper/release.toml",
@@ -261,7 +261,7 @@
     },
     {
       "path": "third-party/jmap/usmap/Cargo.toml",
-      "sha256": "c8dea5a9e884cc2122770d7a0cc08b4e34cf6e1164c86627e8a44adcc311c4e2"
+      "sha256": "6b6ccfeec4c4b3fd1ef40c7af382a3e2b4982c3fcaa7111cb4a0bae14af00e74"
     },
     {
       "path": "third-party/jmap/usmap/src/compression.rs",
@@ -277,7 +277,7 @@
     },
     {
       "path": "third-party/patternsleuth/Cargo.toml",
-      "sha256": "862a60482041b618ca35dbd188dcf24de6668f612d9909c6fbe6bdeb6edcff8c"
+      "sha256": "7b4f58d95713a698eab4755ef522806a38255e01e74b1256f430bcda8cfb860f"
     },
     {
       "path": "third-party/patternsleuth/README.md",
@@ -285,7 +285,7 @@
     },
     {
       "path": "third-party/patternsleuth/patternsleuth/Cargo.toml",
-      "sha256": "254ff17397b2c0ee0b9f335325cde8bc9aa4d769b3c8e0057a0e06b251846e31"
+      "sha256": "92f98acec01f8fa7e513c7de686e378a887cdac206b414b945c33c89e5a0db11"
     },
     {
       "path": "third-party/patternsleuth/patternsleuth/src/lib.rs",
@@ -401,7 +401,7 @@
     },
     {
       "path": "third-party/patternsleuth/patternsleuth_scanner/Cargo.toml",
-      "sha256": "ed07f1472a3599cd4c95641095d7bfa7e743fe0676abc11161c7b44deddf812b"
+      "sha256": "4d43d154865a5b34febf17eff9242837dae97109cca86938aacfbd78369d286d"
     },
     {
       "path": "third-party/patternsleuth/patternsleuth_scanner/benches/scan.rs",
@@ -429,7 +429,7 @@
     },
     {
       "path": "third-party/ser-hex/ser-hex/Cargo.toml",
-      "sha256": "129edd74fccf8535b65b72a968021bda11cf182872f1d9c45e7965f8832dd673"
+      "sha256": "01accb9e27999006344b8dadb4cc26d0fbccd446d19138091fa99553420d88e9"
     },
     {
       "path": "third-party/ser-hex/ser-hex/README.md",
@@ -455,5 +455,67 @@
     "Unused upstream game-derived usmap test fixtures omitted",
     "Apache license text supplied centrally; original available notices/manifests/readmes retained",
     "2026-10-24 standalone extraction: 19 inherited gospel source files matched exact rustfmt --edition 2024 --emit stdout --config skip_children=true output of recorded upstream revision 60f85b2a2406ee2e8b7c24c9f37de422d72b58a2. No semantic source changes; original/current SHA256 values retained per file. Only this independent manifest was updated; source MCP workspace left unchanged."
+  ],
+  "localPatches": [
+    {
+      "path": "third-party/patternsleuth/Cargo.toml",
+      "originalSha256": "862a60482041b618ca35dbd188dcf24de6668f612d9909c6fbe6bdeb6edcff8c",
+      "reason": "Disable unused object compressed-debug-section decoding for the PE memory reader; removes vulnerable ruzstd0.5 (RUSTSEC-2026-0344). Upstream Rust source unchanged.",
+      "date": "2026-10-24"
+    },
+    {
+      "path": "third-party/gospel/gospel-compiler/Cargo.toml",
+      "originalSha256": "d42e821908ca284dc7e0d2c97a2b41ba7918e6853fe1ee94f82059aaf35ddfec",
+      "reason": "Mark retained source fork as non-publishable; permits audited versionless local path dependencies without allowing registry wildcards. Upstream Rust source unchanged.",
+      "date": "2026-10-24"
+    },
+    {
+      "path": "third-party/gospel/gospel-typelib/Cargo.toml",
+      "originalSha256": "bdb57fa9537e9f8db73f3a8b9140d2735ddfe51ec0b3422b223fd02ce4daf21b",
+      "reason": "Mark retained source fork as non-publishable; permits audited versionless local path dependencies without allowing registry wildcards. Upstream Rust source unchanged.",
+      "date": "2026-10-24"
+    },
+    {
+      "path": "third-party/gospel/gospel-vm/Cargo.toml",
+      "originalSha256": "17dd96a77de80444c6748383779391c0cbdfa40231b83bbb7bfcfbd895075bad",
+      "reason": "Mark retained source fork as non-publishable; permits audited versionless local path dependencies without allowing registry wildcards. Upstream Rust source unchanged.",
+      "date": "2026-10-24"
+    },
+    {
+      "path": "third-party/jmap/jmap/Cargo.toml",
+      "originalSha256": "c9803d35d147f7c56bf49e9a342da2dea26244e0d650635b0ab9a0ea3863e47b",
+      "reason": "Mark retained source fork as non-publishable; permits audited versionless local path dependencies without allowing registry wildcards. Upstream Rust source unchanged.",
+      "date": "2026-10-24"
+    },
+    {
+      "path": "third-party/jmap/jmap_dumper/Cargo.toml",
+      "originalSha256": "af8147bd023188c1f411901790db39553455be35ee8cc6063cb2b709f804f764",
+      "reason": "Mark retained source fork as non-publishable; permits audited versionless local path dependencies without allowing registry wildcards. Upstream Rust source unchanged.",
+      "date": "2026-10-24"
+    },
+    {
+      "path": "third-party/jmap/usmap/Cargo.toml",
+      "originalSha256": "c8dea5a9e884cc2122770d7a0cc08b4e34cf6e1164c86627e8a44adcc311c4e2",
+      "reason": "Mark retained source fork as non-publishable; permits audited versionless local path dependencies without allowing registry wildcards. Upstream Rust source unchanged.",
+      "date": "2026-10-24"
+    },
+    {
+      "path": "third-party/patternsleuth/patternsleuth/Cargo.toml",
+      "originalSha256": "254ff17397b2c0ee0b9f335325cde8bc9aa4d769b3c8e0057a0e06b251846e31",
+      "reason": "Mark retained source fork as non-publishable; permits audited versionless local path dependencies without allowing registry wildcards. Upstream Rust source unchanged.",
+      "date": "2026-10-24"
+    },
+    {
+      "path": "third-party/patternsleuth/patternsleuth_scanner/Cargo.toml",
+      "originalSha256": "ed07f1472a3599cd4c95641095d7bfa7e743fe0676abc11161c7b44deddf812b",
+      "reason": "Mark retained source fork as non-publishable; permits audited versionless local path dependencies without allowing registry wildcards. Upstream Rust source unchanged.",
+      "date": "2026-10-24"
+    },
+    {
+      "path": "third-party/ser-hex/ser-hex/Cargo.toml",
+      "originalSha256": "129edd74fccf8535b65b72a968021bda11cf182872f1d9c45e7965f8832dd673",
+      "reason": "Mark retained source fork as non-publishable; permits audited versionless local path dependencies without allowing registry wildcards. Upstream Rust source unchanged.",
+      "date": "2026-10-24"
+    }
   ]
 }

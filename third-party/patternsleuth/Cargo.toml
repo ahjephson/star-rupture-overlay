@@ -23,7 +23,7 @@ iced-x86 = "1.20.0"
 itertools = "0.12.0"
 memchr = "2.7.1"
 msvc-demangler = "0.9.0"
-object = "0.32.2"
+object = { version = "0.32.2", default-features = false, features = ["read", "std"] }
 pdb = "0.8.0"
 prettytable-rs = "0.10.0"
 rayon = "1.8.0"

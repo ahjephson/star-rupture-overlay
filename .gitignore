@@ -16,3 +16,6 @@
 !/config/example.json
 /captures/
 /backups/
+
+__pycache__/
+*.pyc

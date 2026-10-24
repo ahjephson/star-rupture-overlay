@@ -1,41 +1,63 @@
 # StarRupture Wave Overlay
 
-A standalone Windows overlay showing the current wave stage and the time until the next stage. One executable contains both the HUD and its persistent read-only sampling worker. No MCP server, Codex, Node.js, save data or extracted game datasets are required at runtime.
+A small, standalone Windows HUD showing StarRupture's current wave stage and the countdown to the next stage. One executable draws the overlay and reads the running game; no Node.js, Codex, MCP server or save files are required.
 
-The angular HUD uses bundled Oxanium fonts and stage colors. It stays visible while paused and when the game loses focus, uses a slightly transparent background, and moves below the pause border while the pause menu is open. Right-click its tray icon to hide, move, lock, reset or exit.
+The HUD uses Oxanium, stage-specific colors and a game-style frame. It freezes with verified simulation pause, moves below the pause-menu border, stays visible when the game loses focus and hides when the game is minimized or closed. The native Moving phase is displayed as **INCINERATING**.
 
-## Build and run
+## Run
 
-Requirements: Windows x64, Rust stable with edition2024 support (1.88+), and Visual Studio C++ Build Tools/Windows SDK. The supported game executable is deliberately SHA256-pinned; unknown builds fail closed. See docs/HANDOVER.md.
+No public release has been published yet. When a reviewed release is available:
+
+1. Download the Windows x64 ZIP and its matching `.sha256` file from this repository's Releases page.
+2. Check the archive hash, extract it to a user-writable folder and double-click `starrupture-wave-overlay.exe`.
+3. Start the supported game normally. Use the overlay's tray menu to show/hide, unlock/move/lock, reset its position or exit.
+
+Keep the included licence notices with the executable. Configuration is optional. Do not run the app as administrator. The current candidate is unsigned; a checksum verifies downloaded bytes, not the publisher's identity.
+
+## Compatibility
+
+- Windows 10/11 x64, with borderless or windowed gameplay.
+- The current reader supports one SHA256-pinned Steam game build at its default C-drive installation path. See [supported builds](docs/COMPATIBILITY.md) before reporting unavailable data.
+- Unknown builds, unsupported maps, changed object identities and stale observations produce unavailable data instead of guessed values.
+- No in-game hooks, injection, memory writes, save editing or automatic saves. The runtime makes no network requests and has no automatic updater.
+
+## Build from source
+
+Install Rust through rustup and Visual Studio C++ Build Tools with the Windows SDK. The repository pins Rust **1.99.1**, including Clippy and rustfmt. PowerShell 7, Git and Python 3 are used by the release checks.
 
 ```powershell
-./scripts/Build.ps1
-./scripts/Start-Overlay.ps1
+./scripts/Install-QualityTools.ps1
+./scripts/Test-Dependencies.ps1
+./scripts/Build.ps1 -OutputDirectory local/candidate
+./scripts/Package-Release.ps1 -BuildDirectory local/candidate
 ```
 
-Double-click **`dist/starrupture-wave-overlay.exe`** to run. No command-line arguments, configuration file or second executable are needed. The release app creates no console window, prevents duplicate instances and reports startup failures in a Windows dialog. Exit through its tray menu. Fonts are embedded and registered privately.
+The build runs formatting checks, strict Clippy, tests and vendor verification, then produces a candidate containing the app, dependency inventory, licence notices and a file-integrity manifest. Build/package output must use a new directory; existing installations are never overwritten. The package step requires a clean source checkout by default. For development-only packaging, `-AllowUncommitted` marks the archive accordingly.
 
-`Build.ps1` tests and builds the workspace, packages that one executable and the font license in ignored `dist/`, and removes the obsolete reader executable there. `Start-Overlay.ps1` is an optional convenience launcher. The app stores private discovery caches under `%LOCALAPPDATA%/StarRuptureWaveOverlay/cache`; they are checked against the current process/build/session before use. It waits for a supported game and hides the HUD while the game is absent or minimized.
+`-Offline` uses previously cached dependencies; `-ToolchainDirectory PATH` selects an installed copy of the pinned compiler. Normal builds do not require any other project. [Contributing](CONTRIBUTING.md) explains quality checks; [releases](docs/RELEASING.md) covers review and draft preparation.
 
-Optional `--config PATH` accepts the example in `config/example.json`; relative cache paths resolve against that file. Existing helper configuration fields are accepted for compatibility, but no external helper is launched or required. Explicit `live.enabled=false` still disables live startup. No game Save menu or MCP registration is needed.
+## Install, upgrade and roll back
 
-For an external Rust installation, pass `-ToolchainDirectory PATH` to Build.ps1. An optional `-Offline` build uses an already populated local Cargo cache. Normal builds do not require either original repository.
+Portable deployment is simply extracting a reviewed ZIP to a new folder. Exit the old overlay from its tray before starting the new one; keep its folder until the new version is verified.
 
-Optional read-only live validation, with the supported game running:
+For a managed per-user installation from a source checkout:
 
 ```powershell
-python ./scripts/test_reader.py
-./dist/starrupture-wave-overlay.exe --self-test-window
+./scripts/Deploy.ps1 -ArchivePath PATH-TO-RELEASE.zip
+./scripts/Deploy.ps1 -ArchivePath PATH-TO-NEW-RELEASE.zip -Launch
+./scripts/Deploy.ps1 -Rollback -Launch
 ```
 
-## Components and boundaries
+The matching checksum file must sit beside the ZIP. Deployment verifies the archive and every packaged file, installs side by side under `%LOCALAPPDATA%/Programs/StarRuptureWaveOverlay`, and preserves the prior installation. It refuses to replace a running installed app. No administrator access, game-folder writes, system registration or service is needed. [Deployment details](docs/DEPLOYMENT.md).
 
-- `crates/wave-overlay`: native layered-window renderer/tray and joined background worker lifecycle.
-- `crates/reader`: embedded read-only library; retained process/context, fast pause checks and complete timer observations.
-- `crates/wave-core`: extracted pure observation validation, native timing and overlay-only configuration.
-- `crates/observation-model`: pure presentation and bounded observation envelopes.
-- `third-party`: retained source dependencies and upstream notices, not game data.
+## Settings and data
 
-Pause checks target50ms and world/timer samples250ms; full read latency can defer pause checks. Timers use observed simulation time, freeze with verified pause and become unavailable when stale. There is no invented wall-clock countdown, game hook or process write. Source-build pins and allocation/session guards deliberately limit compatibility rather than guessing. Worker cancellation is checked before each bounded memory read and during discovery/hashing, with monotonic read budgets; shutdown joins the worker and closes its read-only handles. Sampling runs in the app process, so it shares the app lifetime.
+Double-click startup needs no settings file. Private discovery caches live under `%LOCALAPPDATA%/StarRuptureWaveOverlay/cache` and are checked against current process/build/session identities before reuse. They are not saved gameplay evidence. An optional `--config PATH` can select another cache directory; see [config/example.json](config/example.json). Historical helper configuration fields are accepted for compatibility, but never launch another executable.
 
-This project was extracted from the private Rust MCP development workspace on2026-10-24. Historical implementations and private rollback backups are retained. Future overlay work belongs here. See docs/HANDOVER.md, docs/EXTRACTION.md and THIRD-PARTY-NOTICES.md.
+Fast menu checks target 50 ms; complete timer observations target 250 ms. A full read can defer a menu check. Countdowns use observed simulation time, never wall-time extrapolation; stale timer evidence becomes `--:--` after five seconds. Wave timing has the limits described in [architecture](docs/ARCHITECTURE.md).
+
+## Licence and affiliation
+
+First-party project code is licensed under **PolyForm Strict 1.0.0**, copyright (c) 2026 Alex Jephson. See [LICENSE](LICENSE) for the permitted uses and restrictions. Dependencies and embedded Oxanium fonts retain their own licences; redistribution notices are included in release archives. See [third-party notices](THIRD-PARTY-NOTICES.md).
+
+This is an unofficial community utility, not affiliated with or endorsed by the game's developers or publisher. No game binaries, extracted assets, datasets, saves or memory captures are distributed.

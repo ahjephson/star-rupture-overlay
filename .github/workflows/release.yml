@@ -1,0 +1,97 @@
+name: Prepare draft release
+
+# Deliberate manual invocation only. This workflow cannot publish a release.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing reviewed version tag, for example v0.1.0
+        required: true
+        type: string
+      live_verified:
+        description: I verified this tagged build against the supported running game
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-draft
+  cancel-in-progress: false
+
+jobs:
+  package:
+    if: github.ref == 'refs/heads/main' && inputs.live_verified
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve reviewed tag
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$') { throw 'Invalid version tag.' }
+          git rev-parse --verify "refs/tags/$env:RELEASE_TAG"
+          if ($LASTEXITCODE -ne 0) { throw 'Tag must already exist; this workflow never creates tags.' }
+          git merge-base --is-ancestor "refs/tags/$env:RELEASE_TAG" origin/main
+          if ($LASTEXITCODE -ne 0) { throw 'Release tag must be reachable from main.' }
+          git checkout --detach "refs/tags/$env:RELEASE_TAG"
+          if ($LASTEXITCODE -ne 0) { throw 'Could not check out release tag.' }
+      - name: Install pinned tools
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal --component clippy --component rustfmt
+          if ($LASTEXITCODE -ne 0) { throw 'Rust installation failed.' }
+          ./scripts/Install-QualityTools.ps1
+      - name: Verify version and release inputs
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          $metadata = cargo metadata --no-deps --locked --format-version 1 | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Metadata failed.' }
+          $version = ($metadata.packages | Where-Object name -eq 'starrupture-wave-overlay').version
+          if ($env:RELEASE_TAG -ne "v$version") { throw 'Tag and app version differ.' }
+          ./scripts/Test-PublicContent.ps1
+          ./scripts/Test-Dependencies.ps1
+      - name: Build and test release archive
+        run: |
+          ./scripts/Build.ps1 -OutputDirectory local/release-build
+          ./scripts/Package-Release.ps1 -BuildDirectory local/release-build -OutputDirectory local/release-package
+          $archive = Get-ChildItem local/release-package/*.zip
+          ./scripts/Test-Release.ps1 -ArchivePath $archive.FullName
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: reviewed-release
+          path: local/release-package/*
+          if-no-files-found: error
+          retention-days: 14
+
+  draft:
+    needs: package
+    runs-on: windows-2022
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: reviewed-release
+          path: release-files
+      - name: Create an unpublished draft
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$') { throw 'Invalid version tag.' }
+          $assets = @(Get-ChildItem release-files -File | ForEach-Object FullName)
+          gh release create $env:RELEASE_TAG @assets --verify-tag --draft --title "StarRupture Wave Overlay $env:RELEASE_TAG" --notes 'Portable Windows x64 build. Review the changelog, supported game build, live verification and checksums before publishing. Unsigned executable; checksums establish integrity, not publisher identity.'
+          if ($LASTEXITCODE -ne 0) { throw 'Draft creation failed; existing releases were not overwritten.' }

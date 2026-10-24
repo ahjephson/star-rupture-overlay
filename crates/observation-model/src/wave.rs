@@ -111,24 +111,13 @@ pub fn hud(v: &Value, now_ms: u64, stale_after_ms: u64) -> HudFrame {
     let (stage, colour) = style(phase);
     let w = &v["data"]["wave"];
     let (time, verification) = if phase == "waiting" {
-        (
-            &w["ruptureRemainingSeconds"],
-            &w["ruptureTimingVerification"],
-        )
+        (&w["ruptureRemainingSeconds"], &w["ruptureTimingVerification"])
     } else {
-        (
-            &w["nextPhaseRemainingSeconds"],
-            &w["stageTimingVerification"],
-        )
+        (&w["nextPhaseRemainingSeconds"], &w["stageTimingVerification"])
     };
-    let supported = [
-        "verified",
-        "corroborated",
-        "progress_based_estimate",
-        "conditional_estimate",
-    ]
-    .iter()
-    .any(|s| verification == *s);
+    let supported = ["verified", "corroborated", "progress_based_estimate", "conditional_estimate"]
+        .iter()
+        .any(|s| verification == *s);
     let countdown = time
         .as_f64()
         .filter(|n| n.is_finite() && *n >= 0. && *n <= 604800. && supported)
@@ -173,15 +162,9 @@ pub fn display(v: &Value, now_ms: u64, stale_after_ms: u64) -> DisplayFrame {
     }
     let active = w["currentRuptureInProgress"] == true;
     let (time, verification) = if active {
-        (
-            &w["nextPhaseRemainingSeconds"],
-            &w["stageTimingVerification"],
-        )
+        (&w["nextPhaseRemainingSeconds"], &w["stageTimingVerification"])
     } else {
-        (
-            &w["ruptureRemainingSeconds"],
-            &w["ruptureTimingVerification"],
-        )
+        (&w["ruptureRemainingSeconds"], &w["ruptureTimingVerification"])
     };
     let verified = verification == "verified";
     let estimated =
@@ -193,7 +176,11 @@ pub fn display(v: &Value, now_ms: u64, stale_after_ms: u64) -> DisplayFrame {
             let s = seconds.ceil() as u64;
             format!(
                 "{}{}:{:02}",
-                if estimated { "≈" } else { "" },
+                if estimated {
+                    "≈"
+                } else {
+                    ""
+                },
                 s / 60,
                 s % 60
             )

@@ -6,10 +6,8 @@ use starrupture_wave_core::{
 fn wave(stage: usize, progress: f64) -> Value {
     let duration = [0.0, 120.0, 10.0, 80.0, 735.0][stage];
     let clock = 10000.0;
-    let settings: serde_json::Map<String, Value> = HEAT_SETTINGS
-        .iter()
-        .map(|(k, v)| (k.to_string(), json!(v)))
-        .collect();
+    let settings: serde_json::Map<String, Value> =
+        HEAT_SETTINGS.iter().map(|(k, v)| (k.to_string(), json!(v))).collect();
     json!({"phase":"active_unverified","waitingForNextWave":false,"wavesDisabled":false,"specificWavePauseFlag":false,"previousStageRaw":stage,"timingConfiguration":{"status":"ok","nativeControlFlowVerified":true,"intervalIncludesWarning":true,"intervalSeconds":2400,"warningDurationSeconds":120},"actor":{"specificPauseFlag":false,"nextTime":clock+duration*(1.0-progress),"nextPhase":([0,0,1,2,3][stage])},"phaseEvidence":{"status":"ok","getterLayoutsVerified":true,"stage":stage,"waveType":1,"progress":progress,"inverseDuration":1.0/duration,"phaseClockEvidence":{"status":"ok","nativeUpdateBindingVerified":true,"deltaCapSeconds":0.1},"settings":settings,"waveStartTimeSeconds":clock+duration*(1.0-progress)-[0.0,0.0,10.0,90.0,825.0][stage]}})
 }
 fn fixture() -> Value {
@@ -35,12 +33,7 @@ fn active_timing_uses_native_progress_rate_and_keeps_actor_drift_diagnostic() {
     w["phaseEvidence"]["waveStartTimeSeconds"] = json!(137901.28125);
     w["actor"]["nextTime"] = json!(138726.28125);
     let r = live_wave_timing(&w, 138411.75120060518);
-    assert!(
-        r["actorDeadlineDiagnostic"]["progressMinusDeadlineSeconds"]
-            .as_f64()
-            .unwrap()
-            > 2.0
-    );
+    assert!(r["actorDeadlineDiagnostic"]["progressMinusDeadlineSeconds"].as_f64().unwrap() > 2.0);
     assert_eq!(r["stageTimingVerification"], "progress_based_estimate");
 }
 #[test]
@@ -52,14 +45,8 @@ fn invalid_phase_settings_pause_binding_and_cap_fail_closed() {
         ("/phaseEvidence/progress", json!(1.1)),
         ("/phaseEvidence/inverseDuration", json!(0)),
         ("/phaseEvidence/getterLayoutsVerified", json!(false)),
-        (
-            "/phaseEvidence/phaseClockEvidence/nativeUpdateBindingVerified",
-            json!(false),
-        ),
-        (
-            "/phaseEvidence/phaseClockEvidence/deltaCapSeconds",
-            json!(0.2),
-        ),
+        ("/phaseEvidence/phaseClockEvidence/nativeUpdateBindingVerified", json!(false)),
+        ("/phaseEvidence/phaseClockEvidence/deltaCapSeconds", json!(0.2)),
         ("/phaseEvidence/settings/preWaveDuration", json!(30)),
         ("/phaseEvidence/waveStartTimeSeconds", json!(20000)),
         ("/previousStageRaw", json!(2)),
@@ -74,9 +61,7 @@ fn invalid_phase_settings_pause_binding_and_cap_fail_closed() {
 #[test]
 fn waiting_and_following_cycle_use_live_configuration_without_defaults() {
     let mut w = wave(4, 0.5);
-    w.as_object_mut()
-        .unwrap()
-        .shift_remove("timingConfiguration");
+    w.as_object_mut().unwrap().shift_remove("timingConfiguration");
     let r = live_wave_timing(&w, 10000.0);
     assert!(r["ruptureRemainingSeconds"].is_null());
     assert_eq!(r["nextPhaseRemainingSeconds"].as_f64(), Some(367.5));
@@ -90,10 +75,7 @@ fn waiting_and_following_cycle_use_live_configuration_without_defaults() {
     w["timingConfiguration"] = json!({"status":"ok","nativeControlFlowVerified":true,"intervalIncludesWarning":true,"intervalSeconds":1800,"warningDurationSeconds":90});
     let r = live_wave_timing(&w, 10000.0);
     assert!((r["nextPhaseRemainingSeconds"].as_f64().unwrap() - 434.4).abs() < 1e-9);
-    assert_eq!(
-        r["stageTimingVerification"],
-        "unverified_runtime_configuration"
-    );
+    assert_eq!(r["stageTimingVerification"], "unverified_runtime_configuration");
     assert!(r["waitingIntervalAssumptionSeconds"].is_null());
 }
 #[test]
@@ -150,4 +132,3 @@ fn malformed_failed_and_oversized_helper_outputs_never_become_observations() {
     assert!(v["observation"].is_null());
     assert_eq!(v["coverage"]["saveFallback"], false);
 }
-

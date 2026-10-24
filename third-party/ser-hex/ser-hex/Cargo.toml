@@ -1,4 +1,5 @@
 [package]
+publish = false
 name = "ser-hex"
 description = "Serialization tracing library for visualizing where bytes came from"
 keywords = ["serialization", "tracing", "hex", "binary", "debugging"]

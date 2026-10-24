@@ -1,4 +1,5 @@
 [package]
+publish = false
 name = "patternsleuth_scanner"
 repository.workspace = true
 authors.workspace = true

@@ -1,0 +1,50 @@
+[
+  {
+    "name": "bitcode_derive",
+    "version": "0.6.9",
+    "license": "MIT OR Apache-2.0",
+    "files": [
+      {
+        "file": "LICENSE-MIT",
+        "url": "https://raw.githubusercontent.com/SoftbearStudios/bitcode/f41da053c08178189aaee8c62f4c6e738add6eda/LICENSE-MIT",
+        "sha256": "d3419a82898ce3b9b1360f8d3e646e32fc7609619cbe3d8428197d7d059f7aa5"
+      }
+    ]
+  },
+  {
+    "name": "iced-x86",
+    "version": "1.21.0",
+    "license": "MIT",
+    "files": [
+      {
+        "file": "LICENSE.txt",
+        "url": "https://raw.githubusercontent.com/icedland/iced/c50f29b7bc305696895c075f3fc7719751426b12/LICENSE.txt",
+        "sha256": "93a47598376fd3f276b631e75149340087153c6ff1635a53c5790249e9124e2d"
+      }
+    ]
+  },
+  {
+    "name": "include_dir",
+    "version": "0.7.4",
+    "license": "MIT",
+    "files": [
+      {
+        "file": "LICENSE",
+        "url": "https://raw.githubusercontent.com/Michael-F-Bryan/include_dir/d742c6fffce99ee89da91b934e7ce6fb2a82680c/LICENSE",
+        "sha256": "9369f62987b3a116111f2edfdc4cc72633e44ddc94d5d0c68659cf537b76a31f"
+      }
+    ]
+  },
+  {
+    "name": "include_dir_macros",
+    "version": "0.7.4",
+    "license": "MIT",
+    "files": [
+      {
+        "file": "LICENSE",
+        "url": "https://raw.githubusercontent.com/Michael-F-Bryan/include_dir/d742c6fffce99ee89da91b934e7ce6fb2a82680c/LICENSE",
+        "sha256": "9369f62987b3a116111f2edfdc4cc72633e44ddc94d5d0c68659cf537b76a31f"
+      }
+    ]
+  }
+]

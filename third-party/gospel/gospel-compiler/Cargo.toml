@@ -1,4 +1,5 @@
 [package]
+publish = false
 name = "gospel-compiler"
 description = "Compiler for gospel source files"
 repository.workspace = true

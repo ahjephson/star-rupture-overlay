@@ -10,5 +10,5 @@ foreach ($entry in $manifest.files) {
 }
 $known = @($manifest.files.path) + 'third-party/VENDOR.json'
 $extra = @(Get-ChildItem -LiteralPath $root -File -Recurse | Where-Object { [IO.Path]::GetRelativePath($repo, $_.FullName).Replace('\','/') -notin $known })
-@{passed=($changed.Count -eq 0 -and $extra.Count -eq 0);checked=$manifest.files.Count;changed=$changed;unexpected=$extra.FullName} | ConvertTo-Json
+@{passed=($changed.Count -eq 0 -and $extra.Count -eq 0);checked=$manifest.files.Count;changed=$changed;unexpected=@($extra | ForEach-Object FullName)} | ConvertTo-Json
 if ($changed.Count -or $extra.Count) { throw 'Vendored source differs from reviewed hashes' }

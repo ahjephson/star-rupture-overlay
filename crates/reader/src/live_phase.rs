@@ -30,10 +30,7 @@ pub async fn read(ctx: &Ctx, subsystem: u64, image_base: u64) -> Result<(u64, Va
                 "Unknown phase enum reader"
             );
         } else {
-            ensure!(
-                bytes.starts_with(pattern),
-                "Unsupported phase reader instructions"
-            );
+            ensure!(bytes.starts_with(pattern), "Unsupported phase reader instructions");
         }
         rvas.push(address - image_base);
     }
@@ -59,10 +56,7 @@ pub async fn read(ctx: &Ctx, subsystem: u64, image_base: u64) -> Result<(u64, Va
     );
     let delta_cap = ctx.read::<f32>(image_base + 0xaf40620).await?;
     ensure!(delta_cap == 0.1f32, "Changed phase delta cap");
-    ensure!(
-        progress.is_finite() && (0.0..=1.0).contains(&progress),
-        "Invalid phase progress"
-    );
+    ensure!(progress.is_finite() && (0.0..=1.0).contains(&progress), "Invalid phase progress");
     let wave_type = ctx.read::<u8>(implementation + 0x18).await?;
     let keys = [
         "waveSpeed",
@@ -79,17 +73,12 @@ pub async fn read(ctx: &Ctx, subsystem: u64, image_base: u64) -> Result<(u64, Va
     ];
     let mut settings = serde_json::Map::new();
     for (i, k) in keys.iter().enumerate() {
-        let v = ctx
-            .read::<f32>(implementation + 0x1c + i as u64 * 4)
-            .await?;
+        let v = ctx.read::<f32>(implementation + 0x1c + i as u64 * 4).await?;
         ensure!(v.is_finite(), "Non-finite phase setting");
         settings.insert(k.to_string(), json!(v));
     }
     let start = ctx.read::<f64>(subsystem + 0x210).await?;
-    ensure!(
-        start.is_finite() && start >= 0.0,
-        "Invalid wave start clock"
-    );
+    ensure!(start.is_finite() && start >= 0.0, "Invalid wave start clock");
     ensure!(
         ctx.read::<u64>(subsystem + 0x1f8).await? == implementation
             && ctx.read::<u64>(implementation).await? == vtable,
@@ -121,14 +110,8 @@ mod tests {
                 return Ok(());
             }
             let at = address as usize;
-            let end = at
-                .checked_add(buf.len())
-                .ok_or_else(|| anyhow::anyhow!("overflow"))?;
-            buf.copy_from_slice(
-                self.0
-                    .get(at..end)
-                    .ok_or_else(|| anyhow::anyhow!("unmapped"))?,
-            );
+            let end = at.checked_add(buf.len()).ok_or_else(|| anyhow::anyhow!("overflow"))?;
+            buf.copy_from_slice(self.0.get(at..end).ok_or_else(|| anyhow::anyhow!("unmapped"))?);
             Ok(())
         }
     }
@@ -178,11 +161,7 @@ mod tests {
     fn invalid_phase_rates_are_rejected() {
         smol::block_on(async {
             for inverse in [0.0, -1.0, f32::NAN, f32::INFINITY] {
-                assert!(
-                    read(&context_rate(4, false, 0.5, inverse), 0x1000, 0x4000)
-                        .await
-                        .is_err()
-                );
+                assert!(read(&context_rate(4, false, 0.5, inverse), 0x1000, 0x4000).await.is_err());
             }
         });
     }
@@ -190,19 +169,13 @@ mod tests {
     fn all_native_stage_readers_accept_only_proven_layouts() {
         smol::block_on(async {
             for stage in 1..=4 {
-                let (_, r) = read(&context(stage, false, 0.5), 0x1000, 0x4000)
-                    .await
-                    .unwrap();
+                let (_, r) = read(&context(stage, false, 0.5), 0x1000, 0x4000).await.unwrap();
                 assert_eq!(r["stage"], stage);
                 assert_eq!(r["progress"], 0.5);
             }
             assert!(read(&context(1, true, 0.5), 0x1000, 0x4000).await.is_err());
             assert!(read(&context(5, false, 0.5), 0x1000, 0x4000).await.is_err());
-            assert!(
-                read(&context(4, false, f32::NAN), 0x1000, 0x4000)
-                    .await
-                    .is_err()
-            );
+            assert!(read(&context(4, false, f32::NAN), 0x1000, 0x4000).await.is_err());
             assert!(read(&context(4, false, 1.1), 0x1000, 0x4000).await.is_err());
         });
     }

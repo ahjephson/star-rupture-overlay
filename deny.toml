@@ -1,0 +1,42 @@
+# Audit only dependencies reachable for the shipped Windows target.
+[graph]
+targets = ["x86_64-pc-windows-msvc"]
+all-features = false
+
+[advisories]
+# A transitive compile-time macro is unmaintained, not a known vulnerability.
+# Review upstream replacement before each release. Runtime vulnerabilities remain denied.
+ignore = [{ id = "RUSTSEC-2024-0436", reason = "paste is a transitive build-time macro; vendor upstream uses it. Track replacement in docs/DEPENDENCIES.md." }]
+
+[licenses]
+confidence-threshold = 0.9
+allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unicode-3.0", "Zlib", "0BSD"]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Vendored path dependencies intentionally have no registry version.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+# Owner-selected licence for first-party crates only; dependencies keep their licences.
+
+[[licenses.exceptions]]
+name = "starrupture-wave-overlay"
+allow = ["LicenseRef-PolyForm-Strict-1.0.0"]
+
+[[licenses.exceptions]]
+name = "starrupture-overlay-reader"
+allow = ["LicenseRef-PolyForm-Strict-1.0.0"]
+
+[[licenses.exceptions]]
+name = "starrupture-wave-core"
+allow = ["LicenseRef-PolyForm-Strict-1.0.0"]
+
+[[licenses.exceptions]]
+name = "starrupture-observation-model"
+allow = ["LicenseRef-PolyForm-Strict-1.0.0"]
