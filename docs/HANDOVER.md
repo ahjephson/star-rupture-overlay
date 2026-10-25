@@ -42,8 +42,8 @@ Native diagnostic:20 notification round trips, zero timer messages, reader mutex
 
 ## Open work — updated 2026-10-24
 
-- Finish the real-game focus-return latency and displayed wave-cycle checks; the updated candidate is now activated and awaiting player feedback.
-- Owner-supplied app/tray icon is implemented, locally verified and activated; visual acceptance on the actual taskbar/tray remains pending. Original PNG and nine-size ICO are retained with hashes. See the icon handover below.
+- Player confirmed the updated overlay is working on2026-10-25. No further implementation blocker is reported; exhaustive phase-boundary/DPI measurements are not implied by this general acceptance.
+- Owner-supplied app/tray icon is implemented, locally verified, activated and covered by the player’s general working confirmation on2026-10-25. Original PNG and nine-size ICO are retained with hashes. See the icon handover below.
 
 
 ## Phase display update — 2026-10-24
@@ -78,3 +78,8 @@ Following owner approval, dist now contains source912fbab77a69b575c71abda1f686bf
 The normal updated app was started once with its new tray controls. A read-only query confirms one overlay window, both embedded window icons assigned and matching class icon, with no child helper. The HUD is hidden while the game is absent, as intended; the app is ready for the next game launch. Actual tray appearance/DPI and live-cycle confirmation remain pending user feedback.
 
 Verified rollback: local/backups/before-icon-activation-20261024T211832Z/rollback-dist (SHA25629105e06bd4b55d53eef300e04995b465c82f79bc61e28d63ca793d814ada317); retired-dist and activation journal are retained there. Startup and own-window logs: local/run-icon-20261024. MCP servers, planning, registrations, settings and previous rollback copies were unchanged. No tag, release or visibility change.
+
+
+## Player acceptance — 2026-10-25
+
+Alex confirmed “that's now working” after activation of the icon version and asked to return to the MCP issues list. Record this as general player acceptance of the updated overlay, including the previously open icon/activation follow-up. No remaining overlay defect or implementation request was reported. This is not a claim of exhaustive live phase-boundary measurements or a formal every-DPI test matrix. No application, server or registration was changed for this confirmation. Existing rollback copies remain preserved.

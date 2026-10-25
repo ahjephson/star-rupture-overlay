@@ -1,6 +1,6 @@
 {
   "date": "2026-10-24",
-  "status": "owner_icon_activated_waiting_for_game_and_player_visual_acceptance",
+  "status": "activated_player_reports_working",
   "publication": {
     "repositoryPrivate": true,
     "releaseCreated": false,
@@ -279,5 +279,12 @@
     "rollback": "local/backups/before-icon-activation-20261024T211832Z/rollback-dist",
     "mcpChanged": false,
     "liveGameplayVerification": "pending next game launch"
+  },
+  "playerAcceptance": {
+    "date": "2026-10-25",
+    "report": "that's now working",
+    "scope": "general updated overlay acceptance after icon activation",
+    "newInstrumentedTests": false,
+    "exhaustiveLivePhaseBoundaryOrDpiMatrixClaimed": false
   }
 }
