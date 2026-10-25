@@ -3,7 +3,7 @@
 ## Unreleased — initial public-release preparation
 
 - Owner-supplied app artwork embedded for Explorer, window/taskbar and tray icons, with nine native sizes.
-- APPROACHING for Moving; FADEOUT displays INCINERATING for seven simulation seconds, then COOLING, with countdowns to each displayed transition.
+- APPROACHING for Moving; FADEOUT displays INCINERATING for 8.5 simulation seconds, then COOLING, with countdowns to each displayed transition.
 - Queued Windows focus/restore notifications repair HUD stacking without waiting for the UI timer or reader lock.
 
 - Game-relative ordinary window stacking; other apps can cover the HUD without hiding it merely on focus loss.

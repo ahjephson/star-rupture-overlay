@@ -83,3 +83,19 @@ Verified rollback: local/backups/before-icon-activation-20261024T211832Z/rollbac
 ## Player acceptance — 2026-10-25
 
 Alex confirmed “that's now working” after activation of the icon version and asked to return to the MCP issues list. Record this as general player acceptance of the updated overlay, including the previously open icon/activation follow-up. No remaining overlay defect or implementation request was reported. This is not a claim of exhaustive live phase-boundary measurements or a formal every-DPI test matrix. No application, server or registration was changed for this confirmation. Existing rollback copies remain preserved.
+
+
+## Nine-second INCINERATING update — 2026-10-25
+
+The owner explicitly requested increasing INCINERATING from seven to nine simulation seconds and starting the updated app for testing. This supersedes preparation-only restrictions for this local activation. Native Fadeout duration is unchanged: the first nine seconds display INCINERATING, then COOLING for the remainder. Tests cover the previous seven-second boundary, new nine-second transition, paused observations and invalid/unknown timing.
+
+All 30 Rust tests, strict Clippy, locked offline release build, 100 vendor hashes, font/icon checks, offline dependency policy, native window/stacking/events/icons/render and disposable package/deployment regressions pass. Finite read-only worker verification completed 24 world observations and 93 menu reads in one session, zero children, with clean shutdown. No overlay was running before activation. One normal instance was then started from the verified new dist; actual nine-second live phase-boundary acceptance awaits the owner.
+
+Candidate local/incinerating-nine-20261025 and source/runtime rollback local/backups/before-nine-second-incinerating-20261025T145848Z are preserved. The latter contains source.zip, rollback-dist, retired-dist and an activation hash journal. No MCP server/configuration, save, game memory, release, tag, visibility or publication changed. Source changes remain uncommitted for this local test; unrelated owner artwork is preserved.
+
+
+## Current INCINERATING timing: 8.5 seconds — 2026-10-25
+
+Owner requested 8.5 simulation seconds, superseding the nine-second value above. Native Fadeout duration is unchanged; COOLING begins at elapsed8.5. Whole-second countdown formatting is unchanged. Tests cover immediately before, exactly at and immediately after the fractional boundary, paused observations and invalid timing. All30 Rust tests, strict Clippy, locked offline release build, vendor/font/icon checks and native/package/disposable deployment regressions pass. Dependencies are unchanged from the earlier passing offline policy check. Finite live worker check:24 world reads,93 menu reads, one session, zero children, clean shutdown.
+
+The previous running app closed gracefully with its reader joined and no reads in flight. One new dist instance received a validated live observation. Candidate local/incinerating-eight-point-five-20261025 and source/dist rollback local/backups/before-eight-point-five-incinerating-20261025 are retained. Actual live fractional phase-boundary acceptance awaits the owner. MCP servers/configuration and all older rollbacks are unchanged. No publication or commit performed.

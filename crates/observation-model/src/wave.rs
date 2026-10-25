@@ -97,13 +97,13 @@ pub fn style(phase: &str) -> (&'static str, [u8; 3]) {
         _ => ("UNAVAILABLE", [0xa6, 0xaf, 0xb5]),
     }
 }
-/// The first seven native Fadeout simulation seconds are displayed as burning.
+/// The first 8.5 native Fadeout simulation seconds are displayed as burning.
 /// The remaining native phase is cooling. Unknown timing retains FADEOUT.
 fn fadeout_presentation(w: &Value) -> Option<(&'static str, [u8; 3], f64)> {
     let duration = w["phaseDurations"]["fadeout"].as_f64()?;
     let remaining = w["nextPhaseRemainingSeconds"].as_f64()?;
     if !duration.is_finite()
-        || duration < 7.0
+        || duration < 8.5
         || duration > 604800.0
         || !remaining.is_finite()
         || !(0.0..=duration).contains(&remaining)
@@ -111,8 +111,8 @@ fn fadeout_presentation(w: &Value) -> Option<(&'static str, [u8; 3], f64)> {
         return None;
     }
     let elapsed = duration - remaining;
-    Some(if elapsed < 7.0 {
-        ("INCINERATING", [0xff, 0x71, 0x69], remaining - (duration - 7.0))
+    Some(if elapsed < 8.5 {
+        ("INCINERATING", [0xff, 0x71, 0x69], remaining - (duration - 8.5))
     } else {
         ("COOLING", [0xff, 0xaa, 0x66], remaining)
     })
@@ -256,9 +256,11 @@ mod tests {
         v["data"]["wave"]["stageTimingVerification"] = json!("progress_based_estimate");
         let mut presenter = HudPresenter::default();
         for (remaining, stage, countdown) in [
-            (80.0, "INCINERATING", "00:07"),
-            (73.001, "INCINERATING", "00:00"),
-            (73.0, "COOLING", "01:13"),
+            (80.0, "INCINERATING", "00:08"),
+            (73.0, "INCINERATING", "00:01"),
+            (71.501, "INCINERATING", "00:00"),
+            (71.5, "COOLING", "01:11"),
+            (71.499, "COOLING", "01:11"),
             (0.0, "COOLING", "00:00"),
         ] {
             v["data"]["wave"]["nextPhaseRemainingSeconds"] = json!(remaining);
@@ -281,7 +283,7 @@ mod tests {
             (json!(80.0), Value::Null),
             (json!(80.0), json!(-1.0)),
             (json!(80.0), json!(81.0)),
-            (json!(6.0), json!(5.0)),
+            (json!(8.0), json!(5.0)),
         ] {
             v["data"]["wave"]["phaseDurations"]["fadeout"] = duration;
             v["data"]["wave"]["nextPhaseRemainingSeconds"] = remaining;
