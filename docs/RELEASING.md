@@ -2,6 +2,8 @@
 
 Releases use reviewed version tags and a manually dispatched draft workflow. Repository visibility changes and final publication are separate, explicitly authorized operations.
 
+Routine Windows CI checks development builds. Run **Windows package verification** on the candidate revision before preparing a release. This workflow builds and tests a release package and retains its ZIP and checksum for two days. It also runs automatically for changes to dependencies, build and packaging scripts, workflows, assets and licence files. The tagged draft workflow below independently builds and verifies the release source.
+
 ## Candidate checks
 
 1. Update CHANGELOG.md and the workspace version shared by all application crates. Preserve the observation schema and contract identifiers unless the observation format changes deliberately.

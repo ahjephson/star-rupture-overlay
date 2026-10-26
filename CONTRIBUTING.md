@@ -28,7 +28,9 @@ Use the toolchain in rust-toolchain.toml and PowerShell 7:
 
 The formatter visits first-party Rust files only. Do not run a formatter over vendored dependencies. Vendor bytes and font hashes are checked separately; intentional patches require a reason and before/after hashes in third-party/VENDOR.json. Dependency changes must update Cargo.lock and pass the dependency policy in deny.toml.
 
-Build and package in a fresh ignored output folder, then run Test-Release.ps1 against the ZIP. CI performs the same checks on Windows. It tests the app's own hidden native window, renderer, archive rejection, installation, upgrade and rollback without a game or elevated privileges.
+Windows CI checks formatting, Clippy, workspace tests, a development build, dependency policy and vendor/font/icon hashes on every pull request and push to main. It caches Cargo downloads and development build output. Successful main builds save caches for later runs.
+
+For full verification, build and package in a fresh ignored output folder, then run Test-Release.ps1 against the ZIP. The **Windows package verification** workflow runs these checks manually and when dependency, build, packaging, workflow, asset or licence files change. It tests the app's own hidden native window, renderer, archive rejection, installation, upgrade and rollback without a game or elevated privileges. Its candidate ZIP and checksum are retained for two days. Run this workflow before release preparation and for source changes that need native package diagnostics.
 
 Reader/timing changes also need bounded live verification against the supported build before a release. Report the live checks actually performed and their limitations. With the game running, the candidate's `--self-test-reader ABSOLUTE-PRIVATE-DIRECTORY` performs 24 validated observations and stops. The optional `python scripts/test_reader.py` additionally tests GUI startup/duplicates/shutdown; exit other overlay instances before that lifecycle test. Keep raw results local.
 

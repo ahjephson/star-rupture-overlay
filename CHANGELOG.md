@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Cached development CI, with release packaging and deployment checks in a separate verification workflow.
 - Windows x64 HUD displaying wave stages and simulation-based countdowns.
 - Game-style frame, Oxanium typography, stage colours and embedded Explorer, window, taskbar and tray icons in nine native sizes.
 - STABLE for native Waiting and APPROACHING for Moving. Fadeout displays INCINERATING for its first 8.5 simulation seconds, then COOLING, with countdowns to each display transition.
