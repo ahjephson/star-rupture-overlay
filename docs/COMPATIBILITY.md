@@ -1,13 +1,13 @@
 # Supported environment
 
-Version 0.1.0 supports the environment below. Other installation locations require a compatibility change before general distribution.
+Version 0.1.0 supports the environment below. Supporting other installation locations requires a compatibility change.
 
 | Requirement | Supported scope |
 | --- | --- |
 | Operating system | Windows 10/11 x64 |
 | Display mode | Borderless/windowed; exclusive fullscreen is not validated |
 | Game distribution | Steam, one exact executable hash |
-| Installation | Default C-drive Steam path below; other library locations currently fail closed |
+| Installation | Default C-drive Steam path below |
 | Game/map state | Supported main-map running session |
 
 Executable path:
@@ -22,6 +22,6 @@ Supported executable SHA256:
 95f95eee0b1913b8716de7fa5bf19877a91abe86e63bf2b6f0a29bd48d1d76f1
 ```
 
-A game update can invalidate support. Compatibility updates require reflection, allocation and timing verification plus live tests. Support currently covers the installation path above.
+A game update can invalidate support. Unsupported builds, installation paths and runtime states produce unavailable data. Compatibility updates require reflection, allocation and timing verification plus live tests.
 
-Candidate binaries statically link the VC runtime and use Windows system DLLs. The application starts with default settings and accepts an optional configuration file.
+The executable statically links the Visual C++ runtime and uses Windows system DLLs. The app starts with default settings and accepts an optional configuration file.

@@ -2,7 +2,9 @@
 
 A Windows HUD showing StarRupture's current wave stage and the countdown to the next stage.
 
-The HUD uses Oxanium, stage-specific colors and a game-style frame. It freezes with verified simulation pause, moves below the pause-menu border, stays over the visible game when focus moves to another monitor, and lets windows covering the game also cover the HUD. It hides when the game is minimized or closed. The native waiting phase is displayed as **STABLE**, and Moving as **APPROACHING**. FADEOUT displays **INCINERATING** for its first 8.5 simulation seconds, then **COOLING**.
+The HUD uses Oxanium, stage colours and a game-style frame. Its countdown freezes when simulation pause is verified, and the HUD moves below the pause-menu border. It stays over the visible game when focus moves to another monitor. Windows covering the game also cover the HUD, which hides when the game is minimized or closed.
+
+The native Waiting phase displays **STABLE**, and Moving displays **APPROACHING**. Fadeout displays **INCINERATING** for its first 8.5 simulation seconds, then **COOLING**.
 
 ## Run
 
@@ -31,13 +33,13 @@ Install Rust through rustup and Visual Studio C++ Build Tools with the Windows S
 ./scripts/Package-Release.ps1 -BuildDirectory local/candidate
 ```
 
-The build runs formatting checks, strict Clippy, tests and vendor verification, then produces a candidate containing the app, dependency inventory, licence notices and a file-integrity manifest. Build/package output uses a fresh directory, preserving existing installations. The package step requires a clean source checkout by default. For development-only packaging, `-AllowUncommitted` marks the archive accordingly.
+The build checks formatting, runs Clippy with warnings denied, tests the workspace and verifies vendor hashes. It requires an empty output directory and produces the app, a dependency inventory, licence notices and a file-integrity manifest. Packaging preserves existing archives and requires a clean source checkout by default; `-AllowUncommitted` marks development archives as containing uncommitted changes.
 
 `-Offline` uses previously cached dependencies; `-ToolchainDirectory PATH` selects an installed copy of the pinned compiler. [Contributing](CONTRIBUTING.md) explains quality checks; [releases](docs/RELEASING.md) covers review and draft preparation.
 
 ## Install, upgrade and roll back
 
-Portable deployment is simply extracting a reviewed ZIP to a new folder. Exit the old overlay from its tray before starting the new one; keep its folder until the new version is verified.
+For a portable installation, extract a reviewed ZIP to a new folder. Exit the old overlay from its tray before starting the new one; keep its folder until the new version is verified.
 
 For a managed per-user installation from a source checkout:
 
@@ -47,11 +49,11 @@ For a managed per-user installation from a source checkout:
 ./scripts/Deploy.ps1 -Rollback -Launch
 ```
 
-The matching checksum file must sit beside the ZIP. Deployment verifies the archive and every packaged file, installs side by side under `%LOCALAPPDATA%/Programs/StarRuptureWaveOverlay`, and preserves the prior installation. Exit the installed app before deployment. Deployment runs with standard user privileges. [Deployment details](docs/DEPLOYMENT.md).
+Exit the installed app before deployment and place the matching checksum file beside the ZIP. The script verifies the archive and every packaged file, installs under `%LOCALAPPDATA%/Programs/StarRuptureWaveOverlay`, and preserves the previous installation for rollback. Run it with standard user privileges. See [deployment and rollback](docs/DEPLOYMENT.md).
 
 ## Settings and data
 
-The app starts with default settings. Cache files are stored under `%LOCALAPPDATA%/StarRuptureWaveOverlay/cache`. Use `--config PATH` to select another cache directory; see [config/example.json](config/example.json).
+The app starts with default settings and stores caches under `%LOCALAPPDATA%/StarRuptureWaveOverlay/cache`. To use another cache directory, set `cacheDirectory` in a configuration file and pass its path with `--config PATH`; see [config/example.json](config/example.json).
 
 Countdowns follow simulation time. The countdown shows `--:--` when readings are unavailable or more than five seconds old. See [architecture](docs/ARCHITECTURE.md) for timing details.
 

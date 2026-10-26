@@ -10,7 +10,7 @@ PolyForm Strict 1.0.0 applies to first-party project code only, copyright (c) 20
 | ser-hex | https://github.com/trumank/ser-hex | MIT OR Apache-2.0 | Both upstream licence texts retained |
 | Oxanium | https://github.com/sevmeyer/oxanium | SIL OFL1.1 | crates/wave-overlay/assets/fonts/OFL.txt |
 
-Selected source revisions, file hashes and local manifest-only changes are recorded in third-party/VENDOR.json and docs/DEPENDENCIES.md. Selected patternsleuth upstream source did not include a project-specific licence text or NOTICE; its exact-revision Cargo manifest declares the dual licence. The vendor inventory records adaptations and verification hashes.
+Selected source revisions, file hashes and local adaptations are recorded in [third-party/VENDOR.json](third-party/VENDOR.json) and [dependency review](docs/DEPENDENCIES.md). The retained patternsleuth source declares its dual licence in its exact-revision Cargo manifest. Its notice location is listed above.
 
 Registry dependencies are pinned in Cargo.lock. For crate archives omitting licence files, exact upstream source copies, URLs and hashes are retained under licenses/registry. These notices are included when exporting the reachable dependency graph. The standard Apache-2.0 text is not a replacement for an upstream copyright notice where one exists.
 

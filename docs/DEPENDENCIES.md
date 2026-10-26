@@ -1,6 +1,6 @@
 # Dependency review
 
-Reviewed 2026-10-26. Cargo.lock pins exact registry versions. deny.toml audits the reachable Windows x64 graph for advisories, acceptable licences and approved source registries. The release inventory lists the packages reachable from the application.
+Reviewed 2026-10-26. Cargo.lock pins registry versions. The policy in deny.toml checks the application's Windows x64 dependency graph for advisories, permitted licences and approved registries. The release inventory lists these dependencies.
 
 ## Registry dependencies
 
@@ -14,7 +14,7 @@ Reviewed 2026-10-26. Cargo.lock pins exact registry versions. deny.toml audits t
 
 ## Source and licence provenance
 
-third-party/VENDOR.json retains upstream sources, revisions and reviewed file hashes. Local manifest-only patches disable unused decompression and mark retained forks non-publishable; each records the prior hash and reason. The prior formatting-only gospel changes retain their separate provenance record. Vendor verification must pass after any deliberate review.
+[third-party/VENDOR.json](../third-party/VENDOR.json) records upstream revisions, adaptations and verification hashes. Manifest patches disable unused decompression and mark retained forks non-publishable. The vendor guide describes the reader's dependencies and maintenance commands. Each local patch records its prior hash and reason; formatting changes to gospel have a separate provenance record. Run vendor verification after each deliberate change.
 
 Registry packages retain their own licence declarations. Export-Notices.ps1 copies reachable upstream licence/copyright files into the release. Four crate archives omit licence files; exact-revision upstream copies and their URLs/hashes are retained in licenses/registry/index.json. Packaging requires the corresponding licence notices. Oxanium fonts retain SIL OFL 1.1 and their original hashes.
 

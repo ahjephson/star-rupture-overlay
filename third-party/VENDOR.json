@@ -445,7 +445,7 @@
     },
     {
       "path": "third-party/README.md",
-      "sha256": "5bd2ec9cfc1f9aa288cef40e80c14866690d71064ebcc261c331ed1348cf7748"
+      "sha256": "f2135815ec7514882cd33ebbbc02fcb2cca7fa7d484840d326d098e04578337e"
     }
   ],
   "originalHashes": "docs/reference/helper-vendor-original-hashes.json",
@@ -457,6 +457,12 @@
     "2026-10-24 standalone extraction: 19 inherited gospel source files matched exact rustfmt --edition 2024 --emit stdout --config skip_children=true output of recorded upstream revision 60f85b2a2406ee2e8b7c24c9f37de422d72b58a2. No semantic source changes; original/current SHA256 values retained per file. Only this independent manifest was updated; source MCP workspace left unchanged."
   ],
   "localPatches": [
+    {
+      "path": "third-party/README.md",
+      "originalSha256": "5bd2ec9cfc1f9aa288cef40e80c14866690d71064ebcc261c331ed1348cf7748",
+      "reason": "Document current reader dependencies and maintenance commands; preserve upstream READMEs, source and licence texts.",
+      "date": "2026-10-26"
+    },
     {
       "path": "third-party/patternsleuth/Cargo.toml",
       "originalSha256": "862a60482041b618ca35dbd188dcf24de6668f612d9909c6fbe6bdeb6edcff8c",

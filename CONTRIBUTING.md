@@ -4,7 +4,7 @@ Issue reports and feature requests are welcome. First-party code uses [PolyForm 
 
 ## Rust conventions
 
-Follow the [Rust Style Guide](https://doc.rust-lang.org/style-guide/) and use the pinned rustfmt and Clippy versions. Keep macro bodies readable as well as formatter-clean; expand large observation objects across lines. Use consistent Cargo metadata and workspace inheritance for shared package settings.
+Follow the [Rust Style Guide](https://doc.rust-lang.org/style-guide/) and use the pinned rustfmt and Clippy versions. Keep macro bodies readable; expand large observation objects across lines. Use workspace inheritance for shared Cargo package settings.
 
 Keep modules focused on discovery, observation validation, timing, rendering or application lifetime. Prefer explicit imports for project dependencies and the narrowest useful visibility. Win32 API imports may be grouped by platform namespace. Use ownership and RAII for resources and document the lifetime, thread and aliasing requirements of unsafe interfaces. Error handling must preserve unavailable states and existing cleanup paths.
 
@@ -12,7 +12,7 @@ For maintenance refactors, preserve configuration acceptance, serialized fields,
 
 ## Documentation
 
-Describe current behaviour and supported conditions. Keep conversation history, personal installation records and candidate activation journals outside tracked documentation. Preserve source/licence provenance and explanations of technical invariants. Summarize checks and limitations in PR descriptions, link relevant CI runs, and include release-specific live checks in release notes.
+Describe current behaviour and supported conditions for the document's audience. Explain technical constraints where they help readers operate or maintain the app. Keep each prose paragraph on one source line and preserve structural breaks for headings, lists, tables and code. Preserve source and licence provenance. Summarize checks and limitations in PR descriptions, link relevant CI runs, and include release-specific live checks in release notes. Keep personal records and raw diagnostics in ignored local storage.
 
 ## Local checks
 
@@ -40,4 +40,4 @@ Application and tray artwork, the raster source, generated ICO and hash inventor
 
 Preserve read-only access, exact build/path pins, object allocation/session checks, observation bounds and stale-data behavior. Fast menu data changes layout only. Keep game access within the query/read-only boundary and run with standard user privileges.
 
-Do not commit local settings, account paths, process addresses, memory dumps, save files, game assets or extracted datasets. Report bugs using version numbers, reproduction steps and redacted diagnostics. Secret-pattern checks are a useful gate, not proof that arbitrary content is safe to publish.
+Report bugs using version numbers, reproduction steps and redacted diagnostics. Keep local settings, account paths, process addresses, memory dumps, save files, game assets and extracted datasets outside source control. Review tracked content and history alongside the automated secret-pattern checks before publication.

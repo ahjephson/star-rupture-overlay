@@ -20,6 +20,7 @@ Read README.md, docs/ARCHITECTURE.md and docs/HANDOVER.md before changes.
 - Run warnings-denied locked workspace tests and a release build, dependency policy, vendor/font/icon checks and package/deployment tests.
 - Verify worker cancellation, cleanup and live observations before replacing an installed overlay. Run one normal overlay instance at a time.
 - Write for the document's audience: user documentation covers operation and requirements; architecture documentation covers implementation details needed for maintenance. Include information that supports a practical task or decision.
+- Use the [writing clearly and concisely skill](https://github.com/softaworks/agent-toolkit/blob/main/skills/writing-clearly-and-concisely/SKILL.md) for documentation and help text. Describe current facts in direct, concrete language.
 - Keep each prose paragraph on one source line and let editors/renderers wrap it. Preserve structural line breaks for headings, lists, tables and code blocks.
 - Summarize checks and limitations in PR descriptions, link CI results and record release-specific live checks in release notes. Keep raw logs and diagnostic output local.
 

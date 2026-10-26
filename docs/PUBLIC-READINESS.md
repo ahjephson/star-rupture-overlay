@@ -16,12 +16,12 @@ Version 0.1.0 is a development version. This checklist describes the remaining r
 
 - [ ] Resolve the default C-drive Steam installation restriction before general distribution. Installation discovery is a separate functional change and must preserve executable-hash and process-identity validation.
 - [ ] Verify the release against the supported game build and document the supported map/display modes. A game update requires a compatibility review.
-- [ ] Complete release-specific live reader/lifecycle checks and visual checks for phase boundaries, pause layout, focus return and relevant DPI/display configurations. Automated off-screen tests do not establish every live display condition.
+- [ ] Complete live reader and lifecycle checks for the release candidate. Check phase boundaries, pause layout, focus return and relevant DPI and display configurations in the running game.
 - [ ] Review signing and publisher provenance. Current executables are unsigned; hashes establish byte integrity only.
 - [ ] Configure and verify repository protection, review requirements and private vulnerability reporting.
 - [ ] Review the dependency policy and its named maintenance exception using current advisory data.
 - [ ] Review the source-available licence and all redistribution notices for the release archive.
-- [ ] Review tracked content and Git history before publication. Pattern-based secret checks are bounded checks, not an exhaustive guarantee.
+- [ ] Review tracked content and Git history before publication, alongside the automated secret-pattern checks.
 - [ ] Verify the final reviewed revision in Windows CI and run the complete build/package checks in [RELEASING.md](RELEASING.md).
 - [ ] Review the draft archive, release notes, compatibility statement and checksums before explicitly authorizing publication and any repository visibility change.
 

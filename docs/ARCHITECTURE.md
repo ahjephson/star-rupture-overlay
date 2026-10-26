@@ -17,9 +17,9 @@ The worker moves typed observations through validation into shared UI state. The
 
 ## Reader lifetime and observation guards
 
-Closing the app cancels the worker and joins it before shared state is dropped. A condition variable waits until the next sampling or attachment deadline and wakes immediately when cancellation is requested. Cancellation is also checked before memory reads, process enumeration and executable-hash chunks. Monotonic budgets bound discovery to 60 seconds and ordinary sampling operations to five seconds. These checks are cooperative; an individual blocking OS call can delay cancellation. The worker shares the application process.
+Closing the app cancels the worker and joins it before releasing shared state. A condition variable waits until the next sampling or attachment deadline and wakes when cancellation is requested. The worker also checks cancellation before memory reads, process enumeration and executable-hash chunks. Monotonic budgets bound discovery to 60 seconds and ordinary sampling operations to five seconds. Cancellation is cooperative; an individual blocking OS call can delay shutdown.
 
-Menu checks target 50 ms; complete world/timer observations target 250 ms. They run serially, so a full observation can defer a menu check. Menu timestamps affect layout only and cannot refresh timer evidence or establish simulation pause.
+Menu checks target 50 ms; complete world and timer observations target 250 ms. They run serially, so a full observation can defer a menu check. Menu timestamps affect layout only. Independent timer evidence establishes countdown freshness and simulation pause.
 
 Observations carry a bounded read window, process creation identity, executable hash, session generation and sequence. World/object allocation identities and native timing configuration are validated before use. Typed observation-conflict errors discard torn phase/configuration reads without refreshing evidence. Other identity failures invalidate the observation before reacquisition. Cache files contain bounded discovery hints checked against live identities. Checked player/context offsets, boolean masks and clock offsets are resolved into named runtime bindings at attachment; sampling retains identity and numeric-bound checks.
 

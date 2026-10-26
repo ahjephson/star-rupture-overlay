@@ -451,7 +451,7 @@ pub fn run() -> Result<()> {
         match arg.as_str() {
             "--config" => path = Some(args.next().ok_or("Missing configuration path")?.into()),
             "--preview-stage" => preview_phase = Some(args.next().ok_or("Missing preview phase")?),
-            _ => return Err("Usage: starrupture-wave-overlay --config FILE [--preview-stage waiting|PreWave|Moving|FadeoutEarly|FadeoutCooling|Fadeout|Growback|unavailable]".into()),
+            _ => return Err("Usage: starrupture-wave-overlay [--config FILE] [--preview-stage waiting|PreWave|Moving|FadeoutEarly|FadeoutCooling|Fadeout|Growback|unavailable]".into()),
         }
     }
     if let Some(phase) = &preview_phase

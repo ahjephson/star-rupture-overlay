@@ -5,10 +5,10 @@ Describe the problem and resulting behavior.
 ## Validation
 
 - [ ] Formatting, Clippy and workspace tests pass.
-- [ ] Vendor/font provenance and dependency checks pass.
+- [ ] Vendor, font and icon provenance checks and dependency checks pass.
 - [ ] Package and deployment regression checks pass.
-- [ ] Live checks completed if reader/timing behavior changed, or explain why not needed.
-- [ ] No captures, local settings, saves or personal paths included.
+- [ ] Relevant live checks are complete for reader or timing changes; summarize results and untested conditions below.
+- [ ] Tracked content has been checked for captures, local settings, saves and personal paths.
 
 ## Compatibility and release notes
 
