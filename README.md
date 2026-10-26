@@ -1,29 +1,28 @@
 # StarRupture Wave Overlay
 
-A small, standalone Windows HUD showing StarRupture's current wave stage and the countdown to the next stage. One executable draws the overlay and reads the running game; no Node.js, Codex, MCP server or save files are required.
+A Windows HUD showing StarRupture's current wave stage and the countdown to the next stage.
 
 The HUD uses Oxanium, stage-specific colors and a game-style frame. It freezes with verified simulation pause, moves below the pause-menu border, stays over the visible game when focus moves to another monitor, and lets windows covering the game also cover the HUD. It hides when the game is minimized or closed. The native waiting phase is displayed as **STABLE**, and Moving as **APPROACHING**. FADEOUT displays **INCINERATING** for its first 8.5 simulation seconds, then **COOLING**.
 
 ## Run
 
-No public release has been published yet. When a reviewed release is available:
+Version 0.1.0 is in development. Release packages use the following installation procedure:
 
 1. Download the Windows x64 ZIP and its matching `.sha256` file from this repository's Releases page.
 2. Check the archive hash, extract it to a user-writable folder and double-click `starrupture-wave-overlay.exe`.
 3. Start the supported game normally. Use the overlay's tray menu to show/hide, unlock/move/lock, reset its position or exit.
 
-Keep the included licence notices with the executable. Configuration is optional. Do not run the app as administrator. The current candidate is unsigned; a checksum verifies downloaded bytes, not the publisher's identity.
+Keep the included licence notices with the executable. Configuration is optional. Run the app with standard user privileges. The current candidate is unsigned; its checksum verifies archive integrity.
 
 ## Compatibility
 
 - Windows 10/11 x64, with borderless or windowed gameplay.
 - The current reader supports one SHA256-pinned Steam game build at its default C-drive installation path. See [supported builds](docs/COMPATIBILITY.md) before reporting unavailable data.
-- Unknown builds, unsupported maps, changed object identities and stale observations produce unavailable data instead of guessed values.
-- No in-game hooks, injection, memory writes, save editing or automatic saves. The runtime makes no network requests and has no automatic updater.
+- Unsupported game builds and maps display unavailable data.
 
 ## Build from source
 
-Install Rust through rustup and Visual Studio C++ Build Tools with the Windows SDK. The repository pins Rust **1.99.1**, including Clippy and rustfmt. PowerShell 7, Git and Python 3 are used by the release checks. The Windows SDK resource compiler embeds the supplied multi-resolution icon; no extra runtime dependency is added.
+Install Rust through rustup and Visual Studio C++ Build Tools with the Windows SDK. The repository pins Rust **1.99.1**, including Clippy and rustfmt. PowerShell 7, Git and Python 3 are used by the release checks.
 
 ```powershell
 ./scripts/Install-QualityTools.ps1
@@ -32,9 +31,9 @@ Install Rust through rustup and Visual Studio C++ Build Tools with the Windows S
 ./scripts/Package-Release.ps1 -BuildDirectory local/candidate
 ```
 
-The build runs formatting checks, strict Clippy, tests and vendor verification, then produces a candidate containing the app, dependency inventory, licence notices and a file-integrity manifest. Build/package output must use a new directory; existing installations are never overwritten. The package step requires a clean source checkout by default. For development-only packaging, `-AllowUncommitted` marks the archive accordingly.
+The build runs formatting checks, strict Clippy, tests and vendor verification, then produces a candidate containing the app, dependency inventory, licence notices and a file-integrity manifest. Build/package output uses a fresh directory, preserving existing installations. The package step requires a clean source checkout by default. For development-only packaging, `-AllowUncommitted` marks the archive accordingly.
 
-`-Offline` uses previously cached dependencies; `-ToolchainDirectory PATH` selects an installed copy of the pinned compiler. Normal builds do not require any other project. [Contributing](CONTRIBUTING.md) explains quality checks; [releases](docs/RELEASING.md) covers review and draft preparation.
+`-Offline` uses previously cached dependencies; `-ToolchainDirectory PATH` selects an installed copy of the pinned compiler. [Contributing](CONTRIBUTING.md) explains quality checks; [releases](docs/RELEASING.md) covers review and draft preparation.
 
 ## Install, upgrade and roll back
 
@@ -48,18 +47,16 @@ For a managed per-user installation from a source checkout:
 ./scripts/Deploy.ps1 -Rollback -Launch
 ```
 
-The matching checksum file must sit beside the ZIP. Deployment verifies the archive and every packaged file, installs side by side under `%LOCALAPPDATA%/Programs/StarRuptureWaveOverlay`, and preserves the prior installation. It refuses to replace a running installed app. No administrator access, game-folder writes, system registration or service is needed. [Deployment details](docs/DEPLOYMENT.md).
+The matching checksum file must sit beside the ZIP. Deployment verifies the archive and every packaged file, installs side by side under `%LOCALAPPDATA%/Programs/StarRuptureWaveOverlay`, and preserves the prior installation. Exit the installed app before deployment. Deployment runs with standard user privileges. [Deployment details](docs/DEPLOYMENT.md).
 
 ## Settings and data
 
-Double-click startup needs no settings file. Private discovery caches live under `%LOCALAPPDATA%/StarRuptureWaveOverlay/cache` and are checked against current process/build/session identities before reuse. They are not saved gameplay evidence. An optional `--config PATH` can select another cache directory; see [config/example.json](config/example.json). Historical helper configuration fields are accepted for compatibility, but never launch another executable.
+The app starts with default settings. Cache files are stored under `%LOCALAPPDATA%/StarRuptureWaveOverlay/cache`. Use `--config PATH` to select another cache directory; see [config/example.json](config/example.json).
 
-Fast menu checks target 50 ms; complete timer observations target 250 ms. A full read can defer a menu check. Countdowns use observed simulation time, never wall-time extrapolation; stale timer evidence becomes `--:--` after five seconds. Wave timing has the limits described in [architecture](docs/ARCHITECTURE.md).
+Countdowns follow simulation time. The countdown shows `--:--` when readings are unavailable or more than five seconds old. See [architecture](docs/ARCHITECTURE.md) for timing details.
 
 ## Licence and affiliation
 
 First-party project code is licensed under **PolyForm Strict 1.0.0**, copyright (c) 2026 Alex Jephson. See [LICENSE](LICENSE) for the permitted uses and restrictions. Dependencies and embedded Oxanium fonts retain their own licences; redistribution notices are included in release archives. See [third-party notices](THIRD-PARTY-NOTICES.md).
 
-This is an unofficial community utility, not affiliated with or endorsed by the game's developers or publisher. No game binaries, extracted assets, datasets, saves or memory captures are distributed.
-
-Icon artwork was supplied by the project owner. The unchanged raster source, generated ICO and hash inventory are in `crates/wave-overlay/assets/icon/`. Regeneration is optional using `scripts/Make-Icon.py` with Pillow 12.3.0; ordinary builds use the checked-in ICO.
+An unofficial community utility for StarRupture.

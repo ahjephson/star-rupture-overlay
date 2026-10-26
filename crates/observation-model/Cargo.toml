@@ -1,9 +1,11 @@
 [package]
 name = "starrupture-observation-model"
+description = "Observation envelopes, identity validation and wave HUD presentation"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 publish = false
 
 [dependencies]

@@ -1,4 +1,4 @@
-//! Pure validation of read-only world observations; no MCP or process orchestration.
+//! Validation of read-only world observations and their timing evidence.
 use crate::{
     AppError,
     facts::{Result, check},
@@ -6,10 +6,23 @@ use crate::{
     live_timing::live_wave_timing,
 };
 use serde_json::{Value, json};
-pub const GAME_HASH: &str = "95f95eee0b1913b8716de7fa5bf19877a91abe86e63bf2b6f0a29bd48d1d76f1";
+use starrupture_observation_model::READER_CONTRACT_VERSION;
+pub use starrupture_observation_model::overlay_stream::GAME_HASH;
 const LIMIT: usize = 65536;
 pub fn unavailable(code: &str, message: impl Into<String>) -> Value {
-    json!({"status":"unavailable","observation":null,"data":null,"error":{"code":code,"message":message.into()},"coverage":{"source":"live_process_memory","saveFallback":false}})
+    json!({
+        "status": "unavailable",
+        "observation": null,
+        "data": null,
+        "error": {
+            "code": code,
+            "message": message.into(),
+        },
+        "coverage": {
+            "source": "live_process_memory",
+            "saveFallback": false,
+        },
+    })
 }
 fn valid(v: bool, message: &str) -> Result<()> {
     check(v, "LIVE_READ_FAILED", message)
@@ -20,12 +33,13 @@ fn finite(v: &Value) -> bool {
 fn integer(v: &Value) -> bool {
     v.as_f64().is_some_and(|v| v.fract() == 0.0 && v.abs() <= 9_007_199_254_740_991.0)
 }
-/// Pure validation entry point for offline retained-evidence replay; production always runs a pinned helper first.
+/// Validate an observation from the embedded reader against the supported schema,
+/// process identity, read window and runtime evidence.
 pub fn validate_observation(tool: &str, r: &Value, start: i64, now: i64) -> Result<Value> {
     valid(r.is_object(), "Invalid helper response.")?;
     valid(
         r["schemaVersion"].as_f64() == Some(1.0)
-            && r["helperVersion"] == "0.5.0"
+            && r["helperVersion"] == READER_CONTRACT_VERSION
             && r["source"] == "live_read_only_process_memory"
             && r["gameMemoryWrites"] == false,
         "Unsupported live helper contract.",
@@ -130,15 +144,56 @@ pub fn validate_observation(tool: &str, r: &Value, start: i64, now: i64) -> Resu
         && l["player"]["dead"] == false;
     let wave = live_wave_timing(&l["wave"], l["clocks"]["simulationSeconds"].as_f64().unwrap());
     let data = if tool == "get_live_player_context" {
-        json!({"position":r["position"],"mapPosition":if map{r["position"].clone()}else{Value::Null},"player":l["player"],"world":l["world"]})
+        json!({
+            "position": r["position"],
+            "mapPosition": if map {
+                r["position"].clone()
+            } else {
+                Value::Null
+            },
+            "player": l["player"],
+            "world": l["world"],
+        })
     } else {
-        json!({"world":l["world"],"clocks":l["clocks"],"pause":l["pause"],"wave":wave})
+        json!({
+            "world": l["world"],
+            "clocks": l["clocks"],
+            "pause": l["pause"],
+            "wave": wave,
+        })
     };
-    let mut observation = json!({"observationId":uuid::Uuid::new_v4().to_string(),"source":"live_process_memory","observedAt":iso(observed.trunc() as i64),"window":w,"processId":process["pid"],"creationTicks":process["creation_ticks"],"processStartedAtUtc":iso(ms as i64),"sessionId":format!("{}:{}:{GAME_HASH}",crate::formatting::js_json(&process["pid"]),ticks.unwrap()),"helperVersion":r["helperVersion"],"gameExecutableSha256":GAME_HASH});
+    let mut observation = json!({
+        "observationId": uuid::Uuid::new_v4().to_string(),
+        "source": "live_process_memory",
+        "observedAt": iso(observed.trunc() as i64),
+        "window": w,
+        "processId": process["pid"],
+        "creationTicks": process["creation_ticks"],
+        "processStartedAtUtc": iso(ms as i64),
+        "sessionId": format!(
+            "{}:{}:{GAME_HASH}",
+            crate::formatting::js_json(&process["pid"]),
+            ticks.unwrap()
+        ),
+        "helperVersion": r["helperVersion"],
+        "gameExecutableSha256": GAME_HASH,
+    });
     if let Some(v) = r.get("readerIsElevated") {
         observation["readerIsElevated"] = v.clone();
     }
-    let mut result = json!({"status":"ok","observation":observation,"data":data,"coverage":{"saveSnapshotRefreshed":false,"atomic":false,"mainMapOnly":true,"characterPositionNotDrone":true,"mapPositionAvailable":map,"waveEta":"Per-field verification: active Heat timings use progress/rate with conditional elapsed-time estimates; actor deadline drift is diagnostic; waiting countdown is direct; interval/warning read live. Changed runtime settings, explosion cue and exact substage deadlines retain limits."}});
+    let mut result = json!({
+        "status": "ok",
+        "observation": observation,
+        "data": data,
+        "coverage": {
+            "saveSnapshotRefreshed": false,
+            "atomic": false,
+            "mainMapOnly": true,
+            "characterPositionNotDrone": true,
+            "mapPositionAvailable": map,
+            "waveEta": "Per-field verification: active Heat timings use progress/rate with conditional elapsed-time estimates; actor deadline drift is diagnostic; waiting countdown is direct; interval/warning read live. Changed runtime settings, explosion cue and exact substage deadlines retain limits.",
+        },
+    });
     if let Some(v) = l.get("evidence") {
         result["evidence"] = v.clone();
     }

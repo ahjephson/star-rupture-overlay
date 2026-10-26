@@ -24,9 +24,19 @@ pub async fn read(ctx: &Ctx, sub: u64, image: u64) -> Result<Value> {
     let interval = ctx.read::<f32>(sub + 0x78).await?;
     let warning = ctx.read::<f32>(sub + 0x64).await?;
     ensure!(valid(interval, warning), "Invalid configured interval/warning range");
-    Ok(
-        json!({"status":"ok","nativeControlFlowVerified":true,"intervalSeconds":interval,"warningDurationSeconds":warning,"verification":"live_fields_with_native_control_flow","intervalIncludesWarning":true,"sourceOffsets":{"interval":120,"warning":100},"coverage":"Observed normal Heat2400/120 configuration; different values can be read but complete gameplay behaviour remains unverified."}),
-    )
+    Ok(json!({
+        "status": "ok",
+        "nativeControlFlowVerified": true,
+        "intervalSeconds": interval,
+        "warningDurationSeconds": warning,
+        "verification": "live_fields_with_native_control_flow",
+        "intervalIncludesWarning": true,
+        "sourceOffsets": {
+            "interval": 120,
+            "warning": 100,
+        },
+        "coverage": "Observed normal Heat2400/120 configuration; different values can be read but complete gameplay behaviour remains unverified.",
+    }))
 }
 #[cfg(test)]
 mod tests {

@@ -1,5 +1,5 @@
 {
-  "source": "Owner-supplied PNG, accepted for app and tray use on 2026-10-24. Original raster retained unchanged. No extracted game artwork introduced by this project.",
+  "source": "Application and tray artwork, with the original raster source and generated multi-resolution ICO.",
   "sourceDimensions": [
     1254,
     1254
@@ -15,7 +15,6 @@
     128,
     256
   ],
-  "conversion": "scripts/Make-Icon.py; Pillow 12.3.0",
   "files": {
     "source.png": "ff79227df8870c7395a23e5ccfc42589f273f0d4ca231f47efe940e20064dc01",
     "app.ico": "7eb4a86e9813a1ce3ef6e392c510e5856238e56c22a5a38d3ce9b9f4558c4f82"

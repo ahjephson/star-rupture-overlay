@@ -1,5 +1,5 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
-//! Explicitly launched standalone desktop HUD. No DirectX hook or controller code.
+//! Windows desktop HUD for StarRupture wave stages and countdowns.
 #[cfg(windows)]
 mod fonts;
 #[cfg(windows)]

@@ -1,4 +1,4 @@
-//! Private bounded overlay IPC; not an MCP contract.
+//! Bounded observation envelopes, process identities and sequence validation.
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::{self, BufRead};

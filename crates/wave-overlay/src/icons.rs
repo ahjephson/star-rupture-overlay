@@ -83,8 +83,14 @@ pub fn self_test() -> Result<()> {
     let _icons = Icons::load()?;
     println!(
         "{}",
-        serde_json::json!({"status":"passed","executableIconGroups":groups,
-        "sizes":sizes,"systemTraySizeLoads":true,"gameRead":false,"windowCreated":false})
+        serde_json::json!({
+            "status": "passed",
+            "executableIconGroups": groups,
+            "sizes": sizes,
+            "systemTraySizeLoads": true,
+            "gameRead": false,
+            "windowCreated": false
+        })
     );
     Ok(())
 }

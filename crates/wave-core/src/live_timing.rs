@@ -23,11 +23,29 @@ fn truthy(v: &Value) -> bool {
 fn unknown(w: &Value, c: &Value, reason: &str) -> Value {
     merge(
         merge(w.clone(), c.clone()),
-        json!({"phase":if truthy(&w["wavesDisabled"]){"disabled"}else{"unknown"},"ruptureRemainingSeconds":null,"nextPhaseRemainingSeconds":null,"stageTimingVerification":"unknown","ruptureTimingVerification":"unknown","timingReason":reason,"currentRuptureInProgress":null,"waitingIntervalAssumptionSeconds":null}),
+        json!({
+            "phase": if truthy(&w["wavesDisabled"]) {
+                "disabled"
+            } else {
+                "unknown"
+            },
+            "ruptureRemainingSeconds": null,
+            "nextPhaseRemainingSeconds": null,
+            "stageTimingVerification": "unknown",
+            "ruptureTimingVerification": "unknown",
+            "timingReason": reason,
+            "currentRuptureInProgress": null,
+            "waitingIntervalAssumptionSeconds": null,
+        }),
     )
 }
 pub fn live_wave_timing(w: &Value, clock: f64) -> Value {
-    let mut configuration = json!({"waitingIntervalSeconds":null,"warningDurationSeconds":null,"waitingIntervalVerification":"unknown","runtimeConfigurationCalibration":"unknown"});
+    let mut configuration = json!({
+        "waitingIntervalSeconds": null,
+        "warningDurationSeconds": null,
+        "waitingIntervalVerification": "unknown",
+        "runtimeConfigurationCalibration": "unknown",
+    });
     if truthy(&w["wavesDisabled"]) {
         return unknown(w, &configuration, "waves_disabled");
     }
@@ -59,8 +77,30 @@ pub fn live_wave_timing(w: &Value, clock: f64) -> Value {
         None
     };
     let calibrated = interval == Some(2400.0) && warning == Some(120.0);
-    configuration = json!({"waitingIntervalSeconds":interval,"warningDurationSeconds":warning,"waitingIntervalAssumptionSeconds":null,"waitingIntervalVerification":if valid{"live_fields_with_native_control_flow"}else{"unknown"},"runtimeConfigurationCalibration":if valid{if calibrated{"observed_normal_heat"}else{"unverified_runtime_configuration"}}else{"unknown"}});
-    let substage = json!({"remainingSeconds":null,"verification":"unknown","reason":"Identifiers observed; exact substage deadlines are not calibrated."});
+    configuration = json!({
+        "waitingIntervalSeconds": interval,
+        "warningDurationSeconds": warning,
+        "waitingIntervalAssumptionSeconds": null,
+        "waitingIntervalVerification": if valid {
+            "live_fields_with_native_control_flow"
+        } else {
+            "unknown"
+        },
+        "runtimeConfigurationCalibration": if valid {
+            if calibrated {
+                "observed_normal_heat"
+            } else {
+                "unverified_runtime_configuration"
+            }
+        } else {
+            "unknown"
+        },
+    });
+    let substage = json!({
+        "remainingSeconds": null,
+        "verification": "unknown",
+        "reason": "Identifiers observed; exact substage deadlines are not calibrated.",
+    });
     let basis = "simulation observation; pause consumes no time; no wall-clock subtraction";
     if w["waitingForNextWave"] == true {
         if p["status"] != "inactive" {
@@ -83,7 +123,23 @@ pub fn live_wave_timing(w: &Value, clock: f64) -> Value {
         };
         return merge(
             merge(w.clone(), configuration),
-            json!({"phase":"waiting","nextPhaseRemainingSeconds":remaining,"stageTimingVerification":verification,"ruptureTimingVerification":"verified","timingReason":"native_waiting_countdown_and_live_warning_threshold","currentRuptureInProgress":false,"phaseDurations":null,"waitingWarningEstimate":{"remainingSeconds":remaining,"verification":verification,"warningDurationSeconds":warning,"warningDurationAssumptionSeconds":null},"substageTiming":substage,"timeBasis":basis}),
+            json!({
+                "phase": "waiting",
+                "nextPhaseRemainingSeconds": remaining,
+                "stageTimingVerification": verification,
+                "ruptureTimingVerification": "verified",
+                "timingReason": "native_waiting_countdown_and_live_warning_threshold",
+                "currentRuptureInProgress": false,
+                "phaseDurations": null,
+                "waitingWarningEstimate": {
+                    "remainingSeconds": remaining,
+                    "verification": verification,
+                    "warningDurationSeconds": warning,
+                    "warningDurationAssumptionSeconds": null,
+                },
+                "substageTiming": substage,
+                "timeBasis": basis,
+            }),
         );
     }
     if w["waitingForNextWave"] != false || p["status"] != "ok" || p["getterLayoutsVerified"] != true
@@ -163,6 +219,70 @@ pub fn live_wave_timing(w: &Value, clock: f64) -> Value {
     let expected = [0.0, 0.0, 1.0, 2.0, 3.0][stage];
     merge(
         merge(w.clone(), configuration),
-        json!({"phase":(["","PreWave","Moving","Fadeout","Growback"][stage]),"nextPhaseRemainingSeconds":remaining,"ruptureRemainingSeconds":until,"countdownBasis":if stage==1{"captured_heat_stage_timing"}else{"native_phase_and_live_waiting_interval"},"stageTimingVerification":verification,"ruptureTimingVerification":if stage==1{verification}else if interval.is_none(){"unknown"}else if calibrated{verification}else{"unverified_runtime_configuration"},"timingReason":"native_progress_and_live_inverse_duration","currentRuptureInProgress":stage==2||stage==3,"phaseDurations":{"preWave":120,"moving":10,"fadeout":80,"growback":735,"waitingIntervalIncludingWarning":interval},"progressRemainingSeconds":remaining,"phaseClockRemainingSeconds":remaining,"phaseClockVerification":"native_progress_rate_with_completion_anchor_corroboration","estimate":{"verification":"conditional_estimate","condition":"Future phase updates are not clipped by the live delta cap; float32 accumulation and transition ticks can add drift. Menu pause consumes no phase time.","deltaCapSeconds":phase["deltaCapSeconds"]},"actorDeadlineDiagnostic":{"nominalRemainingSeconds":actor_remaining,"progressMinusDeadlineSeconds":drift,"expectedNextPhase":expected,"nextPhaseMatches":w["actor"]["nextPhase"].as_f64()==Some(expected),"usedForTiming":false,"interpretation":"Positive drift means phase progress projects completion later than the nominal actor deadline. Actor may retain a duration or stale phase target."},"actorProgressResidualSeconds":drift.map(f64::abs),"actorStartResidualSeconds":start_residual,"substageTiming":substage,"preWaveExplosionCueRemainingSeconds":if stage==1{Some((number(&p["settings"]["wavePreWaveExplosionDuration"])-duration*number(&p["progress"])).max(0.0))}else{None},"preWaveExplosionCueVerification":if stage==1{Some("unverified_estimate")}else{None},"warningIncludedInWaitingInterval":true,"timeBasis":basis,"coverage":"Phase progress controls completion. Elapsed gameplay projections are conditional estimates; actor deadlines are diagnostic only. Interval/warning read live. Changed configuration, exact substages and local arrival remain limited."}),
+        json!({
+            "phase": (["", "PreWave", "Moving", "Fadeout", "Growback"][stage]),
+            "nextPhaseRemainingSeconds": remaining,
+            "ruptureRemainingSeconds": until,
+            "countdownBasis": if stage == 1 {
+                "captured_heat_stage_timing"
+            } else {
+                "native_phase_and_live_waiting_interval"
+            },
+            "stageTimingVerification": verification,
+            "ruptureTimingVerification": if stage == 1 {
+                verification
+            } else if interval.is_none() {
+                "unknown"
+            } else if calibrated {
+                verification
+            } else {
+                "unverified_runtime_configuration"
+            },
+            "timingReason": "native_progress_and_live_inverse_duration",
+            "currentRuptureInProgress": stage == 2 || stage == 3,
+            "phaseDurations": {
+                "preWave": 120,
+                "moving": 10,
+                "fadeout": 80,
+                "growback": 735,
+                "waitingIntervalIncludingWarning": interval,
+            },
+            "progressRemainingSeconds": remaining,
+            "phaseClockRemainingSeconds": remaining,
+            "phaseClockVerification": "native_progress_rate_with_completion_anchor_corroboration",
+            "estimate": {
+                "verification": "conditional_estimate",
+                "condition": "Future phase updates are not clipped by the live delta cap; float32 accumulation and transition ticks can add drift. Menu pause consumes no phase time.",
+                "deltaCapSeconds": phase["deltaCapSeconds"],
+            },
+            "actorDeadlineDiagnostic": {
+                "nominalRemainingSeconds": actor_remaining,
+                "progressMinusDeadlineSeconds": drift,
+                "expectedNextPhase": expected,
+                "nextPhaseMatches": w["actor"]["nextPhase"].as_f64() == Some(expected),
+                "usedForTiming": false,
+                "interpretation": "Positive drift means phase progress projects completion later than the nominal actor deadline. Actor may retain a duration or stale phase target.",
+            },
+            "actorProgressResidualSeconds": drift.map(f64::abs),
+            "actorStartResidualSeconds": start_residual,
+            "substageTiming": substage,
+            "preWaveExplosionCueRemainingSeconds": if stage == 1 {
+                Some(
+                    (number(&p["settings"]["wavePreWaveExplosionDuration"])
+                        - duration * number(&p["progress"]))
+                    .max(0.0),
+                )
+            } else {
+                None
+            },
+            "preWaveExplosionCueVerification": if stage == 1 {
+                Some("unverified_estimate")
+            } else {
+                None
+            },
+            "warningIncludedInWaitingInterval": true,
+            "timeBasis": basis,
+            "coverage": "Phase progress controls completion. Elapsed gameplay projections are conditional estimates; actor deadlines are diagnostic only. Interval/warning read live. Changed configuration, exact substages and local arrival remain limited.",
+        }),
     )
 }

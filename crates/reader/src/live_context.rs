@@ -342,7 +342,10 @@ async fn read_context(
     let timing_configuration =
         match crate::live_timer_config::read(&ctx, sub, base.config.image_base).await {
             Ok(value) => value,
-            Err(error) => json!({"status":"unavailable","reason":format!("{error:#}")}),
+            Err(error) => json!({
+                "status": "unavailable",
+                "reason": format!("{error:#}"),
+            }),
         };
     // These private fields were mapped through native OnPreSaveStart and exact paused-save joins.
     let remaining = signed_finite(ctx.read::<f32>(sub + 0x7c).await? as f64)?;
@@ -366,7 +369,10 @@ async fn read_context(
                 ensure!(pointer == phase_pointer, "Phase changed while sampling");
                 value
             }
-            Err(error) => json!({"status":"unavailable","reason":format!("{error:#}")}),
+            Err(error) => json!({
+                "status": "unavailable",
+                "reason": format!("{error:#}"),
+            }),
         };
     let mut substages = serde_json::Map::new();
     for field in ["CurrentPreWaveSubstage", "CurrentFadeoutSubstage", "CurrentGrowbackSubstage"] {
@@ -374,7 +380,7 @@ async fn read_context(
             field.to_string(),
             json!(
                 ctx.read::<u8>(
-                    b.wave_subsystem.address + b.offset("Chimera.CrEnviroWaveSubsystem", field)?
+                    b.wave_subsystem.address + b.offset("Chimera.CrEnviroWaveSubsystem", field)?,
                 )
                 .await?
             ),
@@ -432,15 +438,93 @@ async fn read_context(
         "not_established"
     };
     let countdown = countdown(remaining, waiting, stopped)?;
-    Ok(
-        json!({"player":{"dead":dead,"viewMode":view,"mainCharacterName":character_stamp.name,"mainCharacterPath":path(&ctx,character).await?,"controllerPath":path(&ctx,controller).await?,"cameraEvidence":{"firstPersonActive":fpp_active,"droneActive":drone_active,"droneReferencePresent":drone!=0}},
- "world":{"worldPath":world_path,"persistentLevelPath":path(&ctx,persistent).await?,"origin":{"x":origin[0],"y":origin[1],"z":origin[2]},"originRebasingEnabled":rebasing,"mapCoordinatesCompatible":origin==[0,0,0]&&!rebasing,"frameCoverage":"ChimeraMain only; other interiors and nonzero origins uncalibrated"},
- "clocks":{"simulationSeconds":end_time,"audioSeconds":audio,"realSeconds":real,"unpausedSeconds":unpaused,"simulationAtObservationStart":time,"timeDilation":ctx.read::<f32>(settings+b.offset("Engine.WorldSettings","TimeDilation")?).await?,"meaning":"Simulation/audio clocks stop during normal pause; real/unpaused clocks continue. Restored clocks can reset to saved values after reload."},
- "pause":{"paused":paused,"basis":pause_basis,"pauseMenuOpen":menu,"pauserPresent":pauser!=0,"pauseDelaySeconds":pause_delay,"gameStatePauseFlag":game_flag,"warning":"Game-state and wave-specific pause flags are not global pause truth; other native loading/network pause branches remain uncalibrated."},
- "wave":{"phase":if stopped{"disabled"}else if waiting{"waiting"}else{"active_unverified"},"ruptureRemainingSeconds":countdown,"countdownBasis":if countdown.is_some(){"native_waiting_countdown"}else{"unsupported_or_disabled"},"waitingForNextWave":waiting,"specificWavePauseFlag":wave_pause,"wavesDisabled":stopped,"waveCount":waves,"previousStageRaw":previous,"actor":{"nextTime":actor_next_time,"nextPhase":actor_next_phase,"specificPauseFlag":actor_pause},"phaseEvidence":phase_evidence,"timingConfiguration":timing_configuration,"substages":substages,"coverage":"Native stage/progress/settings/configuration readers; server calculates guarded timings and separate verification labels. Waiting timer must not be reused in active phases."},
- "observationWindow":{"startedAtUnixMilliseconds":observed_start,"completedAtUnixMilliseconds":SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis(),"atomic":false},
- "evidence":["Runtime native reflection and object registry joins","Clock/origin offsets decoded from live native getter instructions; no game code invocation","Normal-menu pause branch plus simulation clock behaviour","Timer private fields traced through native save callback and matched to saves","Actual restart and drone/on-foot validation for installed executable hash"]}),
-    )
+    Ok(json!({
+        "player": {
+            "dead": dead,
+            "viewMode": view,
+            "mainCharacterName": character_stamp.name,
+            "mainCharacterPath": path(&ctx, character).await?,
+            "controllerPath": path(&ctx, controller).await?,
+            "cameraEvidence": {
+                "firstPersonActive": fpp_active,
+                "droneActive": drone_active,
+                "droneReferencePresent": drone != 0,
+            },
+        },
+        "world": {
+            "worldPath": world_path,
+            "persistentLevelPath": path(&ctx, persistent).await?,
+            "origin": {
+                "x": origin[0],
+                "y": origin[1],
+                "z": origin[2],
+            },
+            "originRebasingEnabled": rebasing,
+            "mapCoordinatesCompatible": origin == [0, 0, 0] && !rebasing,
+            "frameCoverage": "ChimeraMain only; other interiors and nonzero origins uncalibrated",
+        },
+        "clocks": {
+            "simulationSeconds": end_time,
+            "audioSeconds": audio,
+            "realSeconds": real,
+            "unpausedSeconds": unpaused,
+            "simulationAtObservationStart": time,
+            "timeDilation": ctx
+                .read::<f32>(settings + b.offset("Engine.WorldSettings", "TimeDilation")?)
+                .await?,
+            "meaning": "Simulation/audio clocks stop during normal pause; real/unpaused clocks continue. Restored clocks can reset to saved values after reload.",
+        },
+        "pause": {
+            "paused": paused,
+            "basis": pause_basis,
+            "pauseMenuOpen": menu,
+            "pauserPresent": pauser != 0,
+            "pauseDelaySeconds": pause_delay,
+            "gameStatePauseFlag": game_flag,
+            "warning": "Game-state and wave-specific pause flags are not global pause truth; other native loading/network pause branches remain uncalibrated.",
+        },
+        "wave": {
+            "phase": if stopped {
+                "disabled"
+            } else if waiting {
+                "waiting"
+            } else {
+                "active_unverified"
+            },
+            "ruptureRemainingSeconds": countdown,
+            "countdownBasis": if countdown.is_some() {
+                "native_waiting_countdown"
+            } else {
+                "unsupported_or_disabled"
+            },
+            "waitingForNextWave": waiting,
+            "specificWavePauseFlag": wave_pause,
+            "wavesDisabled": stopped,
+            "waveCount": waves,
+            "previousStageRaw": previous,
+            "actor": {
+                "nextTime": actor_next_time,
+                "nextPhase": actor_next_phase,
+                "specificPauseFlag": actor_pause,
+            },
+            "phaseEvidence": phase_evidence,
+            "timingConfiguration": timing_configuration,
+            "substages": substages,
+            "coverage": "Native stage/progress/settings/configuration readers; server calculates guarded timings and separate verification labels. Waiting timer must not be reused in active phases.",
+        },
+        "observationWindow": {
+            "startedAtUnixMilliseconds": observed_start,
+            "completedAtUnixMilliseconds": SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis(),
+            "atomic": false,
+        },
+        "evidence": [
+            "Runtime native reflection and object registry joins",
+            "Clock/origin offsets decoded from live native getter instructions; no game code invocation",
+            "Normal-menu pause branch plus simulation clock behaviour",
+            "Timer private fields traced through native save callback and matched to saves",
+            "Actual restart and drone/on-foot validation for installed executable hash",
+        ],
+    }))
 }
 #[cfg(test)]
 mod tests {
@@ -478,6 +562,4 @@ pub async fn snapshot(
     Ok(value)
 }
 
-// Only the overlay binary uses this retained context.
-#[allow(dead_code)]
 pub(crate) mod resident;

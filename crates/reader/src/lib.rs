@@ -1,22 +1,28 @@
 //! Embedded, bounded read-only wave reader; never writes or invokes game code.
 mod cache;
+mod discovery;
 mod live_context;
 mod live_phase;
 mod live_timer_config;
+pub mod overlay_stream;
 mod platform;
+
 use anyhow::{Context, Result, ensure};
+use discovery::discover;
 use jmap_dumper::{
-    Config, ConfigOverrides,
-    mem::{BlockCache, Ctx, Mem, Ptr},
-    objects::{FUObjectArray, UObject, UStruct},
+    Config,
+    mem::{Ctx, Mem, Ptr},
+    objects::{FUObjectArray, UObject},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use starrupture_observation_model::{
+    READER_CONTRACT_VERSION, overlay_stream::GAME_HASH as BUILD_HASH,
+};
 use std::{
     collections::{BTreeMap, HashSet},
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
-const BUILD_HASH: &str = "95f95eee0b1913b8716de7fa5bf19877a91abe86e63bf2b6f0a29bd48d1d76f1";
 const FIELDS: &[(&str, &str, usize)] = &[
     ("/Script/Engine.PlayerController", "Player", 8),
     ("/Script/Engine.PlayerController", "AcknowledgedPawn", 8),
@@ -129,93 +135,6 @@ async fn path(ctx: &Ctx, address: u64) -> Result<String> {
     }
     Ok(out)
 }
-async fn discover(process: &platform::Process) -> Result<Cache> {
-    eprintln!("Discovering current Unreal runtime references...");
-    let image = patternsleuth::process::external::read_image_from_pid(process.identity.pid as i32)?;
-    let memory = BlockCache::wrap(process.clone());
-    let config = jmap_dumper::resolve_config(&memory, &image, &ConfigOverrides::default()).await?;
-    ensure!(
-        config.engine_version == (5, 6)
-            && config.build_change_list.as_deref() == Some("++Earth20+Neon-CL-127004"),
-        "Unsupported engine/build"
-    );
-    let ctx = jmap_dumper::connect_manual(memory, config.clone(), None).await?;
-    let array = Ptr::<FUObjectArray>::new(ctx.uobjectarray, ctx.clone())?;
-    let count = array.num_elements().await?;
-    ensure!((1..=2_000_000).contains(&count), "Invalid Unreal registry size");
-    let wanted: HashSet<&str> =
-        FIELDS.iter().map(|(c, _, _)| c.rsplit('.').next().unwrap()).collect();
-    let mut offsets = BTreeMap::new();
-    let mut candidates = vec![];
-    for index in 0..count as usize {
-        let Some(obj) = array
-            .read_item_ptr(index)
-            .await
-            .with_context(|| format!("Registry slot {index}/{count}"))?
-        else {
-            continue;
-        };
-        // Unreal's global array can contain stale entries while objects are collected.
-        if obj.internal_index().read().await.ok() != Some(index as i32) {
-            continue;
-        }
-        let name = obj
-            .name_private()
-            .read()
-            .await
-            .with_context(|| format!("Registry object name at {index}"))?;
-        if wanted.contains(name.as_str()) {
-            let p = path(&ctx, obj.address()).await?;
-            if FIELDS.iter().any(|(c, _, _)| *c == p) {
-                let mut props = obj.cast::<UStruct>().properties(false);
-                let mut visits = 0;
-                while let Some(prop) = props.next().await {
-                    visits += 1;
-                    ensure!(visits <= 4096, "Invalid reflected property chain");
-                    let prop = prop.with_context(|| format!("Reflected property chain for {p}"))?;
-                    let n = prop.zfield().name_private().read().await?;
-                    if let Some((_, _, size)) = FIELDS.iter().find(|(c, f, _)| *c == p && *f == n) {
-                        ensure!(
-                            prop.element_size().read().await? as usize == *size
-                                && prop.array_dim().read().await? == 1,
-                            "Unexpected field layout"
-                        );
-                        offsets.insert(key(&p, &n), prop.offset_internal().read().await? as usize);
-                    }
-                }
-            }
-        }
-        if name.starts_with("PC_PlayerControllerBase_C_") {
-            candidates.push(obj.address());
-        }
-    }
-    validate_offsets(&offsets).context("Resolving required native fields")?;
-    let mut locals = vec![];
-    for address in candidates {
-        let player: u64 = ctx
-            .read(address + offsets[&key("/Script/Engine.PlayerController", "Player")] as u64)
-            .await?;
-        if player != 0 {
-            let reverse: u64 = ctx
-                .read(player + offsets[&key("/Script/Engine.Player", "PlayerController")] as u64)
-                .await?;
-            if reverse == address {
-                locals.push(address);
-            }
-        }
-    }
-    ensure!(
-        locals.len() == 1,
-        "Expected exactly one local controller; world not loaded or ambiguous"
-    );
-    Ok(Cache {
-        version: 1,
-        identity: process.identity.clone(),
-        config,
-        controller: stamp(&ctx, locals[0]).await.context("Validating discovered controller")?,
-        offsets,
-    })
-}
 async fn sample(process: &platform::Process, cache: &Cache) -> Result<serde_json::Value> {
     ensure!(cache_matches(cache, &process.identity), "Stale session cache");
     let ctx = jmap_dumper::connect_manual(process.clone(), cache.config.clone(), None).await?;
@@ -288,9 +207,35 @@ async fn sample_context(
         "References changed during sample"
     );
     process.ensure_alive()?;
-    Ok(
-        json!({"status":"ok","schemaVersion":1,"helperVersion":env!("CARGO_PKG_VERSION"),"observedAtUnixMilliseconds":SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis(),"source":"live_read_only_process_memory","position":position,"process":process.identity,"readerIsElevated":platform::is_elevated()?,"frame":{"worldPackage":package,"characterPath":char_path,"map":"ChimeraMain","worldUnitsPerMetre":100,"originShiftVerified":false},"validation":{"localPlayerRoundtrip":true,"registeredObjects":true,"unattachedRoot":true,"stableWithinSample":first==position},"limitations":["Main-map frame only; world-origin shifting independently unverified","Character position, not camera/drone position","No save snapshot or factory facts are refreshed"],"gameMemoryWrites":false}),
-    )
+    Ok(json!({
+        "status": "ok",
+        "schemaVersion": 1,
+        "helperVersion": READER_CONTRACT_VERSION,
+        "observedAtUnixMilliseconds": SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis(),
+        "source": "live_read_only_process_memory",
+        "position": position,
+        "process": process.identity,
+        "readerIsElevated": platform::is_elevated()?,
+        "frame": {
+            "worldPackage": package,
+            "characterPath": char_path,
+            "map": "ChimeraMain",
+            "worldUnitsPerMetre": 100,
+            "originShiftVerified": false,
+        },
+        "validation": {
+            "localPlayerRoundtrip": true,
+            "registeredObjects": true,
+            "unattachedRoot": true,
+            "stableWithinSample": first == position,
+        },
+        "limitations": [
+            "Main-map frame only; world-origin shifting independently unverified",
+            "Character position, not camera/drone position",
+            "No save snapshot or factory facts are refreshed",
+        ],
+        "gameMemoryWrites": false,
+    }))
 }
 #[cfg(test)]
 mod tests {
@@ -368,5 +313,3 @@ mod tests {
         }
     }
 }
-
-pub mod overlay_stream;

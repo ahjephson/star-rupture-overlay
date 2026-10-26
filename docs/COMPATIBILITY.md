@@ -1,14 +1,14 @@
 # Supported environment
 
-Status: initial Windows x64 development candidate, 2026-10-24.
+Version 0.1.0 supports the environment below. Other installation locations require a compatibility change before general distribution.
 
 | Requirement | Supported scope |
 | --- | --- |
-| Operating system | Windows 10/11 x64; actual live development validation on the maintainer's Windows system |
+| Operating system | Windows 10/11 x64 |
 | Display mode | Borderless/windowed; exclusive fullscreen is not validated |
 | Game distribution | Steam, one exact executable hash |
 | Installation | Default C-drive Steam path below; other library locations currently fail closed |
-| Game/map state | Supported main-map running session; no saved-data fallback |
+| Game/map state | Supported main-map running session |
 
 Executable path:
 
@@ -22,6 +22,6 @@ Supported executable SHA256:
 95f95eee0b1913b8716de7fa5bf19877a91abe86e63bf2b6f0a29bd48d1d76f1
 ```
 
-A game update can invalidate support. Do not replace the hash or remove guards merely to make an unknown build attach. A compatibility update needs fresh reflection/allocation/timing verification and live tests. Extending installation-location support is a future task; the current release intentionally retains the validated path boundary.
+A game update can invalidate support. Compatibility updates require reflection, allocation and timing verification plus live tests. Support currently covers the installation path above.
 
-Published candidate binaries statically link the VC runtime. Their import table is checked for accidental separate VC redistributable dependencies. Windows system DLLs remain required. No Node.js, .NET, Python, Rust compiler, MCP server or settings file is needed to run the packaged app.
+Candidate binaries statically link the VC runtime and use Windows system DLLs. The application starts with default settings and accepts an optional configuration file.

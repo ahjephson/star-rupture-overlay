@@ -5,7 +5,12 @@ use serde_json::{Value, json};
 pub async fn read(ctx: &Ctx, subsystem: u64, image_base: u64) -> Result<(u64, Value)> {
     let implementation = ctx.read::<u64>(subsystem + 0x1f8).await?;
     if implementation == 0 {
-        return Ok((0, json!({"status":"inactive"})));
+        return Ok((
+            0,
+            json!({
+                "status": "inactive",
+            }),
+        ));
     }
     let vtable = ctx.read::<u64>(implementation).await?;
     let mut stages = [0u8; 3];
@@ -86,7 +91,25 @@ pub async fn read(ctx: &Ctx, subsystem: u64, image_base: u64) -> Result<(u64, Va
     );
     Ok((
         implementation,
-        json!({"status":"ok","getterLayoutsVerified":true,"stage":stages[1],"waveType":wave_type,"progress":progress,"inverseDuration":inverse_duration,"phaseClockEvidence":{"status":"ok","nativeUpdateBindingVerified":true,"updateRva":update_rva,"deltaCapSeconds":delta_cap,"semantics":"progress += min(delta, cap) * inverseDuration; float32 and transition tick rounding apply"},"settings":settings,"waveStartTimeSeconds":start,"readerRvas":rvas,"progressVerification":"Native update control flow and retrospective completion anchors corroborate progress; future elapsed-time projections remain estimates."}),
+        json!({
+            "status": "ok",
+            "getterLayoutsVerified": true,
+            "stage": stages[1],
+            "waveType": wave_type,
+            "progress": progress,
+            "inverseDuration": inverse_duration,
+            "phaseClockEvidence": {
+                "status": "ok",
+                "nativeUpdateBindingVerified": true,
+                "updateRva": update_rva,
+                "deltaCapSeconds": delta_cap,
+                "semantics": "progress += min(delta, cap) * inverseDuration; float32 and transition tick rounding apply",
+            },
+            "settings": settings,
+            "waveStartTimeSeconds": start,
+            "readerRvas": rvas,
+            "progressVerification": "Native update control flow and retrospective completion anchors corroborate progress; future elapsed-time projections remain estimates.",
+        }),
     ))
 }
 #[cfg(test)]

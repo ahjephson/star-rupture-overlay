@@ -23,7 +23,7 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 
-# Owner-selected licence for first-party crates only; dependencies keep their licences.
+# First-party licence only; dependencies retain their own licences.
 
 [[licenses.exceptions]]
 name = "starrupture-wave-overlay"

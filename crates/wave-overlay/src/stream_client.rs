@@ -37,7 +37,7 @@ pub fn run(
         "menuUpdates": sink.menu_updates,
         "lastStatistics": sink.statistics,
         "readerMode": "embedded_worker",
-        "childProcesses": 0
+        "childProcesses": 0,
     }))
 }
 

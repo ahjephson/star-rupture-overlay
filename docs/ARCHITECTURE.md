@@ -1,55 +1,65 @@
 # Architecture
 
-## Process and ownership
+## Components and ownership
 
-One Windows GUI executable owns a UI thread and a persistent read-only worker. The UI thread owns the window, tray icon, embedded fonts and GDI resources. The worker retains a query/read-only game handle and checked runtime references, publishes locked observations and posts a window notification. It never draws or changes the game.
-
-Closing the app cancels the worker and joins it before shared state is dropped. Cancellation is checked before memory reads, process enumeration and executable-hash chunks. Monotonic budgets bound discovery to 60 seconds and ordinary sampling operations to five seconds. These are cooperative checks, not forced interruption of individual blocking OS calls. A worker shares the app process; it is not an isolation boundary.
-
-## Crates
+The UI thread owns the window, tray icon, embedded fonts and GDI resources. A persistent worker retains a query/read-only game handle and checked runtime references, publishes observations under a mutex and posts a window notification. Rendering and window operations remain on the UI thread.
 
 | Crate | Responsibility |
 | --- | --- |
-| wave-overlay | Native window/tray, fonts, rendering, observation consumer and application lifetime |
-| reader | OS query/read boundary, runtime discovery, allocation/session guards, bounded local caches and sampling |
+| wave-overlay | Native window, tray controls, rendering, observation consumption and application lifetime |
+| reader | OS query/read boundary, runtime discovery, allocation/session guards, bounded caches and sampling |
 | wave-core | Configuration, observation validation and native wave timing calculations |
-| observation-model | Bounded envelopes, sequence/generation validation and pure HUD presentation |
+| observation-model | Bounded envelopes, sequence/generation validation and HUD presentation |
 
-The reader's 0.5.0 package version is an internal observation-schema compatibility pin, independent of the app version. Some inherited observation field names mention a helper or get_live_world_state; they are data-validation identifiers, not MCP dependencies or exposed remote tools. None of these crates are published to crates.io.
+The data flow is game memory → reader → validated observation → timing calculation → HUD presentation. All application crates inherit the workspace release version. Observation compatibility is defined by `schemaVersion` and `READER_CONTRACT_VERSION`, which the reader emits as `helperVersion` and the validator checks independently of the release version. The response validator uses `get_live_world_state` as its world-observation identifier.
 
-## Two observation cadences
+Observation messages have typed envelopes and `serde_json::Value` payloads. The worker passes these objects in memory, serializes envelopes to enforce their size bound, and serializes/parses the raw world payload through the response validator. Configuration, discovery caches and diagnostics also use JSON. The serialization and field-validation contracts remain part of the current implementation.
 
-Menu checks target 50 ms and can promptly move the overlay. Complete world/timer observations target 250 ms. Both run serially, so a full observation can defer a menu check. Menu timestamps cannot refresh world evidence or establish simulation pause.
+## Reader lifetime and observation guards
 
-Timer evidence includes process creation, executable hash, world/object allocation identities, a bounded read window and validated native timing configuration. Torn phase/configuration reads are discarded; identity failures mark data unavailable before reacquisition. Cache files are bounded hints, checked before reuse, and never a saved-state fallback.
+Closing the app cancels the worker and joins it before shared state is dropped. Cancellation is checked before memory reads, process enumeration and executable-hash chunks. Monotonic budgets bound discovery to 60 seconds and ordinary sampling operations to five seconds. These checks are cooperative; an individual blocking OS call can delay cancellation. The worker shares the application process.
 
-Waiting can use a directly verified countdown. Active Heat remaining uses native progress and inverse duration, retaining float32, clipping and transition-tick limits. Actor deadline drift is diagnostic. Normal-menu simulation pause requires pauser/delay/clock evidence. Local wave arrival and exact audiovisual substage cues are not independently established.
+Menu checks target 50 ms; complete world/timer observations target 250 ms. They run serially, so a full observation can defer a menu check. Menu timestamps affect layout only and cannot refresh timer evidence or establish simulation pause.
 
-The HUD floors seconds and suppresses isolated one-second upward flicker within an unchanged phase/session. It never advances a countdown from wall time. Five-second stale evidence shows unavailable. Exact color, geometry, glyph counts and play/pause anchors are protected by native render checks and presentation tests.
+Observations carry a bounded read window, process creation identity, executable hash, session generation and sequence. World/object allocation identities and native timing configuration are validated before use. Torn phase/configuration reads are discarded without refreshing evidence. Other identity failures invalidate the observation before reacquisition. Cache files contain bounded discovery hints checked against live identities.
+
+## Wave timing and presentation
+
+Waiting uses a directly verified native countdown. Active Heat timing uses native progress and inverse duration, retaining float32 accumulation, delta clipping and transition-tick limits. Actor deadline drift is diagnostic only. Normal-menu simulation pause requires pauser/delay/clock evidence. Local wave arrival and exact audiovisual cues are not independently established.
+
+| Native phase | HUD label | Countdown target |
+| --- | --- | --- |
+| Waiting | STABLE | Rupture |
+| PreWave | PRE-WAVE | Rupture |
+| Moving | APPROACHING | Next native phase |
+| Fadeout, elapsed time below 8.5 seconds | INCINERATING | 8.5-second display boundary |
+| Fadeout, elapsed time at least 8.5 seconds | COOLING | Native Fadeout end |
+| Growback | GROWBACK | Next native phase |
+
+Fadeout elapsed time is its validated native duration minus native remaining simulation time. INCINERATING and COOLING are presentation labels within the same native phase. Unsupported substage timing retains FADEOUT with `--:--`.
+
+The HUD floors seconds and suppresses an isolated one-second upward rounding correction within an unchanged phase/session. A second independent observation confirms that correction. The presenter resets its debounce when the displayed target changes. Countdowns advance with observed simulation time; timer evidence older than five seconds becomes unavailable. Native render diagnostics and presentation tests cover geometry, colours, glyph counts and play/menu anchors.
 
 ## Native API boundary
 
-Win32 handles close through RAII. The process handle remains on the worker thread using Rc; cancellation and deadlines use thread-safe shared state. Reads validate pointer/size bounds before ReadProcessMemory. The supported path and SHA256 remain pinned. No process write, remote execution, hook, debug-privilege or save-editing path exists.
+Win32 process handles close through RAII and remain on the worker thread using `Rc`. Cancellation and deadlines use thread-safe shared state. Reads validate pointer/size bounds before `ReadProcessMemory`. The supported path and SHA256 are pinned as described in [compatibility](COMPATIBILITY.md). The reader opens the game with query/read permissions under standard user privileges.
 
-The font-count output for AddFontMemResourceEx uses writable raw storage even though the generated Windows binding declares a const pointer. This follows the API's actual output behavior; a shared reference would permit an invalid aliasing assumption. See the [Win32 font API remarks](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-addfontmemresourceex).
+The font-count output for `AddFontMemResourceEx` uses writable raw storage even though the generated binding declares a const pointer. A shared reference would permit an invalid aliasing assumption for this output parameter. See the [Win32 font API contract](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-addfontmemresourceex).
 
-## Game-relative window stacking
+## Window positioning and stacking
 
-The HUD is an ordinary top-level window, without WS_EX_TOPMOST and without assigning a foreign owner/parent. Queued Windows foreground/restore/window-order notifications repair its stacking immediately on the UI thread; the existing100ms UI tick remains a fallback. It places only its own HWND immediately above the validated game window. Position/resize operations preserve ordering; showing the HUD and positioning it in the stack happen together without activation. Windows above the game remain above the HUD, including partially overlapping windows. A browser on another monitor therefore leaves the game's HUD visible, while an app over the game covers it naturally.
+The HUD is an ordinary, independently owned top-level window. It positions its own HWND immediately above the validated game window without activation. Position and resize operations preserve ordering. Windows above the game remain above the HUD, including partial overlaps. Moving focus to another monitor leaves the HUD over the visible game; an application covering the game also covers the HUD.
 
-Invalid, hidden, minimized or genuinely topmost game windows hide the HUD. The topmost case fails closed rather than making the HUD globally topmost again. The current visible Unreal window was observed non-topmost using a read-only window query. Topmost applications, OS menus and notifications stay above the ordinary HUD. No DirectX hook, injection, cross-process owner relationship or extra game-memory sampling was added. Notification delivery and desktop composition remain asynchronous; no zero-frame display latency is promised.
+Invalid, hidden, minimized or topmost game windows hide the HUD. Menu layout moves it below the menu border; unlocked manual placement overrides automatic positioning until reset.
 
-The --self-test-stacking diagnostic uses four owned off-screen windows and no game. It checks separate/overlapping regions, partial coverage,100 repeated syncs, returning the game above another app, manual placement, hidden/minimized/destroyed targets, accidental topmost recovery and unchanged foreground focus. It changes no actual game/browser windows and launches no second normal HUD. A real two-monitor appearance check still requires intentionally activating the candidate.
+Desktop foreground, restore and reorder notifications use `SetWinEventHook` with `WINEVENT_OUTOFCONTEXT` and `WINEVENT_SKIPOWNPROCESS`. The callback coalesces events into a posted message without accessing application state or game memory. The UI handler reuses the last validated game HWND and rendered frame without acquiring the reader mutex or recalculating timing/geometry. Thread-affine RAII disables the target before unhooking. Registration failure retains the 100 ms UI timer fallback. See the [Win32 notification contract](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwineventhook).
 
-## Focus-return notification path
+Notification delivery and desktop composition are asynchronous, so visible updates depend on their scheduling.
 
-After the player confirmed occlusion worked but reported approximately half a second of reappearance delay, added desktop window notifications through SetWinEventHook with WINEVENT_OUTOFCONTEXT and WINEVENT_SKIPOWNPROCESS. No DLL is supplied or injected, no callback runs inside the game and no extra memory polling is introduced. See [the Win32 notification contract](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwineventhook).
+## Native diagnostics
 
-The callback coalesces relevant window-level events into a posted message. It never accesses App, reads memory or performs stacking directly, avoiding reentrant App borrowing. The UI handler reuses its last validated game HWND and existing rendered HUD without acquiring the reader mutex or recalculating timing/geometry. The original ordinary ordering and no-activation policy remain. Notifications from the overlay process are excluded to avoid feedback. Thread-affine RAII disables the target before unhooking; registration failure keeps the100ms timer fallback and reports it.
+`--self-test-stacking` uses four owned off-screen windows. It covers separate/overlapping regions, partial coverage, repeated synchronization, focus return, manual placement, hidden/minimized/destroyed targets and topmost recovery while preserving foreground focus.
 
-The --self-test-window-events diagnostic uses two owned off-screen windows, allowed synthetic object-reorder notifications and the real callback/posted-message handler. It runs20 repairs with the reader mutex held and no UI timer, verifies unchanged foreground focus and checks teardown stops delivery. Its measured native scheduling latency is not a measurement of game/desktop composition latency. The real foreground event is system-generated; the test does not fabricate it or focus an actual app.
+`--self-test-window-events` uses two owned off-screen windows and the real callback/posted-message handler. It performs 20 repairs with the reader mutex held and the UI timer disabled, verifies unchanged focus and checks that teardown stops delivery. This diagnostic measures the callback/message path; real game/desktop composition latency requires a live check.
 
-
-## Display substages
-
-Native Moving displays APPROACHING. Native Fadeout displays INCINERATING for elapsed simulation time in [0,7) seconds, then COOLING. Elapsed time is validated phase duration minus native remaining time; no wall clock, observation age or actor deadline is used. Countdown targets the display boundary during incineration, then the native Fadeout end. These are owner-selected HUD labels, not additional verified game substages or local heat evidence. Unsupported timing retains FADEOUT with --:--. Native identifiers and timing remain intact. Stale observations remain unavailable, and the presenter resets its rounding debounce when the displayed target changes.
+Additional diagnostics check the hidden native window, eight rendered HUD states and embedded icon extraction/loading. These diagnostics operate on owned fixture windows. Live reader and manual appearance checks remain separate; see [release validation](RELEASING.md).

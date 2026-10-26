@@ -1,5 +1,13 @@
-//! Overlay-only retained read-only context.
-use super::*;
+//! Persistent read-only context with live allocation and ownership guards.
+use super::{Bindings, finite, read_context, snapshot, world};
+use crate::{Cache, ObjectStamp, key, platform, stamp};
+use anyhow::{Context, Result, ensure};
+use jmap_dumper::{
+    mem::{Ctx, Ptr},
+    objects::UObject,
+};
+use serde_json::Value;
+use std::path::Path as FilePath;
 
 #[derive(PartialEq)]
 struct StrongStamp {

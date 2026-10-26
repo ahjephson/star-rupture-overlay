@@ -257,12 +257,23 @@ pub(super) fn self_test() -> Result<(), Box<dyn std::error::Error>> {
         require(foreground == GetForegroundWindow(), "foreground focus preserved")?;
         println!(
             "{}",
-            json!({"status":"passed", "gameRead":false, "actualWindowsModified":false,
-            "visibleHudLaunched":false, "offscreenOwnedFixtures":4, "otherMonitor":true,
-            "overlappingWindow":true, "partialCover":true, "returnToGame":true,
-            "manualPositionPreserved":true, "repeatedSyncs":100,
-            "hiddenMinimizedDestroyed":true, "topmostFailsClosed":true,
-            "accidentalPromotionRecovered":true, "foregroundPreserved":true})
+            json!({
+                "status": "passed",
+                "gameRead": false,
+                "actualWindowsModified": false,
+                "visibleHudLaunched": false,
+                "offscreenOwnedFixtures": 4,
+                "otherMonitor": true,
+                "overlappingWindow": true,
+                "partialCover": true,
+                "returnToGame": true,
+                "manualPositionPreserved": true,
+                "repeatedSyncs": 100,
+                "hiddenMinimizedDestroyed": true,
+                "topmostFailsClosed": true,
+                "accidentalPromotionRecovered": true,
+                "foregroundPreserved": true
+            })
         );
         Ok(())
     }

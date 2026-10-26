@@ -8,10 +8,99 @@ fn wave(stage: usize, progress: f64) -> Value {
     let clock = 10000.0;
     let settings: serde_json::Map<String, Value> =
         HEAT_SETTINGS.iter().map(|(k, v)| (k.to_string(), json!(v))).collect();
-    json!({"phase":"active_unverified","waitingForNextWave":false,"wavesDisabled":false,"specificWavePauseFlag":false,"previousStageRaw":stage,"timingConfiguration":{"status":"ok","nativeControlFlowVerified":true,"intervalIncludesWarning":true,"intervalSeconds":2400,"warningDurationSeconds":120},"actor":{"specificPauseFlag":false,"nextTime":clock+duration*(1.0-progress),"nextPhase":([0,0,1,2,3][stage])},"phaseEvidence":{"status":"ok","getterLayoutsVerified":true,"stage":stage,"waveType":1,"progress":progress,"inverseDuration":1.0/duration,"phaseClockEvidence":{"status":"ok","nativeUpdateBindingVerified":true,"deltaCapSeconds":0.1},"settings":settings,"waveStartTimeSeconds":clock+duration*(1.0-progress)-[0.0,0.0,10.0,90.0,825.0][stage]}})
+    json!({
+        "phase": "active_unverified",
+        "waitingForNextWave": false,
+        "wavesDisabled": false,
+        "specificWavePauseFlag": false,
+        "previousStageRaw": stage,
+        "timingConfiguration": {
+            "status": "ok",
+            "nativeControlFlowVerified": true,
+            "intervalIncludesWarning": true,
+            "intervalSeconds": 2400,
+            "warningDurationSeconds": 120,
+        },
+        "actor": {
+            "specificPauseFlag": false,
+            "nextTime": clock + duration * (1.0 - progress),
+            "nextPhase": ([0, 0, 1, 2, 3][stage]),
+        },
+        "phaseEvidence": {
+            "status": "ok",
+            "getterLayoutsVerified": true,
+            "stage": stage,
+            "waveType": 1,
+            "progress": progress,
+            "inverseDuration": 1.0 / duration,
+            "phaseClockEvidence": {
+                "status": "ok",
+                "nativeUpdateBindingVerified": true,
+                "deltaCapSeconds": 0.1,
+            },
+            "settings": settings,
+            "waveStartTimeSeconds": clock + duration * (1.0 - progress)
+                - [0.0, 0.0, 10.0, 90.0, 825.0][stage],
+        },
+    })
 }
 fn fixture() -> Value {
-    json!({"status":"ok","schemaVersion":1,"helperVersion":"0.5.0","source":"live_read_only_process_memory","gameMemoryWrites":false,"process":{"pid":123,"creation_ticks":"134000000000000000","executable_sha256":GAME_HASH},"observedAtUnixMilliseconds":1780000000000i64,"position":{"x":1,"y":2,"z":3},"readerIsElevated":false,"live":{"player":{"dead":false,"viewMode":"builder_drone","mainCharacterPath":"Synthetic character"},"world":{"worldPath":"/Game/Chimera/Maps/ChimeraMain/ChimeraMain.ChimeraMain","origin":{"x":0,"y":0,"z":0},"originRebasingEnabled":false,"mapCoordinatesCompatible":true},"clocks":{"simulationSeconds":10000,"audioSeconds":10000,"realSeconds":10000,"unpausedSeconds":10000,"simulationAtObservationStart":10000,"timeDilation":1},"pause":{"paused":true,"pauseMenuOpen":true,"pauserPresent":true},"wave":wave(4,0.5),"observationWindow":{"startedAtUnixMilliseconds":1779999999990i64,"completedAtUnixMilliseconds":1780000000000i64,"atomic":false},"evidence":[]}})
+    json!({
+        "status": "ok",
+        "schemaVersion": 1,
+        "helperVersion": "0.5.0",
+        "source": "live_read_only_process_memory",
+        "gameMemoryWrites": false,
+        "process": {
+            "pid": 123,
+            "creation_ticks": "134000000000000000",
+            "executable_sha256": GAME_HASH,
+        },
+        "observedAtUnixMilliseconds": 1780000000000i64,
+        "position": {
+            "x": 1,
+            "y": 2,
+            "z": 3,
+        },
+        "readerIsElevated": false,
+        "live": {
+            "player": {
+                "dead": false,
+                "viewMode": "builder_drone",
+                "mainCharacterPath": "Synthetic character",
+            },
+            "world": {
+                "worldPath": "/Game/Chimera/Maps/ChimeraMain/ChimeraMain.ChimeraMain",
+                "origin": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0,
+                },
+                "originRebasingEnabled": false,
+                "mapCoordinatesCompatible": true,
+            },
+            "clocks": {
+                "simulationSeconds": 10000,
+                "audioSeconds": 10000,
+                "realSeconds": 10000,
+                "unpausedSeconds": 10000,
+                "simulationAtObservationStart": 10000,
+                "timeDilation": 1,
+            },
+            "pause": {
+                "paused": true,
+                "pauseMenuOpen": true,
+                "pauserPresent": true,
+            },
+            "wave": wave(4, 0.5),
+            "observationWindow": {
+                "startedAtUnixMilliseconds": 1779999999990i64,
+                "completedAtUnixMilliseconds": 1780000000000i64,
+                "atomic": false,
+            },
+            "evidence": [],
+        },
+    })
 }
 #[test]
 fn active_timing_uses_native_progress_rate_and_keeps_actor_drift_diagnostic() {
@@ -66,13 +155,21 @@ fn waiting_and_following_cycle_use_live_configuration_without_defaults() {
     assert!(r["ruptureRemainingSeconds"].is_null());
     assert_eq!(r["nextPhaseRemainingSeconds"].as_f64(), Some(367.5));
     w["waitingForNextWave"] = json!(true);
-    w["phaseEvidence"] = json!({"status":"inactive"});
+    w["phaseEvidence"] = json!({
+        "status": "inactive",
+    });
     w["ruptureRemainingSeconds"] = json!(524.4);
     w["countdownBasis"] = json!("native_waiting_countdown");
     let r = live_wave_timing(&w, 10000.0);
     assert_eq!(r["ruptureTimingVerification"], "verified");
     assert!(r["nextPhaseRemainingSeconds"].is_null());
-    w["timingConfiguration"] = json!({"status":"ok","nativeControlFlowVerified":true,"intervalIncludesWarning":true,"intervalSeconds":1800,"warningDurationSeconds":90});
+    w["timingConfiguration"] = json!({
+        "status": "ok",
+        "nativeControlFlowVerified": true,
+        "intervalIncludesWarning": true,
+        "intervalSeconds": 1800,
+        "warningDurationSeconds": 90,
+    });
     let r = live_wave_timing(&w, 10000.0);
     assert!((r["nextPhaseRemainingSeconds"].as_f64().unwrap() - 434.4).abs() < 1e-9);
     assert_eq!(r["stageTimingVerification"], "unverified_runtime_configuration");
@@ -106,6 +203,8 @@ fn live_identity_frame_window_and_map_suppression_are_independent_of_saves() {
         ("/position/x", Value::Null),
         ("/live/clocks/simulationSeconds", json!(-1)),
         ("/schemaVersion", json!(2)),
+        ("/helperVersion", json!("unsupported")),
+        ("/helperVersion", Value::Null),
     ] {
         let mut r = fixture();
         *r.pointer_mut(path).unwrap() = value;

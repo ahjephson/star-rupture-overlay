@@ -6,6 +6,6 @@
 /licenses/registry/** -text
 /licenses/registry/index.json text eol=lf
 
-# Owner-supplied artwork and generated Windows icon retain exact binary bytes.
+# Artwork and generated Windows icons retain exact binary bytes.
 *.png -text
 *.ico -text

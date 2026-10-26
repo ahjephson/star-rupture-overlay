@@ -1,5 +1,4 @@
-//! Presentation of already-validated native world-tool responses, not a reader
-//! or scheduler. Never advance a simulation timer using wall-clock subtraction.
+//! HUD presentation of validated world observations using simulation-based timing.
 use serde::Serialize;
 use serde_json::Value;
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -60,7 +59,7 @@ impl HudPresenter {
             wave["phase"],
             frame.stage,
             wave["waitingIntervalSeconds"],
-            wave["warningDurationSeconds"]
+            wave["warningDurationSeconds"],
         ])
         .to_string();
         let observation = v["observation"]["window"]["completedAtUnixMilliseconds"].as_u64();
@@ -231,7 +230,27 @@ mod tests {
     use super::*;
     use serde_json::json;
     fn source() -> Value {
-        json!({"status":"ok","observation":{"source":"live_process_memory","readerIsElevated":false,"window":{"completedAtUnixMilliseconds":1000}},"data":{"pause":{"paused":true},"wave":{"phase":"Growback","currentRuptureInProgress":false,"ruptureRemainingSeconds":2936.6337,"ruptureTimingVerification":"progress_based_estimate"}}})
+        json!({
+            "status": "ok",
+            "observation": {
+                "source": "live_process_memory",
+                "readerIsElevated": false,
+                "window": {
+                    "completedAtUnixMilliseconds": 1000,
+                },
+            },
+            "data": {
+                "pause": {
+                    "paused": true,
+                },
+                "wave": {
+                    "phase": "Growback",
+                    "currentRuptureInProgress": false,
+                    "ruptureRemainingSeconds": 2936.6337,
+                    "ruptureTimingVerification": "progress_based_estimate",
+                },
+            },
+        })
     }
     #[test]
     fn agreed_hud_alias_colour_and_stage_countdown() {

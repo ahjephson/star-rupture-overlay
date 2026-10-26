@@ -2078,7 +2078,7 @@ dependencies = [
 
 [[package]]
 name = "starrupture-overlay-reader"
-version = "0.5.0"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2101,6 +2101,7 @@ dependencies = [
  "ryu-js",
  "serde",
  "serde_json",
+ "starrupture-observation-model",
  "uuid",
 ]
 

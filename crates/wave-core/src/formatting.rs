@@ -1,4 +1,4 @@
-//! Time/number formatting retained for wire compatibility. No save-file access.
+//! Time and numeric formatting for observation identifiers and timestamps.
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde_json::Value;
 use std::time::{SystemTime, UNIX_EPOCH};

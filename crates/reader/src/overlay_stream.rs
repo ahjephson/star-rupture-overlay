@@ -1,5 +1,8 @@
-//! Embedded read-only engine on the overlay worker thread; no child or IPC.
-use super::*;
+//! Embedded read-only engine on the overlay worker thread.
+use crate::{
+    BUILD_HASH, Cache, cache_matches, discover, live_context, platform, sample, sample_context,
+};
+use anyhow::{Context, Result, ensure};
 use serde_json::{Value, json};
 use starrupture_observation_model::overlay_stream::{
     Command, GameIdentity, Kind, MAX_LINE, Message,
@@ -10,7 +13,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64
@@ -142,7 +145,10 @@ pub fn run(
                         });
                         output.send(
                             Kind::Ready,
-                            json!({"pauseIntervalMs":pause_ms,"worldIntervalMs":world_ms}),
+                            json!({
+                                "pauseIntervalMs": pause_ms,
+                                "worldIntervalMs": world_ms,
+                            }),
                         )?;
                         sessions += 1;
                         failures = 0;
@@ -154,7 +160,10 @@ pub fn run(
                     Err(e) => {
                         output.send(
                             Kind::Unavailable,
-                            json!({"reason":format!("{e:#}"),"savedFallback":false}),
+                            json!({
+                                "reason": format!("{e:#}"),
+                                "savedFallback": false,
+                            }),
                         )?;
                         failures = (failures + 1).min(3);
                         retry = Instant::now() + Duration::from_secs(1 << failures);
@@ -164,32 +173,61 @@ pub fn run(
             }
             budget.renew(5000);
             let s = session.as_mut().unwrap();
-            let result:Result<()>=async {
-                if Instant::now()>=pause_due {
-                    let started=now();let clock=Instant::now();
-                    if let Some(menu)=s.live.menu(&s.process,&s.base).await? {
-                        menu_reads+=1;
-                        if last_menu!=Some(menu) || menu_sent.elapsed()>=Duration::from_millis(250) {
-                            output.send(Kind::Pause,json!({"menuOpen":menu,"startedUnixMs":started,"finishedUnixMs":now(),"guardsValidated":true}))?;
-                            last_menu=Some(menu);menu_sent=Instant::now();
+            let result: Result<()> = async {
+                if Instant::now() >= pause_due {
+                    let started = now();
+                    let clock = Instant::now();
+                    if let Some(menu) = s.live.menu(&s.process, &s.base).await? {
+                        menu_reads += 1;
+                        if last_menu != Some(menu)
+                            || menu_sent.elapsed() >= Duration::from_millis(250)
+                        {
+                            output.send(
+                                Kind::Pause,
+                                json!({
+                                    "menuOpen": menu,
+                                    "startedUnixMs": started,
+                                    "finishedUnixMs": now(),
+                                    "guardsValidated": true,
+                                }),
+                            )?;
+                            last_menu = Some(menu);
+                            menu_sent = Instant::now();
                         }
                     }
-                    menu_max_micros=menu_max_micros.max(clock.elapsed().as_micros());
-                    pause_due=Instant::now()+Duration::from_millis(pause_ms);
+                    menu_max_micros = menu_max_micros.max(clock.elapsed().as_micros());
+                    pause_due = Instant::now() + Duration::from_millis(pause_ms);
                 }
-                if Instant::now()>=world_due {
-                    let cycle=Instant::now();let started=now();
-                    sample_context(&s.process,&s.base,s.live.context()).await?;
-                    let live=s.live.snapshot(&s.process,&s.base).await?;
-                    let mut raw=sample_context(&s.process,&s.base,s.live.context()).await?;
-                    raw["live"]=live;raw["process"]["creation_ticks"]=json!(s.process.identity.creation_ticks.to_string());
-                    raw["observedAtUnixMilliseconds"]=json!(now());
-                    output.send(Kind::World,json!({"readStartedUnixMs":started,"raw":raw,"statistics":{"menuReads":menu_reads,"worldReads":world_reads+1,"sessions":sessions,"worldReadMillis":cycle.elapsed().as_millis(),"menuMaxMicros":menu_max_micros}}))?;
-                    world_reads+=1;
-                    world_due=cycle+Duration::from_millis(world_ms);
+                if Instant::now() >= world_due {
+                    let cycle = Instant::now();
+                    let started = now();
+                    sample_context(&s.process, &s.base, s.live.context()).await?;
+                    let live = s.live.snapshot(&s.process, &s.base).await?;
+                    let mut raw = sample_context(&s.process, &s.base, s.live.context()).await?;
+                    raw["live"] = live;
+                    raw["process"]["creation_ticks"] =
+                        json!(s.process.identity.creation_ticks.to_string());
+                    raw["observedAtUnixMilliseconds"] = json!(now());
+                    output.send(
+                        Kind::World,
+                        json!({
+                            "readStartedUnixMs": started,
+                            "raw": raw,
+                            "statistics": {
+                                "menuReads": menu_reads,
+                                "worldReads": world_reads + 1,
+                                "sessions": sessions,
+                                "worldReadMillis": cycle.elapsed().as_millis(),
+                                "menuMaxMicros": menu_max_micros,
+                            },
+                        }),
+                    )?;
+                    world_reads += 1;
+                    world_due = cycle + Duration::from_millis(world_ms);
                 }
                 Ok(())
-            }.await;
+            }
+            .await;
             if let Err(e) = result {
                 let reason = e.to_string();
                 if reason == "Wave phase changed during observation"
@@ -203,7 +241,10 @@ pub fn run(
                 }
                 output.send(
                     Kind::Unavailable,
-                    json!({"reason":format!("{e:#}"),"savedFallback":false}),
+                    json!({
+                        "reason": format!("{e:#}"),
+                        "savedFallback": false,
+                    }),
                 )?;
                 session = None;
                 last_menu = None;
