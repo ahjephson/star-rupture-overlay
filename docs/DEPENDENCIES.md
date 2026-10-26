@@ -4,6 +4,7 @@ Reviewed 2026-10-26. Cargo.lock pins registry versions. The policy in deny.toml 
 
 ## Registry dependencies
 
+- zstd 0.14.3, zstd-safe 8.2.0 and zstd-sys 2.1.2 address [RUSTSEC-2026-0391](https://rustsec.org/advisories/RUSTSEC-2026-0391.html), [RUSTSEC-2026-0398](https://rustsec.org/advisories/RUSTSEC-2026-0398.html), [RUSTSEC-2026-0403](https://rustsec.org/advisories/RUSTSEC-2026-0403.html) and [RUSTSEC-2026-0410](https://rustsec.org/advisories/RUSTSEC-2026-0410.html). The usmap manifest selects the patched compression dependency.
 - crossbeam-epoch 0.9.20 addresses [RUSTSEC-2026-0204](https://rustsec.org/advisories/RUSTSEC-2026-0204.html).
 - anyhow 1.0.103 addresses RUSTSEC-2026-0190.
 - The patternsleuth workspace manifest disables unused compressed-debug decoding, excluding the ruzstd 0.5 dependency affected by [RUSTSEC-2026-0344](https://rustsec.org/advisories/RUSTSEC-2026-0344.html).

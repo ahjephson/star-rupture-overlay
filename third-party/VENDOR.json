@@ -261,7 +261,7 @@
     },
     {
       "path": "third-party/jmap/usmap/Cargo.toml",
-      "sha256": "6b6ccfeec4c4b3fd1ef40c7af382a3e2b4982c3fcaa7111cb4a0bae14af00e74"
+      "sha256": "d271395f8ff004732ffdeb375a250a361695d604974882624f0e10e0a654277c"
     },
     {
       "path": "third-party/jmap/usmap/src/compression.rs",
@@ -522,6 +522,12 @@
       "originalSha256": "129edd74fccf8535b65b72a968021bda11cf182872f1d9c45e7965f8832dd673",
       "reason": "Mark retained source fork as non-publishable; permits audited versionless local path dependencies without allowing registry wildcards. Upstream Rust source unchanged.",
       "date": "2026-10-24"
+    },
+    {
+      "path": "third-party/jmap/usmap/Cargo.toml",
+      "originalSha256": "6b6ccfeec4c4b3fd1ef40c7af382a3e2b4982c3fcaa7111cb4a0bae14af00e74",
+      "reason": "Update the zstd dependency to the upstream patched 0.14.3 release for RUSTSEC-2026-0391, RUSTSEC-2026-0398, RUSTSEC-2026-0403 and RUSTSEC-2026-0410. Rust source unchanged.",
+      "date": "2026-10-26"
     }
   ]
 }
