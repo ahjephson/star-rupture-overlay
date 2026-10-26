@@ -47,7 +47,7 @@ pub(super) fn window_events_self_test() -> Result<()> {
             }
         }
         let shared = Arc::new(Mutex::new(Reading {
-            value: json!({}),
+            value: None,
             menu: None,
             process: 0,
         }));
@@ -200,7 +200,7 @@ pub(super) fn window_self_test() -> Result<()> {
         let stop = Arc::new(AtomicBool::new(false));
         let mut state = Box::new(App {
             shared: Arc::new(Mutex::new(Reading {
-                value: json!({}),
+                value: None,
                 menu: None,
                 process: 0,
             })),

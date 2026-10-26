@@ -15,9 +15,9 @@ use jmap_dumper::{
     objects::{FUObjectArray, UObject},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use starrupture_observation_model::{
-    READER_CONTRACT_VERSION, overlay_stream::GAME_HASH as BUILD_HASH,
+    observation::{PlayerSample, Position},
+    overlay_stream::GAME_HASH as BUILD_HASH,
 };
 use std::{
     collections::{BTreeMap, HashSet},
@@ -55,12 +55,6 @@ struct Cache {
     controller: ObjectStamp,
     offsets: BTreeMap<String, usize>,
 }
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-struct Position {
-    x: f64,
-    y: f64,
-    z: f64,
-}
 fn key(class: &str, field: &str) -> String {
     format!("{class}:{field}")
 }
@@ -76,7 +70,7 @@ fn cache_matches(cache: &Cache, id: &Identity) -> bool {
 }
 fn decode_position(bytes: &[u8]) -> Result<Position> {
     ensure!(bytes.len() == 24, "Position read has wrong length");
-    let v: Vec<f64> = bytes.as_chunks::<8>().0.iter().map(|b| f64::from_le_bytes(*b)).collect();
+    let v: [f64; 3] = std::array::from_fn(|i| f64::from_le_bytes(bytes.as_chunks::<8>().0[i]));
     ensure!(v.iter().all(|x| x.is_finite() && x.abs() < 1e9), "Invalid coordinate values");
     Ok(Position {
         x: v[0],
@@ -135,7 +129,7 @@ async fn path(ctx: &Ctx, address: u64) -> Result<String> {
     }
     Ok(out)
 }
-async fn sample(process: &platform::Process, cache: &Cache) -> Result<serde_json::Value> {
+async fn sample(process: &platform::Process, cache: &Cache) -> Result<PlayerSample> {
     ensure!(cache_matches(cache, &process.identity), "Stale session cache");
     let ctx = jmap_dumper::connect_manual(process.clone(), cache.config.clone(), None).await?;
     sample_context(process, cache, ctx).await
@@ -144,7 +138,7 @@ async fn sample_context(
     process: &platform::Process,
     cache: &Cache,
     ctx: Ctx,
-) -> Result<serde_json::Value> {
+) -> Result<PlayerSample> {
     ensure!(cache_matches(cache, &process.identity), "Stale session cache");
     ensure!(
         stamp(&ctx, cache.controller.address).await? == cache.controller,
@@ -207,35 +201,11 @@ async fn sample_context(
         "References changed during sample"
     );
     process.ensure_alive()?;
-    Ok(json!({
-        "status": "ok",
-        "schemaVersion": 1,
-        "helperVersion": READER_CONTRACT_VERSION,
-        "observedAtUnixMilliseconds": SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis(),
-        "source": "live_read_only_process_memory",
-        "position": position,
-        "process": process.identity,
-        "readerIsElevated": platform::is_elevated()?,
-        "frame": {
-            "worldPackage": package,
-            "characterPath": char_path,
-            "map": "ChimeraMain",
-            "worldUnitsPerMetre": 100,
-            "originShiftVerified": false,
-        },
-        "validation": {
-            "localPlayerRoundtrip": true,
-            "registeredObjects": true,
-            "unattachedRoot": true,
-            "stableWithinSample": first == position,
-        },
-        "limitations": [
-            "Main-map frame only; world-origin shifting independently unverified",
-            "Character position, not camera/drone position",
-            "No save snapshot or factory facts are refreshed",
-        ],
-        "gameMemoryWrites": false,
-    }))
+    Ok(PlayerSample {
+        position,
+        observed_at_ms: SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64,
+        reader_is_elevated: platform::is_elevated()?,
+    })
 }
 #[cfg(test)]
 mod tests {

@@ -7,7 +7,7 @@
 - Menu observations affect layout only. Timer observations independently establish simulation time and pause evidence. Countdowns advance with validated simulation observations, and evidence older than five seconds becomes unavailable.
 - Native Waiting displays STABLE; Moving displays APPROACHING. Fadeout displays INCINERATING for its first 8.5 simulation seconds, then COOLING. Both labels share the native Fadeout phase duration.
 - Preserve the Oxanium typography, stage colours, frame geometry, background transparency, countdown formatting and play/menu positions. Window ordering places the HUD immediately above the game in the ordinary window stack.
-- Preserve configuration keys, observation fields, cache formats and the reader's observation compatibility version.
+- Preserve configuration keys, cache and diagnostic file formats, typed observation validation and the reader's observation compatibility version.
 
 See [architecture](ARCHITECTURE.md) for timing limits, observation guards and native resource ownership.
 

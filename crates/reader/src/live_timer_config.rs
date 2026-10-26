@@ -1,7 +1,7 @@
 //! Configured timer values, guarded by exact-build native control flow.
 use anyhow::{Result, ensure};
 use jmap_dumper::mem::Ctx;
-use serde_json::{Value, json};
+use starrupture_observation_model::observation::TimerConfiguration;
 fn valid(interval: f32, warning: f32) -> bool {
     interval.is_finite()
         && warning.is_finite()
@@ -10,33 +10,29 @@ fn valid(interval: f32, warning: f32) -> bool {
         && warning > 0.0
         && warning <= interval
 }
-pub async fn read(ctx: &Ctx, sub: u64, image: u64) -> Result<Value> {
+pub async fn read(ctx: &Ctx, sub: u64, image: u64) -> Result<TimerConfiguration> {
     for (rva, expected) in [
         (124077696 + 0x9e, &[0xf3, 0x0f, 0x10, 0x76, 0x64][..]),
         (124077696 + 0x103, &[0x0f, 0x2f, 0x76, 0x7c][..]),
         (124053637, &[0xf3, 0x0f, 0x10, 0x46, 0x78][..]),
         (124010272, &[0x8b, 0x43, 0x3c, 0x89, 0x47, 0x78, 0x8b, 0x47, 0x78, 0x89, 0x47, 0x7c][..]),
     ] {
-        let mut code = vec![0u8; expected.len()];
-        ctx.read_buf(image + rva, &mut code).await?;
-        ensure!(code == expected, "Timer configuration native instructions differ");
+        let mut code = [0u8; 12];
+        ctx.read_buf(image + rva, &mut code[..expected.len()]).await?;
+        ensure!(
+            &code[..expected.len()] == expected,
+            "Timer configuration native instructions differ"
+        );
     }
     let interval = ctx.read::<f32>(sub + 0x78).await?;
     let warning = ctx.read::<f32>(sub + 0x64).await?;
     ensure!(valid(interval, warning), "Invalid configured interval/warning range");
-    Ok(json!({
-        "status": "ok",
-        "nativeControlFlowVerified": true,
-        "intervalSeconds": interval,
-        "warningDurationSeconds": warning,
-        "verification": "live_fields_with_native_control_flow",
-        "intervalIncludesWarning": true,
-        "sourceOffsets": {
-            "interval": 120,
-            "warning": 100,
-        },
-        "coverage": "Observed normal Heat2400/120 configuration; different values can be read but complete gameplay behaviour remains unverified.",
-    }))
+    Ok(TimerConfiguration {
+        native_control_flow_verified: true,
+        interval_seconds: f64::from(interval),
+        warning_duration_seconds: f64::from(warning),
+        interval_includes_warning: true,
+    })
 }
 #[cfg(test)]
 mod tests {

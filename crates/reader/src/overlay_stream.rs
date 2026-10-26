@@ -3,10 +3,10 @@ use crate::{
     BUILD_HASH, Cache, cache_matches, discover, live_context, platform, sample, sample_context,
 };
 use anyhow::{Context, Result, ensure};
-use serde_json::{Value, json};
 use starrupture_observation_model::overlay_stream::{
-    Command, GameIdentity, Kind, MAX_LINE, Message,
+    Command, GameIdentity, MenuSample, Message, Payload, Statistics, WorldSample,
 };
+use starrupture_observation_model::{READER_CONTRACT_VERSION, observation::RawObservation};
 use std::{
     path::Path,
     sync::{
@@ -25,22 +25,20 @@ struct Output<'a> {
     process: Option<GameIdentity>,
 }
 impl Output<'_> {
-    fn send(&mut self, kind: Kind, data: Value) -> Result<()> {
+    fn send(&mut self, payload: Payload) -> Result<()> {
         self.sequence = self.sequence.checked_add(1).context("Stream sequence exhausted")?;
         let message = Message {
             version: 1,
             reader_pid: std::process::id(),
             sequence: self.sequence,
             generation: self.generation,
-            kind,
             sampled_at_unix_ms: now(),
-            process: self.process.clone(),
+            process: self.process,
             read_only: true,
             game_code_invoked: false,
-            data,
+            payload,
         };
-        let bytes = serde_json::to_vec(&message)?;
-        ensure!(bytes.len() < MAX_LINE, "Stream message bound");
+        ensure!(message.within_bound(), "Stream message bound");
         (self.sink)(message)?;
         Ok(())
     }
@@ -140,16 +138,10 @@ pub fn run(
                             output.generation.checked_add(1).context("Generation exhausted")?;
                         output.process = Some(GameIdentity {
                             pid: s.process.identity.pid,
-                            creation_ticks: s.process.identity.creation_ticks.to_string(),
-                            executable_sha256: s.process.identity.executable_sha256.clone(),
+                            creation_ticks: s.process.identity.creation_ticks,
+                            executable_sha256: BUILD_HASH,
                         });
-                        output.send(
-                            Kind::Ready,
-                            json!({
-                                "pauseIntervalMs": pause_ms,
-                                "worldIntervalMs": world_ms,
-                            }),
-                        )?;
+                        output.send(Payload::Ready)?;
                         sessions += 1;
                         failures = 0;
                         session = Some(s);
@@ -158,13 +150,9 @@ pub fn run(
                         world_due = Instant::now();
                     }
                     Err(e) => {
-                        output.send(
-                            Kind::Unavailable,
-                            json!({
-                                "reason": format!("{e:#}"),
-                                "savedFallback": false,
-                            }),
-                        )?;
+                        output.send(Payload::Unavailable(
+                            format!("{e:#}").chars().take(240).collect(),
+                        ))?;
                         failures = (failures + 1).min(3);
                         retry = Instant::now() + Duration::from_secs(1 << failures);
                         continue;
@@ -182,15 +170,12 @@ pub fn run(
                         if last_menu != Some(menu)
                             || menu_sent.elapsed() >= Duration::from_millis(250)
                         {
-                            output.send(
-                                Kind::Pause,
-                                json!({
-                                    "menuOpen": menu,
-                                    "startedUnixMs": started,
-                                    "finishedUnixMs": now(),
-                                    "guardsValidated": true,
-                                }),
-                            )?;
+                            output.send(Payload::Menu(MenuSample {
+                                menu_open: menu,
+                                started_ms: started,
+                                finished_ms: now(),
+                                guards_validated: true,
+                            }))?;
                             last_menu = Some(menu);
                             menu_sent = Instant::now();
                         }
@@ -203,25 +188,28 @@ pub fn run(
                     let started = now();
                     sample_context(&s.process, &s.base, s.live.context()).await?;
                     let live = s.live.snapshot(&s.process, &s.base).await?;
-                    let mut raw = sample_context(&s.process, &s.base, s.live.context()).await?;
-                    raw["live"] = live;
-                    raw["process"]["creation_ticks"] =
-                        json!(s.process.identity.creation_ticks.to_string());
-                    raw["observedAtUnixMilliseconds"] = json!(now());
-                    output.send(
-                        Kind::World,
-                        json!({
-                            "readStartedUnixMs": started,
-                            "raw": raw,
-                            "statistics": {
-                                "menuReads": menu_reads,
-                                "worldReads": world_reads + 1,
-                                "sessions": sessions,
-                                "worldReadMillis": cycle.elapsed().as_millis(),
-                                "menuMaxMicros": menu_max_micros,
-                            },
-                        }),
-                    )?;
+                    let mut sample = sample_context(&s.process, &s.base, s.live.context()).await?;
+                    sample.observed_at_ms = now();
+                    let process = output.process.context("Missing active process identity")?;
+                    output.send(Payload::World(Box::new(WorldSample {
+                        read_started_unix_ms: started as i64,
+                        raw: RawObservation {
+                            schema_version: 1,
+                            contract_version: READER_CONTRACT_VERSION,
+                            source_is_live_memory: true,
+                            game_memory_writes: false,
+                            process,
+                            sample,
+                            live,
+                        },
+                        statistics: Statistics {
+                            menu_reads,
+                            world_reads: world_reads + 1,
+                            sessions,
+                            world_read_millis: cycle.elapsed().as_millis() as u64,
+                            menu_max_micros: menu_max_micros as u64,
+                        },
+                    })))?;
                     world_reads += 1;
                     world_due = cycle + Duration::from_millis(world_ms);
                 }
@@ -239,13 +227,7 @@ pub fn run(
                     world_due = Instant::now() + Duration::from_millis(50);
                     continue;
                 }
-                output.send(
-                    Kind::Unavailable,
-                    json!({
-                        "reason": format!("{e:#}"),
-                        "savedFallback": false,
-                    }),
-                )?;
+                output.send(Payload::Unavailable(format!("{e:#}").chars().take(240).collect()))?;
                 session = None;
                 last_menu = None;
                 retry = Instant::now() + Duration::from_secs(1);

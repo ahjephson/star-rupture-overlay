@@ -1,202 +1,133 @@
-//! Native 0.8 live progress/rate timing, independent of saved-world calibrations.
-use crate::facts::{merge, number};
-use serde_json::{Value, json};
-pub const HEAT_SETTINGS: [(&str, f64); 11] = [
-    ("waveSpeed", 160000.0),
-    ("waveStartPosition", -1200000.0),
-    ("waveEndPosition", 400000.0),
-    ("preWaveDuration", 120.0),
-    ("waveFadeoutFireWaveDuration", 20.0),
-    ("waveFadeoutBurningDuration", 30.0),
-    ("waveFadeoutFadingDuration", 30.0),
-    ("waveGrowbackMoonPhaseDuration", 600.0),
-    ("waveGrowbackRegrowthStartDuration", 15.0),
-    ("waveGrowbackRegrowthDuration", 120.0),
-    ("wavePreWaveExplosionDuration", 118.0999984741211),
+//! Guarded native phase timing from observed progress and configuration.
+use starrupture_observation_model::observation::{
+    Phase, PhaseEvidence, Verification, WaveObservation, WaveTiming,
+};
+pub const HEAT_SETTINGS: [f64; 11] = [
+    160000.0,          // waveSpeed
+    -1200000.0,        // waveStartPosition
+    400000.0,          // waveEndPosition
+    120.0,             // preWaveDuration
+    20.0,              // waveFadeoutFireWaveDuration
+    30.0,              // waveFadeoutBurningDuration
+    30.0,              // waveFadeoutFadingDuration
+    600.0,             // waveGrowbackMoonPhaseDuration
+    15.0,              // waveGrowbackRegrowthStartDuration
+    120.0,             // waveGrowbackRegrowthDuration
+    118.0999984741211, // wavePreWaveExplosionDuration
 ];
-fn finite(v: &Value) -> bool {
-    v.as_f64().is_some_and(f64::is_finite)
+fn unknown(w: &WaveObservation, reason: &'static str) -> WaveTiming {
+    WaveTiming {
+        phase: if w.disabled {
+            Phase::Disabled
+        } else {
+            Phase::Unknown
+        },
+        wave_count: w.wave_count,
+        timing_reason: reason,
+        ..WaveTiming::default()
+    }
 }
-fn truthy(v: &Value) -> bool {
-    !v.is_null() && v != false && v != "" && v.as_f64() != Some(0.0)
-}
-fn unknown(w: &Value, c: &Value, reason: &str) -> Value {
-    merge(
-        merge(w.clone(), c.clone()),
-        json!({
-            "phase": if truthy(&w["wavesDisabled"]) {
-                "disabled"
-            } else {
-                "unknown"
-            },
-            "ruptureRemainingSeconds": null,
-            "nextPhaseRemainingSeconds": null,
-            "stageTimingVerification": "unknown",
-            "ruptureTimingVerification": "unknown",
-            "timingReason": reason,
-            "currentRuptureInProgress": null,
-            "waitingIntervalAssumptionSeconds": null,
-        }),
-    )
-}
-pub fn live_wave_timing(w: &Value, clock: f64) -> Value {
-    let mut configuration = json!({
-        "waitingIntervalSeconds": null,
-        "warningDurationSeconds": null,
-        "waitingIntervalVerification": "unknown",
-        "runtimeConfigurationCalibration": "unknown",
-    });
-    if truthy(&w["wavesDisabled"]) {
-        return unknown(w, &configuration, "waves_disabled");
+pub fn live_wave_timing(w: &WaveObservation, clock: f64) -> WaveTiming {
+    if w.disabled {
+        return unknown(w, "waves_disabled");
     }
     if !clock.is_finite() || clock < 0.0 {
-        return unknown(w, &configuration, "invalid_simulation_clock");
+        return unknown(w, "invalid_simulation_clock");
     }
-    if w["specificWavePauseFlag"] != false || w["actor"]["specificPauseFlag"] != false {
-        return unknown(w, &configuration, "wave_specific_pause_or_unknown");
+    if w.specific_pause || w.actor_paused {
+        return unknown(w, "wave_specific_pause_or_unknown");
     }
-    let p = &w["phaseEvidence"];
-    let c = &w["timingConfiguration"];
-    let valid = c["status"] == "ok"
-        && c["nativeControlFlowVerified"] == true
-        && c["intervalIncludesWarning"] == true
-        && finite(&c["intervalSeconds"])
-        && number(&c["intervalSeconds"]) > 0.0
-        && number(&c["intervalSeconds"]) <= 86400.0
-        && finite(&c["warningDurationSeconds"])
-        && number(&c["warningDurationSeconds"]) > 0.0
-        && number(&c["warningDurationSeconds"]) <= number(&c["intervalSeconds"]);
-    let interval = if valid {
-        c["intervalSeconds"].as_f64()
-    } else {
-        None
-    };
-    let warning = if valid {
-        c["warningDurationSeconds"].as_f64()
-    } else {
-        None
-    };
+    let configuration = w.configuration.filter(|c| {
+        c.native_control_flow_verified
+            && c.interval_includes_warning
+            && c.interval_seconds.is_finite()
+            && c.interval_seconds > 0.0
+            && c.interval_seconds <= 86400.0
+            && c.warning_duration_seconds.is_finite()
+            && c.warning_duration_seconds > 0.0
+            && c.warning_duration_seconds <= c.interval_seconds
+    });
+    let interval = configuration.map(|c| c.interval_seconds);
+    let warning = configuration.map(|c| c.warning_duration_seconds);
     let calibrated = interval == Some(2400.0) && warning == Some(120.0);
-    configuration = json!({
-        "waitingIntervalSeconds": interval,
-        "warningDurationSeconds": warning,
-        "waitingIntervalAssumptionSeconds": null,
-        "waitingIntervalVerification": if valid {
-            "live_fields_with_native_control_flow"
-        } else {
-            "unknown"
-        },
-        "runtimeConfigurationCalibration": if valid {
-            if calibrated {
-                "observed_normal_heat"
-            } else {
-                "unverified_runtime_configuration"
-            }
-        } else {
-            "unknown"
-        },
-    });
-    let substage = json!({
-        "remainingSeconds": null,
-        "verification": "unknown",
-        "reason": "Identifiers observed; exact substage deadlines are not calibrated.",
-    });
-    let basis = "simulation observation; pause consumes no time; no wall-clock subtraction";
-    if w["waitingForNextWave"] == true {
-        if p["status"] != "inactive" {
-            return unknown(w, &configuration, "waiting_and_phase_evidence_conflict");
+    if w.waiting {
+        if w.phase != PhaseEvidence::Inactive {
+            return unknown(w, "waiting_and_phase_evidence_conflict");
         }
-        if !finite(&w["ruptureRemainingSeconds"])
-            || number(&w["ruptureRemainingSeconds"]) < 0.0
-            || number(&w["ruptureRemainingSeconds"]) > 86400.0
-            || w["countdownBasis"] != "native_waiting_countdown"
-        {
-            return unknown(w, &configuration, "invalid_waiting_countdown");
-        }
-        let remaining = warning.map(|v| (number(&w["ruptureRemainingSeconds"]) - v).max(0.0));
-        let verification = if warning.is_none() {
-            "unknown"
-        } else if calibrated {
-            "corroborated"
-        } else {
-            "unverified_runtime_configuration"
+        let Some(remaining) =
+            w.waiting_remaining_seconds.filter(|v| v.is_finite() && (0.0..=86400.0).contains(v))
+        else {
+            return unknown(w, "invalid_waiting_countdown");
         };
-        return merge(
-            merge(w.clone(), configuration),
-            json!({
-                "phase": "waiting",
-                "nextPhaseRemainingSeconds": remaining,
-                "stageTimingVerification": verification,
-                "ruptureTimingVerification": "verified",
-                "timingReason": "native_waiting_countdown_and_live_warning_threshold",
-                "currentRuptureInProgress": false,
-                "phaseDurations": null,
-                "waitingWarningEstimate": {
-                    "remainingSeconds": remaining,
-                    "verification": verification,
-                    "warningDurationSeconds": warning,
-                    "warningDurationAssumptionSeconds": null,
-                },
-                "substageTiming": substage,
-                "timeBasis": basis,
-            }),
-        );
+        if !w.native_waiting_countdown {
+            return unknown(w, "invalid_waiting_countdown");
+        }
+        return WaveTiming {
+            phase: Phase::Waiting,
+            wave_count: w.wave_count,
+            rupture_remaining_seconds: Some(remaining),
+            next_phase_remaining_seconds: warning.map(|v| (remaining - v).max(0.0)),
+            rupture_verification: Verification::Verified,
+            stage_verification: if warning.is_none() {
+                Verification::Unknown
+            } else if calibrated {
+                Verification::Corroborated
+            } else {
+                Verification::UnverifiedConfiguration
+            },
+            waiting_interval_seconds: interval,
+            warning_duration_seconds: warning,
+            timing_reason: "native_waiting_countdown_and_live_warning_threshold",
+            ..WaveTiming::default()
+        };
     }
-    if w["waitingForNextWave"] != false || p["status"] != "ok" || p["getterLayoutsVerified"] != true
+    let PhaseEvidence::Active(p) = w.phase else {
+        return unknown(w, "active_phase_reader_unavailable");
+    };
+    if !p.getter_layouts_verified {
+        return unknown(w, "active_phase_reader_unavailable");
+    }
+    if !(1..=4).contains(&p.stage) || p.stage != w.previous_stage {
+        return unknown(w, "phase_transition_or_enum_conflict");
+    }
+    // Native waveType 1 identifies Heat.
+    if p.wave_type != 1 {
+        return unknown(w, "unsupported_wave_type");
+    }
+    if !(0.0..=1.0).contains(&p.progress) {
+        return unknown(w, "invalid_phase_progress");
+    }
+    if p.stage != 1
+        && (!p.wave_start_seconds.is_finite()
+            || p.wave_start_seconds < 0.0
+            || p.wave_start_seconds > clock)
     {
-        return unknown(w, &configuration, "active_phase_reader_unavailable");
+        return unknown(w, "invalid_wave_start");
     }
-    let stage = p["stage"]
-        .as_f64()
-        .filter(|n| n.fract() == 0.0 && (1.0..=4.0).contains(n))
-        .map(|n| n as usize);
-    if stage.is_none() || p["stage"].as_f64() != w["previousStageRaw"].as_f64() {
-        return unknown(w, &configuration, "phase_transition_or_enum_conflict");
+    if !p.settings.iter().zip(HEAT_SETTINGS).all(|(a, b)| a.is_finite() && (a - b).abs() < 0.001) {
+        return unknown(w, "uncalibrated_wave_settings");
     }
-    let stage = stage.unwrap();
-    if p["waveType"].as_f64() != Some(1.0) {
-        return unknown(w, &configuration, "unsupported_wave_type");
+    // Slot 3 is preWaveDuration in the native settings layout.
+    if warning.is_some_and(|v| (v - p.settings[3]).abs() > 0.001) {
+        return unknown(w, "warning_duration_conflicts_with_active_heat_settings");
     }
-    if !p["progress"].as_f64().is_some_and(|n| (0.0..=1.0).contains(&n)) {
-        return unknown(w, &configuration, "invalid_phase_progress");
-    }
-    if stage != 1
-        && (!finite(&p["waveStartTimeSeconds"])
-            || number(&p["waveStartTimeSeconds"]) < 0.0
-            || number(&p["waveStartTimeSeconds"]) > clock)
-    {
-        return unknown(w, &configuration, "invalid_wave_start");
-    }
-    if p["settings"].is_null()
-        || !HEAT_SETTINGS.iter().all(|(k, n)| {
-            finite(&p["settings"][k]) && (number(&p["settings"][k]) - n).abs() < 0.001
-        })
-    {
-        return unknown(w, &configuration, "uncalibrated_wave_settings");
-    }
-    if warning.is_some_and(|v| (v - number(&p["settings"]["preWaveDuration"])).abs() > 0.001) {
-        return unknown(w, &configuration, "warning_duration_conflicts_with_active_heat_settings");
-    }
+    let stage = p.stage as usize;
+    // Native stage indices: unused, PreWave, Moving, Fadeout, Growback; seconds.
     let duration = [0.0, 120.0, 10.0, 80.0, 735.0][stage];
-    let phase = &p["phaseClockEvidence"];
-    if !p["inverseDuration"]
-        .as_f64()
-        .is_some_and(|v| v > 0.0 && (v * duration - 1.0).abs() <= 0.00001)
-        || phase["status"] != "ok"
-        || phase["nativeUpdateBindingVerified"] != true
-        || !phase["deltaCapSeconds"].as_f64().is_some_and(|v| (v - 0.1).abs() <= 0.000001)
+    if !p.inverse_duration.is_finite()
+        || p.inverse_duration <= 0.0
+        || (p.inverse_duration * duration - 1.0).abs() > 0.00001
+        || !p.native_update_binding_verified
+        || !p.delta_cap_seconds.is_finite()
+        || (p.delta_cap_seconds - 0.1).abs() > 0.000001
     {
-        return unknown(w, &configuration, "invalid_or_unverified_phase_clock");
+        return unknown(w, "invalid_or_unverified_phase_clock");
     }
-    let remaining = (1.0 - number(&p["progress"])) / number(&p["inverseDuration"]);
-    let actor = w["actor"]["nextTime"].as_f64();
-    let actor_remaining = actor.map(|n| n - clock);
-    let drift = actor_remaining.map(|v| remaining - v);
+    let remaining = (1.0 - p.progress) / p.inverse_duration;
+    let actor = w.actor_next_time.filter(|v| v.is_finite());
+    let drift = actor.map(|v| remaining - (v - clock));
     let start_residual = if stage != 1 {
-        p["waveStartTimeSeconds"]
-            .as_f64()
-            .zip(actor)
-            .map(|(s, a)| (a - (s + [0.0, 0.0, 10.0, 90.0, 825.0][stage])).abs())
+        actor.map(|a| (a - (p.wave_start_seconds + [0.0, 0.0, 10.0, 90.0, 825.0][stage])).abs())
     } else {
         None
     };
@@ -215,74 +146,29 @@ pub fn live_wave_timing(w: &Value, clock: f64) -> Value {
                 + v
         })
     };
-    let verification = "progress_based_estimate";
-    let expected = [0.0, 0.0, 1.0, 2.0, 3.0][stage];
-    merge(
-        merge(w.clone(), configuration),
-        json!({
-            "phase": (["", "PreWave", "Moving", "Fadeout", "Growback"][stage]),
-            "nextPhaseRemainingSeconds": remaining,
-            "ruptureRemainingSeconds": until,
-            "countdownBasis": if stage == 1 {
-                "captured_heat_stage_timing"
-            } else {
-                "native_phase_and_live_waiting_interval"
-            },
-            "stageTimingVerification": verification,
-            "ruptureTimingVerification": if stage == 1 {
-                verification
-            } else if interval.is_none() {
-                "unknown"
-            } else if calibrated {
-                verification
-            } else {
-                "unverified_runtime_configuration"
-            },
-            "timingReason": "native_progress_and_live_inverse_duration",
-            "currentRuptureInProgress": stage == 2 || stage == 3,
-            "phaseDurations": {
-                "preWave": 120,
-                "moving": 10,
-                "fadeout": 80,
-                "growback": 735,
-                "waitingIntervalIncludingWarning": interval,
-            },
-            "progressRemainingSeconds": remaining,
-            "phaseClockRemainingSeconds": remaining,
-            "phaseClockVerification": "native_progress_rate_with_completion_anchor_corroboration",
-            "estimate": {
-                "verification": "conditional_estimate",
-                "condition": "Future phase updates are not clipped by the live delta cap; float32 accumulation and transition ticks can add drift. Menu pause consumes no phase time.",
-                "deltaCapSeconds": phase["deltaCapSeconds"],
-            },
-            "actorDeadlineDiagnostic": {
-                "nominalRemainingSeconds": actor_remaining,
-                "progressMinusDeadlineSeconds": drift,
-                "expectedNextPhase": expected,
-                "nextPhaseMatches": w["actor"]["nextPhase"].as_f64() == Some(expected),
-                "usedForTiming": false,
-                "interpretation": "Positive drift means phase progress projects completion later than the nominal actor deadline. Actor may retain a duration or stale phase target.",
-            },
-            "actorProgressResidualSeconds": drift.map(f64::abs),
-            "actorStartResidualSeconds": start_residual,
-            "substageTiming": substage,
-            "preWaveExplosionCueRemainingSeconds": if stage == 1 {
-                Some(
-                    (number(&p["settings"]["wavePreWaveExplosionDuration"])
-                        - duration * number(&p["progress"]))
-                    .max(0.0),
-                )
-            } else {
-                None
-            },
-            "preWaveExplosionCueVerification": if stage == 1 {
-                Some("unverified_estimate")
-            } else {
-                None
-            },
-            "warningIncludedInWaitingInterval": true,
-            "timeBasis": basis,
-            "coverage": "Phase progress controls completion. Elapsed gameplay projections are conditional estimates; actor deadlines are diagnostic only. Interval/warning read live. Changed configuration, exact substages and local arrival remain limited.",
-        }),
-    )
+    WaveTiming {
+        phase: [Phase::Unknown, Phase::PreWave, Phase::Moving, Phase::Fadeout, Phase::Growback]
+            [stage],
+        wave_count: w.wave_count,
+        next_phase_remaining_seconds: Some(remaining),
+        rupture_remaining_seconds: until,
+        stage_verification: Verification::ProgressEstimate,
+        rupture_verification: if stage == 1 {
+            Verification::ProgressEstimate
+        } else if interval.is_none() {
+            Verification::Unknown
+        } else if calibrated {
+            Verification::ProgressEstimate
+        } else {
+            Verification::UnverifiedConfiguration
+        },
+        current_rupture_in_progress: stage == 2 || stage == 3,
+        waiting_interval_seconds: interval,
+        warning_duration_seconds: warning,
+        fadeout_duration_seconds: Some(80.0),
+        actor_progress_drift_seconds: drift,
+        actor_start_residual_seconds: start_residual,
+        actor_next_phase_matches: w.actor_next_phase == [0, 0, 1, 2, 3][stage],
+        timing_reason: "native_progress_and_live_inverse_duration",
+    }
 }

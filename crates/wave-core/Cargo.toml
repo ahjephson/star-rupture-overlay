@@ -11,7 +11,4 @@ publish = false
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
-chrono.workspace = true
-uuid.workspace = true
-ryu-js.workspace = true
 starrupture-observation-model = { path = "../observation-model" }

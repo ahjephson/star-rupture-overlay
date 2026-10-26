@@ -7,7 +7,10 @@ use jmap_dumper::{
     objects::{FUObjectArray, UFunction, UObject, UStruct, ZBoolProperty},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use starrupture_observation_model::observation::{
+    Clocks, LiveContext, PauseState, PhaseEvidence, PlayerContext, ReadWindow, ViewMode,
+    WaveObservation, WorldState,
+};
 use std::{
     collections::{BTreeMap, HashSet},
     path::Path as FilePath,
@@ -249,7 +252,7 @@ fn countdown(remaining: f64, waiting: bool, stopped: bool) -> Result<Option<f64>
         Ok(None)
     }
 }
-async fn read(process: &platform::Process, base: &Cache, b: &Bindings) -> Result<Value> {
+async fn read(process: &platform::Process, base: &Cache, b: &Bindings) -> Result<LiveContext> {
     b.validate(&process.identity)?;
     let ctx = jmap_dumper::connect_manual(process.clone(), base.config.clone(), None).await?;
     read_context(process, base, b, ctx).await
@@ -259,7 +262,7 @@ async fn read_context(
     base: &Cache,
     b: &Bindings,
     ctx: Ctx,
-) -> Result<Value> {
+) -> Result<LiveContext> {
     b.validate(&process.identity)?;
     let (world, persistent) = world(&ctx, base, b).await?;
     ensure!(
@@ -332,21 +335,15 @@ async fn read_context(
     }
     let dead = b.boolean(&ctx, character, "Chimera.CrCharacterPlayerBase", "bDead").await?;
     let view = if !dead && drone != 0 && drone_active && !fpp_active {
-        "builder_drone"
+        ViewMode::BuilderDrone
     } else if !dead && drone == 0 && fpp_active && !drone_active {
-        "on_foot"
+        ViewMode::OnFoot
     } else {
-        "unknown"
+        ViewMode::Unknown
     };
     let sub = b.timer_subsystem.address;
     let timing_configuration =
-        match crate::live_timer_config::read(&ctx, sub, base.config.image_base).await {
-            Ok(value) => value,
-            Err(error) => json!({
-                "status": "unavailable",
-                "reason": format!("{error:#}"),
-            }),
-        };
+        crate::live_timer_config::read(&ctx, sub, base.config.image_base).await.ok();
     // These private fields were mapped through native OnPreSaveStart and exact paused-save joins.
     let remaining = signed_finite(ctx.read::<f32>(sub + 0x7c).await? as f64)?;
     ensure!(remaining <= 86400., "Waiting countdown out of supported range");
@@ -369,22 +366,19 @@ async fn read_context(
                 ensure!(pointer == phase_pointer, "Phase changed while sampling");
                 value
             }
-            Err(error) => json!({
-                "status": "unavailable",
-                "reason": format!("{error:#}"),
-            }),
+            Err(_) => PhaseEvidence::Unavailable,
         };
-    let mut substages = serde_json::Map::new();
-    for field in ["CurrentPreWaveSubstage", "CurrentFadeoutSubstage", "CurrentGrowbackSubstage"] {
-        substages.insert(
-            field.to_string(),
-            json!(
-                ctx.read::<u8>(
-                    b.wave_subsystem.address + b.offset("Chimera.CrEnviroWaveSubsystem", field)?,
-                )
-                .await?
-            ),
-        );
+    let mut substages = [0u8; 3];
+    for (index, field) in
+        ["CurrentPreWaveSubstage", "CurrentFadeoutSubstage", "CurrentGrowbackSubstage"]
+            .iter()
+            .enumerate()
+    {
+        substages[index] = ctx
+            .read::<u8>(
+                b.wave_subsystem.address + b.offset("Chimera.CrEnviroWaveSubsystem", field)?,
+            )
+            .await?;
     }
     smol::Timer::after(std::time::Duration::from_millis(30)).await;
     let end_time = finite(ctx.read::<f64>(world + b.getters["GetTimeSeconds"]).await?)?;
@@ -407,12 +401,11 @@ async fn read_context(
         "Player changed during observation"
     );
     process.ensure_alive()?;
-    if timing_configuration["status"] == "ok" {
+    if let Some(configuration) = timing_configuration {
         ensure!(
-            ctx.read::<f32>(sub + 0x78).await? as f64
-                == timing_configuration["intervalSeconds"].as_f64().unwrap()
+            ctx.read::<f32>(sub + 0x78).await? as f64 == configuration.interval_seconds
                 && ctx.read::<f32>(sub + 0x64).await? as f64
-                    == timing_configuration["warningDurationSeconds"].as_f64().unwrap(),
+                    == configuration.warning_duration_seconds,
             "Timer configuration changed during observation"
         );
     }
@@ -430,101 +423,67 @@ async fn read_context(
     } else {
         None
     };
-    let pause_basis = if paused == Some(true) {
-        "native_pauser_delay_branch"
-    } else if paused == Some(false) {
-        "simulation_clock_advancing"
-    } else {
-        "not_established"
-    };
     let countdown = countdown(remaining, waiting, stopped)?;
-    Ok(json!({
-        "player": {
-            "dead": dead,
-            "viewMode": view,
-            "mainCharacterName": character_stamp.name,
-            "mainCharacterPath": path(&ctx, character).await?,
-            "controllerPath": path(&ctx, controller).await?,
-            "cameraEvidence": {
-                "firstPersonActive": fpp_active,
-                "droneActive": drone_active,
-                "droneReferencePresent": drone != 0,
-            },
+    let main_character_path = path(&ctx, character).await?;
+    let controller_path = path(&ctx, controller).await?;
+    let persistent_level_path = path(&ctx, persistent).await?;
+    let time_dilation = f64::from(
+        ctx.read::<f32>(settings + b.offset("Engine.WorldSettings", "TimeDilation")?).await?,
+    );
+    Ok(LiveContext {
+        player: PlayerContext {
+            dead,
+            view_mode: view,
+            main_character_name: character_stamp.name,
+            main_character_path,
+            controller_path,
+            first_person_active: fpp_active,
+            drone_active,
+            drone_present: drone != 0,
         },
-        "world": {
-            "worldPath": world_path,
-            "persistentLevelPath": path(&ctx, persistent).await?,
-            "origin": {
-                "x": origin[0],
-                "y": origin[1],
-                "z": origin[2],
-            },
-            "originRebasingEnabled": rebasing,
-            "mapCoordinatesCompatible": origin == [0, 0, 0] && !rebasing,
-            "frameCoverage": "ChimeraMain only; other interiors and nonzero origins uncalibrated",
+        world: WorldState {
+            world_path,
+            persistent_level_path,
+            origin,
+            origin_rebasing_enabled: rebasing,
+            map_coordinates_compatible: origin == [0, 0, 0] && !rebasing,
         },
-        "clocks": {
-            "simulationSeconds": end_time,
-            "audioSeconds": audio,
-            "realSeconds": real,
-            "unpausedSeconds": unpaused,
-            "simulationAtObservationStart": time,
-            "timeDilation": ctx
-                .read::<f32>(settings + b.offset("Engine.WorldSettings", "TimeDilation")?)
-                .await?,
-            "meaning": "Simulation/audio clocks stop during normal pause; real/unpaused clocks continue. Restored clocks can reset to saved values after reload.",
+        clocks: Clocks {
+            simulation_seconds: end_time,
+            audio_seconds: audio,
+            real_seconds: real,
+            unpaused_seconds: unpaused,
+            simulation_at_start: time,
+            time_dilation,
         },
-        "pause": {
-            "paused": paused,
-            "basis": pause_basis,
-            "pauseMenuOpen": menu,
-            "pauserPresent": pauser != 0,
-            "pauseDelaySeconds": pause_delay,
-            "gameStatePauseFlag": game_flag,
-            "warning": "Game-state and wave-specific pause flags are not global pause truth; other native loading/network pause branches remain uncalibrated.",
+        pause: PauseState {
+            paused,
+            menu_open: menu,
+            pauser_present: pauser != 0,
+            pause_delay_seconds: pause_delay,
+            game_state_pause_flag: game_flag,
         },
-        "wave": {
-            "phase": if stopped {
-                "disabled"
-            } else if waiting {
-                "waiting"
-            } else {
-                "active_unverified"
-            },
-            "ruptureRemainingSeconds": countdown,
-            "countdownBasis": if countdown.is_some() {
-                "native_waiting_countdown"
-            } else {
-                "unsupported_or_disabled"
-            },
-            "waitingForNextWave": waiting,
-            "specificWavePauseFlag": wave_pause,
-            "wavesDisabled": stopped,
-            "waveCount": waves,
-            "previousStageRaw": previous,
-            "actor": {
-                "nextTime": actor_next_time,
-                "nextPhase": actor_next_phase,
-                "specificPauseFlag": actor_pause,
-            },
-            "phaseEvidence": phase_evidence,
-            "timingConfiguration": timing_configuration,
-            "substages": substages,
-            "coverage": "Native stage/progress/settings/configuration readers; server calculates guarded timings and separate verification labels. Waiting timer must not be reused in active phases.",
+        wave: WaveObservation {
+            waiting,
+            disabled: stopped,
+            specific_pause: wave_pause,
+            wave_count: waves,
+            previous_stage: previous,
+            waiting_remaining_seconds: countdown,
+            native_waiting_countdown: countdown.is_some(),
+            actor_next_time: actor_next_time.is_finite().then_some(f64::from(actor_next_time)),
+            actor_next_phase,
+            actor_paused: actor_pause,
+            phase: phase_evidence,
+            configuration: timing_configuration,
+            substages,
         },
-        "observationWindow": {
-            "startedAtUnixMilliseconds": observed_start,
-            "completedAtUnixMilliseconds": SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis(),
-            "atomic": false,
+        window: ReadWindow {
+            started_ms: observed_start as u64,
+            completed_ms: SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64,
+            atomic: false,
         },
-        "evidence": [
-            "Runtime native reflection and object registry joins",
-            "Clock/origin offsets decoded from live native getter instructions; no game code invocation",
-            "Normal-menu pause branch plus simulation clock behaviour",
-            "Timer private fields traced through native save callback and matched to saves",
-            "Actual restart and drone/on-foot validation for installed executable hash",
-        ],
-    }))
+    })
 }
 #[cfg(test)]
 mod tests {
@@ -543,7 +502,7 @@ pub async fn snapshot(
     process: &platform::Process,
     base: &Cache,
     directory: &FilePath,
-) -> Result<Value> {
+) -> Result<LiveContext> {
     let file = directory.join("live-context.json");
     let cached = crate::cache::read_json::<Bindings>(&file, 65536).ok();
     if let Some(b) = cached.filter(|b| b.validate(&process.identity).is_ok())

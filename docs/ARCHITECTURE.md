@@ -11,9 +11,9 @@ The UI thread owns the window, tray icon, embedded fonts and GDI resources. A pe
 | wave-core | Configuration, observation validation and native wave timing calculations |
 | observation-model | Bounded envelopes, sequence/generation validation and HUD presentation |
 
-The data flow is game memory → reader → validated observation → timing calculation → HUD presentation. All application crates inherit the workspace release version. Observation compatibility is defined by `schemaVersion` and `READER_CONTRACT_VERSION`, which the reader emits as `helperVersion` and the validator checks independently of the release version. The response validator uses `get_live_world_state` as its world-observation identifier.
+The data flow is game memory → reader → validated observation → timing calculation → HUD presentation. Shared Rust structs and enums define player, world, clock, pause, phase and timing data. All application crates inherit the workspace release version. The observation validator checks its schema and `READER_CONTRACT_VERSION` independently of the release version.
 
-Observation messages have typed envelopes and `serde_json::Value` payloads. The worker passes these objects in memory, serializes envelopes to enforce their size bound, and serializes/parses the raw world payload through the response validator. Configuration, discovery caches and diagnostics also use JSON. The serialization and field-validation contracts remain part of the current implementation.
+The worker moves typed observations through validation into shared UI state. The 64 KiB observation limit accounts for the envelope, boxed world payload and allocated string capacities. Fixed-size arrays hold native phase settings and substage identifiers. The HUD presenter compares process, session, world, phase and configuration fields directly, retaining a debounce key until those fields change. JSON is used for settings, discovery cache files and explicit diagnostic output.
 
 ## Reader lifetime and observation guards
 

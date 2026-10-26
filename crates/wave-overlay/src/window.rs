@@ -8,7 +8,7 @@ mod render;
 
 use diagnostics::{self_test, window_events_self_test, window_self_test};
 use render::{STAGE_TOP_PADDING, panel_points, render_layer};
-use serde_json::{Value, json};
+use starrupture_observation_model::observation::{Observation, PauseState};
 use starrupture_observation_model::wave::{HudFrame, HudPresenter, style};
 use starrupture_wave_core::{config::Config, formatting::now_ms};
 use std::{
@@ -32,15 +32,8 @@ use windows_sys::Win32::{
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const TRAY: u32 = WM_APP + 1;
 const READING_READY: u32 = WM_APP + 2;
-fn pause_menu_layout(v: &Value, previous: bool) -> bool {
-    if v["status"] != "ok" {
-        return previous;
-    }
-    // Menu visibility controls position only, never simulation/timer pause truth.
-    v["data"]["pause"]["pauseMenuOpen"]
-        .as_bool()
-        .or_else(|| v["data"]["pause"]["paused"].as_bool())
-        .unwrap_or(previous)
+fn pause_menu_layout(pause: Option<&PauseState>, previous: bool) -> bool {
+    pause.map_or(previous, |p| p.menu_open)
 }
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain([0]).collect()
@@ -49,7 +42,7 @@ fn rgb(c: [u8; 3]) -> u32 {
     u32::from(c[0]) | (u32::from(c[1]) << 8) | (u32::from(c[2]) << 16)
 }
 struct Reading {
-    value: Value,
+    value: Option<Box<Observation>>,
     menu: Option<(bool, u64)>,
     process: u32,
 }
@@ -124,7 +117,7 @@ unsafe fn tick(window: HWND) {
         let paused = match r.menu {
             Some((menu, at)) if (now_ms().max(0) as u64).saturating_sub(at) <= 500 => menu,
             Some(_) => a.pause_position,
-            None => pause_menu_layout(&r.value, a.pause_position),
+            None => pause_menu_layout(r.value.as_ref().map(|v| &v.pause), a.pause_position),
         };
         if paused != a.pause_position {
             a.pause_position = paused;
@@ -137,7 +130,7 @@ unsafe fn tick(window: HWND) {
                 }
             );
         }
-        (a.presenter.update(&r.value, now_ms().max(0) as u64, 5000), r.process)
+        (a.presenter.update(r.value.as_deref(), now_ms().max(0) as u64, 5000), r.process)
     };
     if a.frame != frame {
         a.frame = frame;
@@ -494,7 +487,7 @@ pub fn run() -> Result<()> {
 
     let stop = Arc::new(AtomicBool::new(false));
     let shared = Arc::new(Mutex::new(Reading {
-        value: json!({}),
+        value: None,
         menu: None,
         process: 0,
     }));
@@ -622,19 +615,14 @@ fn reader(
                 Update::Reset(pid) => {
                     r.process = pid;
                     r.menu = None;
-                    r.value = starrupture_wave_core::live::unavailable(
-                        "SESSION_CHANGED",
-                        "Waiting for fresh world observation",
-                    );
+                    r.value = None;
                 }
                 Update::Menu(menu, at) => r.menu = Some((menu, at)),
-                Update::World(value) => r.value = value,
+                Update::World(value) => r.value = Some(value),
                 Update::Unavailable(reason) => {
+                    eprintln!("Live observation unavailable: {reason}");
                     r.menu = None;
-                    r.value = starrupture_wave_core::live::unavailable(
-                        "OVERLAY_READER_UNAVAILABLE",
-                        reason,
-                    );
+                    r.value = None;
                 }
             }
             drop(r);
@@ -648,7 +636,7 @@ fn reader(
             crate::stream_client::run(config, stop.clone(), &publish)
         }));
         match result {
-            Ok(Ok(stats)) => eprintln!("Embedded reader stopped: {stats}"),
+            Ok(Ok(stats)) => eprintln!("Embedded reader stopped: {stats:?}"),
             Ok(Err(error)) => {
                 eprintln!("Embedded reader unavailable: {error}");
                 publish(Update::Unavailable(error));
@@ -664,46 +652,19 @@ mod tests {
     use super::*;
     #[test]
     fn menu_layout_is_independent_of_simulation_pause_and_unknown_preserves_position() {
-        assert!(pause_menu_layout(
-            &json!({
-                "status": "ok",
-                "data": {
-                    "pause": {
-                        "pauseMenuOpen": true,
-                        "paused": false
-                    }
-                }
-            }),
-            false
-        ));
-        assert!(!pause_menu_layout(
-            &json!({
-                "status": "ok",
-                "data": {
-                    "pause": {
-                        "pauseMenuOpen": false,
-                        "paused": null
-                    }
-                }
-            }),
-            true
-        ));
-        assert!(pause_menu_layout(
-            &json!({
-                "status": "unavailable"
-            }),
-            true
-        ));
-        assert!(pause_menu_layout(
-            &json!({
-                "status": "ok",
-                "data": {
-                    "pause": {
-                        "paused": true
-                    }
-                }
-            }),
-            false
-        ));
+        let open = PauseState {
+            menu_open: true,
+            paused: Some(false),
+            ..PauseState::default()
+        };
+        let closed = PauseState {
+            menu_open: false,
+            paused: None,
+            ..PauseState::default()
+        };
+        assert!(pause_menu_layout(Some(&open), false));
+        assert!(!pause_menu_layout(Some(&closed), true));
+        assert!(pause_menu_layout(None, true));
+        assert!(!pause_menu_layout(None, false));
     }
 }

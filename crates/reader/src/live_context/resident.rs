@@ -6,7 +6,7 @@ use jmap_dumper::{
     mem::{Ctx, Ptr},
     objects::UObject,
 };
-use serde_json::Value;
+use starrupture_observation_model::observation::LiveContext;
 use std::path::Path as FilePath;
 
 #[derive(PartialEq)]
@@ -175,7 +175,7 @@ impl Resident {
         &mut self,
         process: &platform::Process,
         base: &Cache,
-    ) -> Result<Value> {
+    ) -> Result<LiveContext> {
         self.menu(process, base).await?;
         let value = read_context(process, base, &self.bindings, self.ctx.clone()).await?;
         self.menu(process, base).await?;

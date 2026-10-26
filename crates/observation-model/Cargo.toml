@@ -10,6 +10,6 @@ publish = false
 
 [dependencies]
 serde.workspace = true
+
+[dev-dependencies]
 serde_json.workspace = true
-uuid.workspace = true
-sha2.workspace = true
