@@ -1,4 +1,4 @@
-# StarRupture Wave Overlay
+# StarRupture Overlay
 
 A Windows HUD showing StarRupture's current wave stage and the countdown to the next stage.
 
@@ -12,14 +12,14 @@ Version 0.1.0 is in development. Release packages use the following installation
 
 1. Download the Windows x64 ZIP and its matching `.sha256` file from this repository's Releases page.
 2. Check the archive hash, extract it to a user-writable folder and double-click `starrupture-wave-overlay.exe`.
-3. Start the supported game normally. Use the overlay's tray menu to show/hide, unlock/move/lock, reset its position or exit.
+3. Start the supported game normally, or choose **Start StarRupture** from the tray menu. Display and position controls appear when the game is detected.
 
 Keep the included licence notices with the executable. Configuration is optional. Run the app with standard user privileges. The current candidate is unsigned; its checksum verifies archive integrity.
 
 ## Compatibility
 
 - Windows 10/11 x64, with borderless or windowed gameplay.
-- The current reader supports one SHA256-pinned Steam game build at its default C-drive installation path. See [supported builds](docs/COMPATIBILITY.md) before reporting unavailable data.
+- The reader supports one SHA256-pinned Steam game build and detects its executable location from the running process. See [supported builds](docs/COMPATIBILITY.md) before reporting unavailable data.
 - Unsupported game builds and maps display unavailable data.
 
 ## Build from source
@@ -53,7 +53,15 @@ Exit the installed app before deployment and place the matching checksum file be
 
 ## Settings and data
 
-The app starts with default settings and stores caches under `%LOCALAPPDATA%/StarRuptureWaveOverlay/cache`. To use another cache directory, set `cacheDirectory` in a configuration file and pass its path with `--config PATH`; see [config/example.json](config/example.json).
+Right-click the tray icon for **Settings**, **About** and **Exit**. Double-click the icon to open Settings. **Start with Windows** starts the overlay at sign-in for the current user, requires no administrator rights and is off by default. Windows Startup Apps controls can disable automatic startup.
+
+Choose whether to keep the overlay running, ask before exiting or exit automatically after a previously connected game process closes. Keeping it in the tray is the default. Loading screens and unavailable readings leave the app running.
+
+Settings can create or remove a desktop shortcut named **Play StarRupture with Overlay**. It starts the overlay, then requests game launch through Steam, reusing existing instances. Shortcut changes take effect immediately; Save applies startup and game-exit preferences, and Cancel discards unsaved preferences. Game launch requests time out after two minutes so you can retry.
+
+About shows the app version, source revision, supported build, connection status and detected game location. Copy support details omits personal paths and game data. Licence notices are available in About. Game-exit preferences are stored in `%LOCALAPPDATA%/StarRuptureWaveOverlay/preferences.json`.
+
+The app uses default configuration on first run and stores caches under `%LOCALAPPDATA%/StarRuptureWaveOverlay/cache`. To use another cache directory, set `cacheDirectory` in a configuration file and pass its path with `--config PATH`; see [config/example.json](config/example.json).
 
 Countdowns follow simulation time. The countdown shows `--:--` when readings are unavailable or more than five seconds old. See [architecture](docs/ARCHITECTURE.md) for timing details.
 

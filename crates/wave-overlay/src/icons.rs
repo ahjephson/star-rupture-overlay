@@ -46,6 +46,26 @@ impl Icons {
     }
 }
 
+pub fn set_about(window: HWND) -> Result<()> {
+    let dpi = unsafe { windows_sys::Win32::UI::HiDpi::GetDpiForWindow(window) }.max(96);
+    let size = (57 * dpi as i32 + 48) / 96;
+    let icon = load(size, size)?;
+    unsafe {
+        let control = GetDlgItem(window, 143);
+        SendMessageW(control, STM_SETICON, icon as usize, 0);
+        SetWindowPos(
+            control,
+            std::ptr::null_mut(),
+            0,
+            0,
+            size,
+            size,
+            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+    }
+    Ok(())
+}
+
 /// Native resource-load checks only: no window, tray, focus or game access.
 pub fn self_test() -> Result<()> {
     let path: Vec<u16> =

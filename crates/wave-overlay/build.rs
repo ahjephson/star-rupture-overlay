@@ -1,5 +1,4 @@
-//! Embed the reviewed ICO using the Windows SDK resource compiler. No new crate
-//! or runtime dependency is needed; the SDK is already required for MSVC builds.
+//! Compile native dialogs, the manifest and the reviewed icon with the Windows SDK.
 use std::{env, path::PathBuf, process::Command};
 
 fn resource_compiler() -> PathBuf {
@@ -27,6 +26,31 @@ fn resource_compiler() -> PathBuf {
 fn main() {
     println!("cargo:rerun-if-changed=assets/icon/app.ico");
     println!("cargo:rerun-if-changed=assets/icon/app.rc");
+    for path in ["assets/app.rc", "assets/dialogs.rc", "assets/app.manifest"] {
+        println!("cargo:rerun-if-changed={path}");
+    }
+    let revision = Command::new("git")
+        .args(["rev-parse", "--short", "HEAD"])
+        .output()
+        .ok()
+        .filter(|result| result.status.success())
+        .map(|result| String::from_utf8_lossy(&result.stdout).trim().to_owned())
+        .unwrap_or_else(|| "unknown".into());
+    println!("cargo:rustc-env=OVERLAY_REVISION={revision}");
+    let mut refs = vec!["HEAD".to_owned(), "packed-refs".to_owned()];
+    if let Ok(output) = Command::new("git").args(["symbolic-ref", "-q", "HEAD"]).output()
+        && output.status.success()
+    {
+        refs.push(String::from_utf8_lossy(&output.stdout).trim().to_owned());
+    }
+    for name in refs {
+        let args = ["rev-parse", "--git-path", &name];
+        if let Ok(output) = Command::new("git").args(args).output()
+            && output.status.success()
+        {
+            println!("cargo:rerun-if-changed={}", String::from_utf8_lossy(&output.stdout).trim());
+        }
+    }
     for name in ["RC", "WindowsSdkVerBinPath", "ProgramFiles(x86)"] {
         println!("cargo:rerun-if-env-changed={name}");
     }
@@ -44,9 +68,10 @@ fn main() {
     let result = Command::new(resource_compiler())
         .current_dir(root)
         .arg("/nologo")
+        .arg("/c65001")
         .arg("/fo")
         .arg(&output)
-        .arg("assets/icon/app.rc")
+        .arg("assets/app.rc")
         .status()
         .expect("Could not start Windows SDK resource compiler");
     assert!(result.success(), "Windows icon resource compilation failed");

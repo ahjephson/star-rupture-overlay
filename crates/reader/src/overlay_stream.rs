@@ -47,18 +47,44 @@ struct Session {
     base: RuntimeCache,
     live: live_context::resident::Resident,
 }
+/// Process presence is independent of whether a world can currently be sampled.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GameStatus {
+    Waiting,
+    Running {
+        pid: u32,
+        creation_ticks: u64,
+        executable: String,
+        supported: bool,
+    },
+    Unknown,
+}
 async fn attach(
     directory: &Path,
     retained: &mut Option<platform::Process>,
     budget: Arc<platform::ReadBudget>,
+    status: &mut impl FnMut(GameStatus),
 ) -> Result<Session> {
-    if retained.as_ref().is_some_and(|p| p.ensure_alive().is_err()) {
-        *retained = None;
-    }
     if retained.is_none() {
-        *retained = Some(platform::find_game(budget)?);
+        match platform::find_game(budget) {
+            Ok(process) => *retained = Some(process),
+            Err(error) => {
+                status(if error.is::<platform::GameNotRunning>() {
+                    GameStatus::Waiting
+                } else {
+                    GameStatus::Unknown
+                });
+                return Err(error);
+            }
+        }
     }
     let process = retained.as_ref().unwrap().clone();
+    status(GameStatus::Running {
+        pid: process.identity.pid,
+        creation_ticks: process.identity.creation_ticks,
+        executable: process.identity.executable.clone(),
+        supported: process.identity.executable_sha256 == BUILD_HASH,
+    });
     ensure!(process.identity.executable_sha256 == BUILD_HASH, "Unsupported game executable");
     let path = directory.join("session.json");
     let cached = crate::cache::read_json::<Cache>(&path, 100000)
@@ -91,7 +117,15 @@ async fn attach(
 pub fn run(
     directory: &Path,
     stop: Arc<StopSignal>,
+    sink: impl FnMut(Message) -> Result<()>,
+) -> Result<()> {
+    run_with_status(directory, stop, sink, |_| {})
+}
+pub fn run_with_status(
+    directory: &Path,
+    stop: Arc<StopSignal>,
     mut sink: impl FnMut(Message) -> Result<()>,
+    mut status: impl FnMut(GameStatus),
 ) -> Result<()> {
     ensure!(!platform::is_elevated()?, "Do not run overlay elevated");
     ensure!(directory.is_absolute(), "Absolute private cache directory required");
@@ -105,7 +139,7 @@ pub fn run(
         generation: 0,
         process: None,
     };
-    let mut retained = None;
+    let mut retained: Option<platform::Process> = None;
     let mut sessions = 0u64;
     let mut menu_reads = 0u64;
     let mut world_reads = 0u64;
@@ -118,15 +152,33 @@ pub fn run(
         let mut world_due = Instant::now();
         let mut last_menu = None;
         let mut menu_sent = Instant::now();
+        let mut presence_due = Instant::now();
         while !stop.is_requested() {
             budget.renew(5000);
+            if Instant::now() >= presence_due
+                && let Some(process) = &retained
+            {
+                presence_due = Instant::now() + Duration::from_secs(1);
+                match process.has_exited() {
+                    Ok(true) => {
+                        // Only a successful OS query confirming exit clears process presence.
+                        status(GameStatus::Waiting);
+                        retained = None;
+                        session = None;
+                        output.send(Payload::Unavailable("Game process exited".into()))?;
+                        retry = Instant::now();
+                    }
+                    Ok(false) => {}
+                    Err(_) => status(GameStatus::Unknown),
+                }
+            }
             if session.is_none() {
                 if Instant::now() < retry {
                     stop.wait_until(retry);
                     continue;
                 }
                 budget.renew(60000);
-                match attach(directory, &mut retained, budget.clone()).await {
+                match attach(directory, &mut retained, budget.clone(), &mut status).await {
                     Ok(s) => {
                         output.generation =
                             output.generation.checked_add(1).context("Generation exhausted")?;

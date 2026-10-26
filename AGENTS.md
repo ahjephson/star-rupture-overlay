@@ -1,4 +1,4 @@
-# StarRupture Wave Overlay
+# StarRupture Overlay
 
 A Windows desktop HUD written in Rust that displays StarRupture's current wave stage and countdown.
 

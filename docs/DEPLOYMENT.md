@@ -4,7 +4,7 @@
 
 Compare the ZIP's SHA256 with its matching .sha256 file, extract to a fresh user-writable folder and run starrupture-wave-overlay.exe. Keep LICENSE, THIRD-PARTY-NOTICES.md and licenses/ with it. Deployment uses a user-writable directory and standard user privileges.
 
-Before upgrading, exit through the overlay tray menu. Extract the new version beside the previous version, test it and retain the old folder for rollback. Single-instance protection keeps one normal HUD running. To roll back, exit the new version and run the previous executable. The app validates caches at startup.
+Before upgrading, disable Start with Windows and remove the desktop shortcut in Settings, then exit through the overlay tray menu. Recreate those entries from the new version after verification. Extract the new version beside the previous version, test it and retain the old folder for rollback. Single-instance protection keeps one normal HUD running. To roll back, exit the new version and run the previous executable. The app validates caches at startup.
 
 ## Scripted per-user deployment
 
@@ -12,6 +12,6 @@ From a trusted source checkout, use scripts/Deploy.ps1 with -ArchivePath. The ma
 
 The deployer requires the installed app to be closed. It checks archive checksum, entry names, extraction bounds, duplicate/case-colliding paths, manifest shape and every file's size/hash. New files go into a private staging directory, then a version/hash directory. An atomic installation.json update records current and previous folders. Previous installation directories are preserved. Rejected packages leave the previous selection intact; failed staging folders can be reviewed and removed manually.
 
-Use `-Rollback` to verify and select the previous version. The deployer retains both versions, so another rollback switches back. To uninstall, exit the app and delete the deployment directory, including its version folders and installation.json. Remove the private cache separately if desired.
+Use `-Rollback` to verify and select the previous version. The deployer retains both versions, so another rollback switches back. To uninstall, disable Start with Windows and remove the desktop shortcut in Settings, then exit the app and delete the deployment directory, including its version folders and installation.json. Remove preferences and private caches separately if desired.
 
 Checksums and manifests verify file integrity. Candidate executables are unsigned. Upgrades use the explicit deployment procedure above.

@@ -48,8 +48,14 @@ pub(super) fn window_events_self_test() -> Result<()> {
             value: None,
             menu: None,
             process: 0,
+            connection: crate::connection::Connection::default(),
         }));
         let mut state = Box::new(App {
+            dialogs: crate::dialogs::Dialogs::default(),
+            dialog_context: crate::dialogs::Context::diagnostic(std::path::PathBuf::new()),
+            closed_sessions: 0,
+            launch: crate::connection::Launch::default(),
+            tray_status: String::new(),
             shared: shared.clone(),
             stop: Arc::new(StopSignal::default()),
             frame: preview("waiting"),
@@ -198,10 +204,16 @@ pub(super) fn window_self_test() -> Result<()> {
         }
         let stop = Arc::new(StopSignal::default());
         let mut state = Box::new(App {
+            dialogs: crate::dialogs::Dialogs::default(),
+            dialog_context: crate::dialogs::Context::diagnostic(std::path::PathBuf::new()),
+            closed_sessions: 0,
+            launch: crate::connection::Launch::default(),
+            tray_status: String::new(),
             shared: Arc::new(Mutex::new(Reading {
                 value: None,
                 menu: None,
                 process: 0,
+                connection: crate::connection::Connection::default(),
             })),
             stop: stop.clone(),
             frame: preview("Moving"),
@@ -219,7 +231,7 @@ pub(super) fn window_self_test() -> Result<()> {
         let window = CreateWindowExW(
             flags,
             class.as_ptr(),
-            wide("Wave timer self-test").as_ptr(),
+            wide("Overlay self-test").as_ptr(),
             WS_POPUP,
             0,
             0,

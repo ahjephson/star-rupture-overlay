@@ -2084,6 +2084,7 @@ dependencies = [
  "starrupture-observation-model",
  "starrupture-overlay-reader",
  "starrupture-wave-core",
+ "windows 0.62.2",
  "windows-sys",
 ]
 

@@ -21,6 +21,7 @@ pub struct RunStatistics {
     child_processes: u32,
 }
 pub enum Update {
+    Status(starrupture_overlay_reader::overlay_stream::GameStatus),
     Reset(u32),
     Menu(bool, u64),
     World(Box<Observation>),
@@ -29,19 +30,29 @@ pub enum Update {
 pub fn run(
     config: Config,
     stop: Arc<StopSignal>,
-    mut publish: impl FnMut(Update),
+    publish: impl FnMut(Update),
 ) -> Result<RunStatistics, String> {
     let cache = config.cache_directory.as_ref().ok_or("Private cache directory required")?;
+    let publish = std::cell::RefCell::new(publish);
+    let mut last_status = None;
     let mut sink = ObservationSink {
         validator: Validator::new(std::process::id(), now_ms().max(0) as u64),
         world_reads: 0,
         menu_updates: 0,
         statistics: None,
-        publish: &mut publish,
+        publish: |event| (publish.borrow_mut())(event),
     };
-    starrupture_overlay_reader::overlay_stream::run(cache, stop, |message| {
-        sink.accept(message).map_err(anyhow::Error::msg)
-    })
+    starrupture_overlay_reader::overlay_stream::run_with_status(
+        cache,
+        stop,
+        |message| sink.accept(message).map_err(anyhow::Error::msg),
+        |status| {
+            if last_status.as_ref() != Some(&status) {
+                last_status = Some(status.clone());
+                (publish.borrow_mut())(Update::Status(status));
+            }
+        },
+    )
     .map_err(|error| format!("{error:#}"))?;
     Ok(RunStatistics {
         world_reads: sink.world_reads,
@@ -104,7 +115,7 @@ impl<F: FnMut(Update)> ObservationSink<F> {
                 self.world_reads += 1;
                 if self.world_reads == 1 {
                     eprintln!(
-                        "Wave timer: first validated live observation received from embedded reader."
+                        "Overlay: first validated live observation received from embedded reader."
                     );
                 }
                 (self.publish)(Update::World(Box::new(value)));

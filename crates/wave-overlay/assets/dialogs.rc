@@ -1,0 +1,73 @@
+#pragma code_page(65001)
+
+101 DIALOGEX 0, 0, 320, 325
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+EXSTYLE WS_EX_APPWINDOW
+CAPTION "StarRupture Overlay"
+FONT 9, "Segoe UI"
+BEGIN
+    LTEXT "Settings", 140, 16, 12, 285, 21
+    LTEXT "Choose how the overlay starts and stops.", -1, 16, 35, 285, 12
+    GROUPBOX "Startup", -1, 16, 56, 288, 52
+    CONTROL "Start with &Windows", 110, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 26, 72, 260, 14
+    LTEXT "Wait in the tray until StarRupture starts.", -1, 39, 89, 255, 12
+    GROUPBOX "When the game closes", -1, 16, 119, 288, 63
+    LTEXT "After a StarRupture session ends", -1, 26, 135, 264, 12
+    COMBOBOX 111, 26, 152, 264, 65, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    GROUPBOX "Desktop shortcut", -1, 16, 193, 288, 64
+    LTEXT "No shortcut created", 112, 26, 211, 163, 12
+    PUSHBUTTON "Create shortcut", 113, 195, 205, 98, 20
+    LTEXT "Starts the overlay and game through Steam. Shortcut changes apply immediately.", -1, 26, 232, 264, 22
+    LTEXT "", 114, 16, 266, 288, 26
+    LTEXT "No unsaved changes", 115, 16, 303, 152, 12
+    PUSHBUTTON "Cancel", IDCANCEL, 188, 298, 54, 20
+    DEFPUSHBUTTON "Save", IDOK, 250, 298, 54, 20
+END
+
+102 DIALOGEX 0, 0, 320, 335
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+EXSTYLE WS_EX_APPWINDOW
+CAPTION "About StarRupture Overlay"
+FONT 9, "Segoe UI"
+BEGIN
+    CONTROL "", 143, "Static", SS_ICON | SS_REALSIZECONTROL, 16, 16, 34, 34
+    LTEXT "StarRupture Overlay", 140, 57, 13, 247, 23
+    LTEXT "", 120, 57, 38, 247, 24
+    CONTROL "", 142, "Static", SS_OWNERDRAW, 16, 76, 10, 15
+    LTEXT "", 121, 31, 76, 273, 15, SS_CENTERIMAGE
+    LTEXT "", 122, 31, 95, 273, 27
+    LTEXT "Source revision", -1, 16, 132, 81, 12
+    LTEXT "", 123, 102, 132, 202, 12
+    LTEXT "Supported game", -1, 16, 153, 81, 12
+    LTEXT "Steam · Windows x64", -1, 102, 153, 202, 12
+    LTEXT "SHA256 95f95eee…8d1d76f1", -1, 102, 169, 202, 12
+    LTEXT "Game location", -1, 16, 193, 81, 12
+    EDITTEXT 124, 102, 190, 202, 45, ES_READONLY | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON "Project", 125, 16, 245, 65, 20
+    PUSHBUTTON "Report a problem", 126, 88, 245, 101, 20
+    PUSHBUTTON "Licence notices", 127, 196, 245, 108, 20
+    LTEXT "© 2026 Alex Jephson · PolyForm Strict 1.0.0\nAn unofficial community utility for StarRupture.", -1, 16, 276, 288, 24
+    PUSHBUTTON "Copy support details", 128, 16, 309, 123, 20
+    DEFPUSHBUTTON "Close", IDCANCEL, 250, 309, 54, 20
+END
+
+103 DIALOGEX 0, 0, 400, 310
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+EXSTYLE WS_EX_APPWINDOW
+CAPTION "Licence notices — StarRupture Overlay"
+FONT 9, "Segoe UI"
+BEGIN
+    EDITTEXT 130, 12, 12, 376, 258, ES_READONLY | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL | WS_TABSTOP
+    DEFPUSHBUTTON "Close", IDCANCEL, 330, 281, 58, 20
+END
+
+104 DIALOGEX 0, 0, 300, 112
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+EXSTYLE WS_EX_APPWINDOW
+CAPTION "StarRupture has closed"
+FONT 9, "Segoe UI"
+BEGIN
+    LTEXT "Would you like to exit the overlay or keep it running for your next game session?", -1, 16, 16, 268, 32
+    DEFPUSHBUTTON "Keep running", IDCANCEL, 109, 76, 86, 22
+    PUSHBUTTON "Exit overlay", 131, 203, 76, 81, 22
+END

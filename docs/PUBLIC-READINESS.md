@@ -14,8 +14,9 @@ Version 0.1.0 is a development version. This checklist describes the remaining r
 
 ## Distribution work
 
-- [ ] Resolve the default C-drive Steam installation restriction before general distribution. Installation discovery is a separate functional change and must preserve executable-hash and process-identity validation.
+- [x] Detect installation paths from the running process while preserving executable-hash and process-identity validation.
 - [ ] Verify the release against the supported game build and document the supported map/display modes. A game update requires a compatibility review.
+- [ ] Verify startup registration, desktop shortcut launch, game-exit preferences and alternate installation locations on the release candidate.
 - [ ] Complete live reader and lifecycle checks for the release candidate. Check phase boundaries, pause layout, focus return and relevant DPI and display configurations in the running game.
 - [ ] Review signing and publisher provenance. Current executables are unsigned; hashes establish byte integrity only.
 - [ ] Configure and verify repository protection, review requirements and private vulnerability reporting.

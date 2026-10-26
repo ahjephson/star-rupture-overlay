@@ -3,6 +3,11 @@
 //! Win32 handles and the boxed App remain alive through the message loop. The
 //! reader only publishes locked data and posts a notification; it never touches
 //! GDI resources. Shutdown cancels and joins it before the shared state drops.
+use crate::{
+    connection::Connection,
+    dialogs::{self, Dialogs},
+    preferences::{self, GameExit, Preferences},
+};
 use starrupture_observation_model::shutdown::StopSignal;
 mod diagnostics;
 mod render;
@@ -13,10 +18,13 @@ use starrupture_observation_model::observation::{Observation, PauseState};
 use starrupture_observation_model::wave::{HudFrame, HudPresenter, style};
 use starrupture_wave_core::{config::Config, formatting::now_ms};
 use std::{
+    cell::{Cell, RefCell},
     ffi::c_void,
     mem::size_of,
     path::PathBuf,
+    rc::Rc,
     sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 use windows_sys::Win32::{
     Foundation::*,
@@ -30,6 +38,7 @@ use windows_sys::Win32::{
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const TRAY: u32 = WM_APP + 1;
 const READING_READY: u32 = WM_APP + 2;
+const LAUNCH_GAME: u32 = WM_APP + 10;
 fn pause_menu_layout(pause: Option<&PauseState>, previous: bool) -> bool {
     pause.map_or(previous, |p| p.menu_open)
 }
@@ -43,8 +52,14 @@ struct Reading {
     value: Option<Box<Observation>>,
     menu: Option<(bool, u64)>,
     process: u32,
+    connection: Connection,
 }
 struct App {
+    dialogs: Dialogs,
+    dialog_context: dialogs::Context,
+    closed_sessions: u64,
+    launch: crate::connection::Launch,
+    tray_status: String,
     shared: Arc<Mutex<Reading>>,
     stop: Arc<StopSignal>,
     frame: HudFrame,
@@ -106,6 +121,8 @@ fn preview(phase: &str) -> HudFrame {
     }
 }
 unsafe fn tick(window: HWND) {
+    // Release App borrows before any operation that can dispatch another message.
+    unsafe { update_connection(window) };
     let Some(a) = (unsafe { app(window) }) else {
         return;
     };
@@ -121,7 +138,7 @@ unsafe fn tick(window: HWND) {
         if paused != a.pause_position {
             a.pause_position = paused;
             eprintln!(
-                "Wave timer layout: {}",
+                "Overlay layout: {}",
                 if paused {
                     "paused"
                 } else {
@@ -204,6 +221,104 @@ unsafe fn tick(window: HWND) {
         unsafe { InvalidateRect(window, std::ptr::null(), 0) };
     }
 }
+unsafe fn update_connection(window: HWND) {
+    let Some(a) = (unsafe { app(window) }) else {
+        return;
+    };
+    if a.preview.is_some() {
+        return;
+    }
+    let changed = {
+        let reading = a.shared.lock().unwrap_or_else(|error| error.into_inner());
+        let mut previous = a.dialog_context.connection.borrow_mut();
+        if *previous != reading.connection {
+            *previous = reading.connection.clone();
+            true
+        } else {
+            false
+        }
+    };
+    if changed {
+        a.dialogs.refresh_about();
+    }
+    let connection = a.dialog_context.connection.borrow();
+    let closed = connection.closed_sessions > a.closed_sessions;
+    a.closed_sessions = connection.closed_sessions;
+    let exit = if closed {
+        a.dialog_context.preferences.get().game_exit
+    } else {
+        GameExit::KeepRunning
+    };
+    let action = a.launch.advance(&connection, Instant::now());
+    let launch = action == crate::connection::LaunchAction::OpenSteam;
+    let timeout = action == crate::connection::LaunchAction::TimedOut;
+    let label = if a.launch.pending() {
+        "Starting StarRupture…"
+    } else {
+        connection.label()
+    };
+    if a.tray_status != label {
+        a.tray_status = label.into();
+        let mut icon = NOTIFYICONDATAW {
+            cbSize: size_of::<NOTIFYICONDATAW>() as u32,
+            hWnd: window,
+            uID: 1,
+            uFlags: NIF_TIP,
+            ..Default::default()
+        };
+        let tip = wide(&format!("StarRupture Overlay\n{label}"));
+        let count = tip.len().min(icon.szTip.len() - 1);
+        icon.szTip[..count].copy_from_slice(&tip[..count]);
+        unsafe {
+            Shell_NotifyIconW(NIM_MODIFY, &icon);
+        }
+    }
+    // Release the connection borrow before opening windows or invoking the shell.
+    drop(connection);
+    if launch && let Err(error) = crate::desktop::launch_game(window) {
+        if let Some(a) = unsafe { app(window) } {
+            a.launch.failed();
+        }
+        show_error(window, &error.to_string());
+    }
+    if timeout {
+        show_error(
+            window,
+            "StarRupture was not detected within two minutes. Check Steam, then use Start StarRupture to try again.",
+        );
+    }
+    match exit {
+        GameExit::KeepRunning => {}
+        GameExit::Exit => unsafe {
+            PostMessageW(window, WM_CLOSE, 0, 0);
+        },
+        GameExit::Ask => unsafe {
+            if let Some(context) = app(window).map(|a| a.dialog_context.clone()) {
+                open_dialog(window, dialogs::EXIT_PROMPT, context);
+            }
+        },
+    }
+}
+fn show_error(window: HWND, message: &str) {
+    unsafe {
+        MessageBoxW(
+            window,
+            wide(message).as_ptr(),
+            wide("StarRupture Overlay").as_ptr(),
+            MB_OK | MB_ICONERROR,
+        );
+    }
+}
+unsafe fn open_dialog(window: HWND, kind: u16, context: dialogs::Context) {
+    let result = if let Some(a) = unsafe { app(window) } {
+        a.dialogs.open(kind, window, context)
+    } else {
+        return;
+    };
+    if let Err(error) = result {
+        show_error(window, &error.to_string());
+    }
+}
 unsafe fn paint(window: HWND) {
     let Some(a) = (unsafe { app(window) }) else {
         return;
@@ -212,51 +327,84 @@ unsafe fn paint(window: HWND) {
     let dc = unsafe { BeginPaint(window, &mut ps) };
     unsafe {
         if !a.renderer.render(window, dc, &a.frame) {
-            eprintln!(
-                "Wave timer: layered frame update failed: {}",
-                std::io::Error::last_os_error()
-            );
+            eprintln!("Overlay: layered frame update failed: {}", std::io::Error::last_os_error());
         }
         EndPaint(window, &ps)
     };
 }
 unsafe fn menu(window: HWND) {
-    let m = unsafe { CreatePopupMenu() };
     let Some(a) = (unsafe { app(window) }) else {
         return;
     };
+    let connection = a.shared.lock().unwrap_or_else(|error| error.into_inner()).connection.clone();
+    let running = connection.running() || a.preview.is_some();
+    let hidden = a.hidden;
+    let unlocked = a.unlocked;
+    let launching = a.launch.pending();
+    let context = a.dialog_context.clone();
+    let m = unsafe { CreatePopupMenu() };
+    if m.is_null() {
+        return;
+    }
+    let header = Box::new(crate::status::MenuHeader::new(window, &connection, launching));
     unsafe {
-        AppendMenuW(
-            m,
-            MF_STRING,
-            1,
-            wide(if a.hidden {
-                "Show"
-            } else {
-                "Hide"
-            })
-            .as_ptr(),
-        );
-        AppendMenuW(
-            m,
-            MF_STRING,
-            2,
-            wide(if a.unlocked {
-                "Lock position"
-            } else {
-                "Unlock to move"
-            })
-            .as_ptr(),
-        );
-        AppendMenuW(m, MF_STRING, 3, wide("Reset position").as_ptr());
+        header.append(m);
         AppendMenuW(m, MF_SEPARATOR, 0, std::ptr::null());
-        AppendMenuW(m, MF_STRING, 4, wide("Exit").as_ptr())
-    };
+        if running {
+            AppendMenuW(
+                m,
+                MF_STRING,
+                1,
+                wide(if hidden {
+                    "Show overlay"
+                } else {
+                    "Hide overlay"
+                })
+                .as_ptr(),
+            );
+            AppendMenuW(
+                m,
+                MF_STRING,
+                2,
+                wide(if unlocked {
+                    "Lock position"
+                } else {
+                    "Unlock to move"
+                })
+                .as_ptr(),
+            );
+            AppendMenuW(m, MF_STRING, 3, wide("Reset position").as_ptr());
+        } else if connection.can_launch() {
+            AppendMenuW(
+                m,
+                MF_STRING
+                    | if launching {
+                        MF_GRAYED
+                    } else {
+                        0
+                    },
+                5,
+                wide(if launching {
+                    "Starting StarRupture…"
+                } else {
+                    "Start StarRupture"
+                })
+                .as_ptr(),
+            );
+        }
+        if running || connection.can_launch() {
+            AppendMenuW(m, MF_SEPARATOR, 0, std::ptr::null());
+        }
+        AppendMenuW(m, MF_STRING, 6, wide("Settings…").as_ptr());
+        AppendMenuW(m, MF_STRING, 7, wide("About…").as_ptr());
+        AppendMenuW(m, MF_SEPARATOR, 0, std::ptr::null());
+        AppendMenuW(m, MF_STRING, 4, wide("Exit").as_ptr());
+    }
     let mut cursor = POINT::default();
     unsafe {
         GetCursorPos(&mut cursor);
-        SetForegroundWindow(window)
-    };
+        SetForegroundWindow(window);
+    }
     let choice = unsafe {
         TrackPopupMenu(
             m,
@@ -268,33 +416,76 @@ unsafe fn menu(window: HWND) {
             std::ptr::null(),
         )
     };
-    unsafe { DestroyMenu(m) };
+    unsafe {
+        DestroyMenu(m);
+        PostMessageW(window, WM_NULL, 0, 0);
+    }
     match choice {
-        1 => a.hidden = !a.hidden,
+        1 => {
+            if let Some(a) = unsafe { app(window) } {
+                a.hidden = !a.hidden;
+            }
+        }
         2 => {
-            a.unlocked = !a.unlocked;
-            let style = unsafe { GetWindowLongPtrW(window, GWL_EXSTYLE) };
-            unsafe {
-                SetWindowLongPtrW(
-                    window,
-                    GWL_EXSTYLE,
-                    if a.unlocked {
-                        style & !(WS_EX_TRANSPARENT as isize)
-                    } else {
-                        style | WS_EX_TRANSPARENT as isize
-                    },
-                )
-            };
+            if let Some(a) = unsafe { app(window) } {
+                a.unlocked = !a.unlocked;
+                let unlocked = a.unlocked;
+                let style = unsafe { GetWindowLongPtrW(window, GWL_EXSTYLE) };
+                unsafe {
+                    SetWindowLongPtrW(
+                        window,
+                        GWL_EXSTYLE,
+                        if unlocked {
+                            style & !(WS_EX_TRANSPARENT as isize)
+                        } else {
+                            style | WS_EX_TRANSPARENT as isize
+                        },
+                    );
+                }
+            }
         }
-        3 => a.user_moved = false,
-        4 => {
-            unsafe { DestroyWindow(window) };
+        3 => {
+            if let Some(a) = unsafe { app(window) } {
+                a.user_moved = false;
+            }
         }
+        4 => unsafe {
+            DestroyWindow(window);
+        },
+        5 => unsafe {
+            PostMessageW(window, LAUNCH_GAME, 0, 0);
+        },
+        6 => unsafe {
+            open_dialog(window, dialogs::SETTINGS, context);
+        },
+        7 => unsafe {
+            open_dialog(window, dialogs::ABOUT, context);
+        },
         _ => {}
     }
 }
 unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isize) -> isize {
+    if let Some(result) = unsafe { crate::status::menu_message(message, l) } {
+        return result;
+    }
     match message {
+        LAUNCH_GAME => {
+            if let Some(a) = unsafe { app(window) } {
+                a.launch.request();
+            }
+            unsafe {
+                update_connection(window);
+            }
+            0
+        }
+        dialogs::OPEN_NOTICES => {
+            if let Some(context) = unsafe { app(window) }.map(|a| a.dialog_context.clone()) {
+                unsafe {
+                    open_dialog(window, dialogs::NOTICES, context);
+                }
+            }
+            0
+        }
         WM_NCCREATE => {
             let create = unsafe { &*(l as *const CREATESTRUCTW) };
             unsafe { SetWindowLongPtrW(window, GWLP_USERDATA, create.lpCreateParams as isize) };
@@ -354,6 +545,12 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
         TRAY => {
             if l as u32 == WM_RBUTTONUP {
                 unsafe { menu(window) }
+            } else if l as u32 == WM_LBUTTONDBLCLK
+                && let Some(context) = unsafe { app(window) }.map(|a| a.dialog_context.clone())
+            {
+                unsafe {
+                    open_dialog(window, dialogs::SETTINGS, context);
+                }
             };
             0
         }
@@ -406,7 +603,15 @@ pub fn run() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let mut path: Option<PathBuf> = None;
     let mut preview_phase = None;
+    let mut launch_game = false;
     if let Some(first) = args.next() {
+        if first == "--self-test-dialogs" {
+            let directory = args.next().ok_or("Missing dialog test directory")?;
+            if args.next().is_some() {
+                return Err("Unexpected dialog test argument".into());
+            }
+            return Ok(crate::dialogs::self_test(std::path::Path::new(&directory))?);
+        }
         if first == "--self-test-icons" {
             if args.next().is_some() {
                 return Err("Unexpected icon-test argument".into());
@@ -449,9 +654,10 @@ pub fn run() -> Result<()> {
     }
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "--launch-game" => launch_game = true,
             "--config" => path = Some(args.next().ok_or("Missing configuration path")?.into()),
             "--preview-stage" => preview_phase = Some(args.next().ok_or("Missing preview phase")?),
-            _ => return Err("Usage: starrupture-wave-overlay [--config FILE] [--preview-stage waiting|PreWave|Moving|FadeoutEarly|FadeoutCooling|Fadeout|Growback|unavailable]".into()),
+            _ => return Err("Usage: starrupture-wave-overlay [--config FILE] [--launch-game] [--preview-stage waiting|PreWave|Moving|FadeoutEarly|FadeoutCooling|Fadeout|Growback|unavailable]".into()),
         }
     }
     if let Some(phase) = &preview_phase
@@ -469,6 +675,10 @@ pub fn run() -> Result<()> {
     {
         return Err("Unknown preview stage".into());
     }
+    if launch_game && preview_phase.is_some() {
+        return Err("Game launch cannot be combined with a preview".into());
+    }
+    let path = path.map(std::path::absolute).transpose()?;
     let mut config = Config::load(path.as_deref())?;
     if preview_phase.is_none() && !config.live_enabled {
         return Err("Live reading is disabled by the supplied configuration".into());
@@ -481,14 +691,55 @@ pub fn run() -> Result<()> {
     }
     let _instance = Instance::acquire()?;
     if _instance.0.is_null() {
+        if launch_game {
+            let deadline = Instant::now() + Duration::from_secs(3);
+            loop {
+                let existing =
+                    unsafe { FindWindowW(wide("StarRuptureWaveTimer").as_ptr(), std::ptr::null()) };
+                if !existing.is_null() {
+                    if unsafe { PostMessageW(existing, LAUNCH_GAME, 0, 0) } == 0 {
+                        return Err(std::io::Error::last_os_error().into());
+                    }
+                    break;
+                }
+                if Instant::now() >= deadline {
+                    return Err(
+                        "The existing overlay is still starting. Try the shortcut again.".into()
+                    );
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        }
         return Ok(());
     }
+
+    let preferences_path = preferences::directory()?.join("preferences.json");
+    let preferences = match preferences::load(&preferences_path) {
+        Ok(value) => value,
+        Err(error) => {
+            show_error(
+                std::ptr::null_mut(),
+                &format!(
+                    "Could not load preferences: {error}. Default preferences will be used until you save Settings."
+                ),
+            );
+            Preferences::default()
+        }
+    };
+    let dialog_context = dialogs::Context {
+        preferences: Rc::new(Cell::new(preferences)),
+        connection: Rc::new(RefCell::new(Connection::default())),
+        preferences_path,
+        config: path,
+        diagnostic: false,
+    };
 
     let stop = Arc::new(StopSignal::default());
     let shared = Arc::new(Mutex::new(Reading {
         value: None,
         menu: None,
         process: 0,
+        connection: Connection::default(),
     }));
     unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
     let class = wide("StarRuptureWaveTimer");
@@ -506,6 +757,17 @@ pub fn run() -> Result<()> {
         return Err(std::io::Error::last_os_error().into());
     }
     let mut app = Box::new(App {
+        dialogs: Dialogs::default(),
+        dialog_context,
+        closed_sessions: 0,
+        launch: {
+            let mut launch = crate::connection::Launch::default();
+            if launch_game {
+                launch.request();
+            }
+            launch
+        },
+        tray_status: String::new(),
         shared,
         stop: stop.clone(),
         frame: preview("unavailable"),
@@ -523,7 +785,7 @@ pub fn run() -> Result<()> {
         CreateWindowExW(
             crate::stacking::EXTENDED_STYLE,
             class.as_ptr(),
-            wide("StarRupture Wave Timer").as_ptr(),
+            wide("StarRupture Overlay").as_ptr(),
             WS_POPUP,
             100,
             100,
@@ -549,7 +811,7 @@ pub fn run() -> Result<()> {
         hIcon: app_icons.small,
         ..Default::default()
     };
-    let tip = wide("StarRupture Wave Timer â€” right-click for controls");
+    let tip = wide("StarRupture Overlay — right-click for controls");
     icon.szTip[..tip.len()].copy_from_slice(&tip);
     if unsafe { Shell_NotifyIconW(NIM_ADD, &icon) } == 0 {
         unsafe { DestroyWindow(window) };
@@ -579,7 +841,7 @@ pub fn run() -> Result<()> {
         tick(window)
     };
     eprintln!(
-        "Wave timer running (PID{}); right-click its tray icon to hide, move or exit. Preview values are illustrative.",
+        "StarRupture Overlay running (PID{}); right-click its tray icon to hide, move or exit. Preview values are illustrative.",
         unsafe { GetCurrentProcessId() }
     );
     let mut message = MSG::default();
@@ -588,11 +850,16 @@ pub fn run() -> Result<()> {
         if state <= 0 {
             break;
         }
+        app.dialogs.prune();
+        if app.dialogs.translate(&message) {
+            continue;
+        }
         unsafe {
             TranslateMessage(&message);
             DispatchMessageW(&message)
         };
     }
+    drop(app.dialogs);
     drop(window_events);
     stop.request();
     if let Some(worker) = worker {
@@ -612,7 +879,9 @@ fn reader(
         let publish = |event: Update| {
             let mut r = shared.lock().unwrap_or_else(|e| e.into_inner());
             match event {
+                Update::Status(status) => r.connection.update(status),
                 Update::Reset(pid) => {
+                    r.connection.ready(pid);
                     r.process = pid;
                     r.menu = None;
                     r.value = None;
@@ -620,6 +889,7 @@ fn reader(
                 Update::Menu(menu, at) => r.menu = Some((menu, at)),
                 Update::World(value) => r.value = Some(value),
                 Update::Unavailable(reason) => {
+                    r.connection.unavailable();
                     eprintln!("Live observation unavailable: {reason}");
                     r.menu = None;
                     r.value = None;
@@ -643,7 +913,7 @@ fn reader(
             }
             Err(_) => publish(Update::Unavailable("Read-only worker failed; no fallback".into())),
         }
-        eprintln!("Wave timer reader joined; no reads remain in flight.");
+        eprintln!("Overlay reader joined; no reads remain in flight.");
     })
 }
 

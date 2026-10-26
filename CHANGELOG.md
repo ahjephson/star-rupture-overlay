@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- StarRupture Overlay naming, status-aware tray controls, Settings and About dialogs.
+- Game detection across installation locations with existing build and identity checks.
+- Optional per-user startup at sign-in, a desktop shortcut for overlay/game launch, and configurable handling when a connected game closes.
 - Cached development CI, with release packaging and deployment checks in a separate verification workflow.
 - Windows x64 HUD displaying wave stages and simulation-based countdowns.
 - Game-style frame, Oxanium typography, stage colours and embedded Explorer, window, taskbar and tray icons in nine native sizes.

@@ -3,7 +3,7 @@
 ## Behaviour contract
 
 - Game access is limited to query/read permissions for the executable and main map in [compatibility](COMPATIBILITY.md). Unknown builds, ambiguous processes and changed object identities produce unavailable data.
-- The UI thread owns the native window, tray icon, fonts and GDI resources. The reader runs on one worker thread. Shutdown cancels and joins that worker before shared state is released.
+- The UI thread owns the native HUD, tray icon, on-demand dialogs, fonts and GDI resources. Preferences and process-presence notifications remain separate from observation validation. The reader runs on one worker thread. Shutdown cancels and joins that worker before shared state is released.
 - Menu observations affect layout only. Timer observations independently establish simulation time and pause evidence. Countdowns advance with validated simulation observations, and evidence older than five seconds becomes unavailable.
 - Native Waiting displays STABLE; Moving displays APPROACHING. Fadeout displays INCINERATING for its first 8.5 simulation seconds, then COOLING. Both labels share the native Fadeout phase duration.
 - Preserve the Oxanium typography, stage colours, frame geometry, background transparency, countdown formatting and play/menu positions. Window ordering places the HUD immediately above the game in the ordinary window stack.
