@@ -76,84 +76,179 @@ fn layer_alpha(pixels: &mut [u8], width: usize, height: usize) {
         pixel[3] = alpha;
     }
 }
-pub(super) unsafe fn render_layer(window: HWND, screen: HDC, frame: &HudFrame) -> bool {
-    let mut rect = RECT::default();
-    unsafe { GetClientRect(window, &mut rect) };
-    let width = rect.right.max(1);
-    let height = rect.bottom.max(1);
-    let dc = unsafe { CreateCompatibleDC(screen) };
-    if dc.is_null() {
-        return false;
+struct MemoryDc(HDC);
+impl Drop for MemoryDc {
+    fn drop(&mut self) {
+        unsafe {
+            DeleteDC(self.0);
+        }
     }
-    let mut info = BITMAPINFO::default();
-    info.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
-    info.bmiHeader.biWidth = width;
-    info.bmiHeader.biHeight = -height;
-    info.bmiHeader.biPlanes = 1;
-    info.bmiHeader.biBitCount = 32;
-    info.bmiHeader.biCompression = BI_RGB;
-    let mut bits = std::ptr::null_mut();
-    let bitmap =
-        unsafe { CreateDIBSection(dc, &info, DIB_RGB_COLORS, &mut bits, std::ptr::null_mut(), 0) };
-    if bitmap.is_null() || bits.is_null() {
-        unsafe { DeleteDC(dc) };
-        return false;
-    }
-    let old = unsafe { SelectObject(dc, bitmap) };
-    unsafe {
-        draw(dc, rect, frame);
-        GdiFlush();
-    }
-    let pixels =
-        unsafe { std::slice::from_raw_parts_mut(bits as *mut u8, (width * height * 4) as usize) };
-    layer_alpha(pixels, width as usize, height as usize);
-    let source = POINT {
-        x: 0,
-        y: 0,
-    };
-    let size = SIZE {
-        cx: width,
-        cy: height,
-    };
-    let blend = BLENDFUNCTION {
-        BlendOp: AC_SRC_OVER as u8,
-        BlendFlags: 0,
-        SourceConstantAlpha: 255,
-        AlphaFormat: AC_SRC_ALPHA as u8,
-    };
-    let ok = unsafe {
-        UpdateLayeredWindow(
-            window,
-            std::ptr::null_mut(),
-            std::ptr::null(),
-            &size,
-            dc,
-            &source,
-            0,
-            &blend,
-            ULW_ALPHA,
-        )
-    } != 0;
-    unsafe {
-        SelectObject(dc, old);
-        DeleteObject(bitmap);
-        DeleteDC(dc);
-    }
-    ok
 }
+struct GdiObject(HGDIOBJ);
+impl Drop for GdiObject {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe {
+                DeleteObject(self.0);
+            }
+        }
+    }
+}
+struct Selection<'a> {
+    dc: HDC,
+    previous: HGDIOBJ,
+    _object: &'a GdiObject,
+}
+impl GdiObject {
+    fn select(&self, dc: HDC) -> Selection<'_> {
+        Selection {
+            dc,
+            previous: unsafe { SelectObject(dc, self.0) },
+            _object: self,
+        }
+    }
+}
+impl Drop for Selection<'_> {
+    fn drop(&mut self) {
+        if !self.previous.is_null() && self.previous as isize != -1 {
+            unsafe {
+                SelectObject(self.dc, self.previous);
+            }
+        }
+    }
+}
+struct RenderSurface {
+    // Drop restores the previous bitmap before these fields are released.
+    _bitmap: GdiObject,
+    dc: MemoryDc,
+    previous_bitmap: HGDIOBJ,
+    pixels: std::ptr::NonNull<u8>,
+    width: i32,
+    height: i32,
+}
+impl RenderSurface {
+    fn new(screen: HDC, width: i32, height: i32) -> Option<Self> {
+        let dc = MemoryDc(unsafe { CreateCompatibleDC(screen) });
+        if dc.0.is_null() {
+            return None;
+        }
+        let mut info = BITMAPINFO::default();
+        info.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
+        info.bmiHeader.biWidth = width;
+        info.bmiHeader.biHeight = -height;
+        info.bmiHeader.biPlanes = 1;
+        info.bmiHeader.biBitCount = 32;
+        info.bmiHeader.biCompression = BI_RGB;
+        let mut bits = std::ptr::null_mut();
+        let bitmap = GdiObject(unsafe {
+            CreateDIBSection(dc.0, &info, DIB_RGB_COLORS, &mut bits, std::ptr::null_mut(), 0)
+        });
+        if bitmap.0.is_null() {
+            return None;
+        }
+        let pixels = std::ptr::NonNull::new(bits.cast::<u8>())?;
+        let previous_bitmap = unsafe { SelectObject(dc.0, bitmap.0) };
+        if previous_bitmap.is_null() || previous_bitmap as isize == -1 {
+            return None;
+        }
+        Some(Self {
+            _bitmap: bitmap,
+            dc,
+            previous_bitmap,
+            pixels,
+            width,
+            height,
+        })
+    }
+    fn draw(&mut self, frame: &HudFrame) {
+        let rect = RECT {
+            right: self.width,
+            bottom: self.height,
+            ..RECT::default()
+        };
+        unsafe {
+            draw(self.dc.0, rect, frame);
+            GdiFlush();
+            // The selected top-down DIB owns width * height BGRA pixels until Drop.
+            let pixels = std::slice::from_raw_parts_mut(
+                self.pixels.as_ptr(),
+                self.width as usize * self.height as usize * 4,
+            );
+            layer_alpha(pixels, self.width as usize, self.height as usize);
+        }
+    }
+}
+impl Drop for RenderSurface {
+    fn drop(&mut self) {
+        unsafe {
+            SelectObject(self.dc.0, self.previous_bitmap);
+        }
+    }
+}
+/// UI-thread render surface, retained until the client dimensions change.
+#[derive(Default)]
+pub(super) struct LayerRenderer {
+    surface: Option<RenderSurface>,
+}
+impl LayerRenderer {
+    fn surface(&mut self, screen: HDC, width: i32, height: i32) -> Option<&mut RenderSurface> {
+        if self.surface.as_ref().is_none_or(|s| s.width != width || s.height != height) {
+            self.surface = Some(RenderSurface::new(screen, width, height)?);
+        }
+        self.surface.as_mut()
+    }
+    pub(super) unsafe fn render(&mut self, window: HWND, screen: HDC, frame: &HudFrame) -> bool {
+        let mut rect = RECT::default();
+        unsafe {
+            GetClientRect(window, &mut rect);
+        }
+        let Some(surface) = self.surface(screen, rect.right.max(1), rect.bottom.max(1)) else {
+            return false;
+        };
+        surface.draw(frame);
+        let source = POINT {
+            x: 0,
+            y: 0,
+        };
+        let size = SIZE {
+            cx: surface.width,
+            cy: surface.height,
+        };
+        let blend = BLENDFUNCTION {
+            BlendOp: AC_SRC_OVER as u8,
+            BlendFlags: 0,
+            SourceConstantAlpha: 255,
+            AlphaFormat: AC_SRC_ALPHA as u8,
+        };
+        unsafe {
+            UpdateLayeredWindow(
+                window,
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                &size,
+                surface.dc.0,
+                &source,
+                0,
+                &blend,
+                ULW_ALPHA,
+            ) != 0
+        }
+    }
+}
+
 pub(super) unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
     let width = rect.right;
     let panel_height = rect.bottom;
     let content_y = STAGE_TOP_PADDING + CONTENT_OFFSET_Y;
     // Extra headroom must not enlarge fonts or spread the existing content.
     let height = (panel_height - STAGE_TOP_PADDING).max(1);
-    let background = unsafe { CreateSolidBrush(rgb([24, 30, 32])) };
+    let background = GdiObject(unsafe { CreateSolidBrush(rgb([24, 30, 32])) });
     unsafe {
-        FillRect(dc, &rect, background);
-        DeleteObject(background)
+        FillRect(dc, &rect, background.0);
+        drop(background)
     };
-    let edge = unsafe { CreatePen(PS_SOLID, 1, rgb(PANEL_EDGE)) };
-    let old_pen = unsafe { SelectObject(dc, edge) };
+    let edge = GdiObject(unsafe { CreatePen(PS_SOLID, 1, rgb(PANEL_EDGE)) });
+    let old_pen = edge.select(dc);
     let old_brush = unsafe { SelectObject(dc, GetStockObject(NULL_BRUSH)) };
     let c = (height / 8).max(5);
     let points = panel_points(width, panel_height, 1);
@@ -161,15 +256,15 @@ pub(super) unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
         Polygon(dc, points.as_ptr(), points.len() as i32);
         MoveToEx(dc, c + 3, height / 2 - 2 + content_y, std::ptr::null_mut());
         LineTo(dc, width - c - 3, height / 2 - 2 + content_y);
-        SelectObject(dc, old_pen);
+        drop(old_pen);
         SelectObject(dc, old_brush);
-        DeleteObject(edge);
+        drop(edge);
         SetBkMode(dc, TRANSPARENT as i32)
     };
     let font_name = wide("Oxanium");
     let small = (height as f64 * 0.30).round() as i32;
     let large = (height as f64 * 0.48).round() as i32;
-    let font = unsafe {
+    let font = GdiObject(unsafe {
         CreateFontW(
             -small,
             0,
@@ -186,8 +281,8 @@ pub(super) unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
             DEFAULT_PITCH as u32,
             font_name.as_ptr(),
         )
-    };
-    let old = unsafe { SelectObject(dc, font) };
+    });
+    let old = font.select(dc);
     unsafe { SetTextColor(dc, rgb(frame.colour)) };
     let stage = wide(frame.stage);
     let mut title = RECT {
@@ -205,11 +300,9 @@ pub(super) unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
             DT_LEFT | DT_SINGLELINE | DT_NOPREFIX,
         )
     };
-    unsafe {
-        SelectObject(dc, old);
-        DeleteObject(font)
-    };
-    let font = unsafe {
+    drop(old);
+    drop(font);
+    let font = GdiObject(unsafe {
         CreateFontW(
             -(height as f64 * 0.22).round() as i32,
             0,
@@ -226,8 +319,8 @@ pub(super) unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
             DEFAULT_PITCH as u32,
             font_name.as_ptr(),
         )
-    };
-    let old = unsafe { SelectObject(dc, font) };
+    });
+    let old = font.select(dc);
     unsafe { SetTextColor(dc, rgb([245, 247, 248])) };
     let label = wide(frame.next_label);
     let mut line = RECT {
@@ -244,15 +337,15 @@ pub(super) unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
             &mut line,
             DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX,
         );
-        SelectObject(dc, old);
-        DeleteObject(font)
+        drop(old);
+        drop(font)
     };
     let mut digit_height = large;
     let timer_width = width - c - 3 - width / 2;
     let timer_height = height - c - (height / 2 - 2);
     let text = wide(&frame.countdown);
     let digits = loop {
-        let font = unsafe {
+        let font = GdiObject(unsafe {
             CreateFontW(
                 -digit_height,
                 0,
@@ -269,22 +362,20 @@ pub(super) unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
                 DEFAULT_PITCH as u32,
                 wide("Oxanium ExtraBold").as_ptr(),
             )
-        };
-        let old = unsafe { SelectObject(dc, font) };
+        });
+        let old = font.select(dc);
         let mut extent = SIZE::default();
         unsafe {
             GetTextExtentPoint32W(dc, text.as_ptr(), (text.len() - 1) as i32, &mut extent);
-            SelectObject(dc, old);
+            drop(old);
         }
         if digit_height <= 8 || extent.cx <= timer_width && extent.cy <= timer_height {
             break font;
         }
-        unsafe {
-            DeleteObject(font);
-        }
+        drop(font);
         digit_height -= 1;
     };
-    let old = unsafe { SelectObject(dc, digits) };
+    let old = digits.select(dc);
     let mut timer = RECT {
         left: width / 2,
         top: height / 2 - 2 + content_y,
@@ -299,14 +390,70 @@ pub(super) unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
             &mut timer,
             DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX,
         );
-        SelectObject(dc, old);
-        DeleteObject(digits);
+        drop(old);
+        drop(digits);
     };
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct ScreenDc(HDC);
+    impl Drop for ScreenDc {
+        fn drop(&mut self) {
+            unsafe {
+                ReleaseDC(std::ptr::null_mut(), self.0);
+            }
+        }
+    }
+    #[test]
+    fn reused_and_resized_surfaces_match_fresh_pixels_and_release_gdi_objects() {
+        use windows_sys::Win32::System::Threading::{
+            GR_GDIOBJECTS, GetCurrentProcess, GetGuiResources,
+        };
+        let _fonts = crate::fonts::Fonts::load().unwrap();
+        let screen = ScreenDc(unsafe { GetDC(std::ptr::null_mut()) });
+        assert!(!screen.0.is_null());
+        let warm_frame = super::super::preview("Moving");
+        let mut warm = RenderSurface::new(screen.0, 220, 84).unwrap();
+        warm.draw(&warm_frame);
+        drop(warm);
+        let before = unsafe { GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) };
+        let mut renderer = LayerRenderer::default();
+        for (width, height) in [(220, 84), (300, 100), (220, 84)] {
+            let mut handles = None;
+            for phase in [
+                "waiting",
+                "PreWave",
+                "Moving",
+                "FadeoutEarly",
+                "FadeoutCooling",
+                "Fadeout",
+                "Growback",
+                "unavailable",
+            ] {
+                let frame = super::super::preview(phase);
+                let reused = renderer.surface(screen.0, width, height).unwrap();
+                reused.draw(&frame);
+                let current = (reused.dc.0, reused._bitmap.0);
+                if let Some(previous) = handles {
+                    assert_eq!(current, previous);
+                }
+                handles = Some(current);
+                let mut fresh = RenderSurface::new(screen.0, width, height).unwrap();
+                fresh.draw(&frame);
+                let length = width as usize * height as usize * 4;
+                let a = unsafe { std::slice::from_raw_parts(reused.pixels.as_ptr(), length) };
+                let b = unsafe { std::slice::from_raw_parts(fresh.pixels.as_ptr(), length) };
+                assert_eq!(a, b, "{phase} at {width}x{height}");
+            }
+        }
+        drop(renderer);
+        let after = unsafe { GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) };
+        assert_eq!(after, before);
+    }
+
     #[test]
     fn game_panel_mask_keeps_square_corners_step_and_translucent_background() {
         let mut pixels = [32u8, 30, 24, 0].repeat(20 * 20);

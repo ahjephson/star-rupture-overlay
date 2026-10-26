@@ -1,20 +1,20 @@
 //! Guarded native phase timing from observed progress and configuration.
 use starrupture_observation_model::observation::{
-    Phase, PhaseEvidence, Verification, WaveObservation, WaveTiming,
+    HeatSettings, NativeStage, Phase, PhaseEvidence, Verification, WaveObservation, WaveTiming,
 };
-pub const HEAT_SETTINGS: [f64; 11] = [
-    160000.0,          // waveSpeed
-    -1200000.0,        // waveStartPosition
-    400000.0,          // waveEndPosition
-    120.0,             // preWaveDuration
-    20.0,              // waveFadeoutFireWaveDuration
-    30.0,              // waveFadeoutBurningDuration
-    30.0,              // waveFadeoutFadingDuration
-    600.0,             // waveGrowbackMoonPhaseDuration
-    15.0,              // waveGrowbackRegrowthStartDuration
-    120.0,             // waveGrowbackRegrowthDuration
-    118.0999984741211, // wavePreWaveExplosionDuration
-];
+pub const HEAT_SETTINGS: HeatSettings = HeatSettings {
+    wave_speed: 160000.0,
+    wave_start_position: -1200000.0,
+    wave_end_position: 400000.0,
+    pre_wave_duration: 120.0,
+    fadeout_fire_wave_duration: 20.0,
+    fadeout_burning_duration: 30.0,
+    fadeout_fading_duration: 30.0,
+    growback_moon_phase_duration: 600.0,
+    growback_regrowth_start_duration: 15.0,
+    growback_regrowth_duration: 120.0,
+    pre_wave_explosion_duration: 118.0999984741211,
+};
 fn unknown(w: &WaveObservation, reason: &'static str) -> WaveTiming {
     WaveTiming {
         phase: if w.disabled {
@@ -87,7 +87,7 @@ pub fn live_wave_timing(w: &WaveObservation, clock: f64) -> WaveTiming {
     if !p.getter_layouts_verified {
         return unknown(w, "active_phase_reader_unavailable");
     }
-    if !(1..=4).contains(&p.stage) || p.stage != w.previous_stage {
+    if Some(p.stage) != w.previous_stage {
         return unknown(w, "phase_transition_or_enum_conflict");
     }
     // Native waveType 1 identifies Heat.
@@ -97,23 +97,27 @@ pub fn live_wave_timing(w: &WaveObservation, clock: f64) -> WaveTiming {
     if !(0.0..=1.0).contains(&p.progress) {
         return unknown(w, "invalid_phase_progress");
     }
-    if p.stage != 1
+    if p.stage != NativeStage::PreWave
         && (!p.wave_start_seconds.is_finite()
             || p.wave_start_seconds < 0.0
             || p.wave_start_seconds > clock)
     {
         return unknown(w, "invalid_wave_start");
     }
-    if !p.settings.iter().zip(HEAT_SETTINGS).all(|(a, b)| a.is_finite() && (a - b).abs() < 0.001) {
+    if !p
+        .settings
+        .native_fields()
+        .iter()
+        .zip(HEAT_SETTINGS.native_fields())
+        .all(|(a, b)| a.is_finite() && (a - b).abs() < 0.001)
+    {
         return unknown(w, "uncalibrated_wave_settings");
     }
-    // Slot 3 is preWaveDuration in the native settings layout.
-    if warning.is_some_and(|v| (v - p.settings[3]).abs() > 0.001) {
+    if warning.is_some_and(|v| (v - p.settings.pre_wave_duration).abs() > 0.001) {
         return unknown(w, "warning_duration_conflicts_with_active_heat_settings");
     }
-    let stage = p.stage as usize;
-    // Native stage indices: unused, PreWave, Moving, Fadeout, Growback; seconds.
-    let duration = [0.0, 120.0, 10.0, 80.0, 735.0][stage];
+    let stage = p.stage;
+    let duration = stage.duration_seconds();
     if !p.inverse_duration.is_finite()
         || p.inverse_duration <= 0.0
         || (p.inverse_duration * duration - 1.0).abs() > 0.00001
@@ -126,34 +130,23 @@ pub fn live_wave_timing(w: &WaveObservation, clock: f64) -> WaveTiming {
     let remaining = (1.0 - p.progress) / p.inverse_duration;
     let actor = w.actor_next_time.filter(|v| v.is_finite());
     let drift = actor.map(|v| remaining - (v - clock));
-    let start_residual = if stage != 1 {
-        actor.map(|a| (a - (p.wave_start_seconds + [0.0, 0.0, 10.0, 90.0, 825.0][stage])).abs())
+    let start_residual = if stage != NativeStage::PreWave {
+        actor.map(|a| (a - (p.wave_start_seconds + stage.end_from_wave_start_seconds())).abs())
     } else {
         None
     };
-    let until = if stage == 1 {
+    let until = if stage == NativeStage::PreWave {
         Some(remaining)
     } else {
-        interval.map(|v| {
-            remaining
-                + if stage == 2 {
-                    815.0
-                } else if stage == 3 {
-                    735.0
-                } else {
-                    0.0
-                }
-                + v
-        })
+        interval.map(|v| remaining + stage.following_active_seconds() + v)
     };
     WaveTiming {
-        phase: [Phase::Unknown, Phase::PreWave, Phase::Moving, Phase::Fadeout, Phase::Growback]
-            [stage],
+        phase: stage.phase(),
         wave_count: w.wave_count,
         next_phase_remaining_seconds: Some(remaining),
         rupture_remaining_seconds: until,
         stage_verification: Verification::ProgressEstimate,
-        rupture_verification: if stage == 1 {
+        rupture_verification: if stage == NativeStage::PreWave {
             Verification::ProgressEstimate
         } else if interval.is_none() {
             Verification::Unknown
@@ -162,13 +155,13 @@ pub fn live_wave_timing(w: &WaveObservation, clock: f64) -> WaveTiming {
         } else {
             Verification::UnverifiedConfiguration
         },
-        current_rupture_in_progress: stage == 2 || stage == 3,
+        current_rupture_in_progress: matches!(stage, NativeStage::Moving | NativeStage::Fadeout),
         waiting_interval_seconds: interval,
         warning_duration_seconds: warning,
         fadeout_duration_seconds: Some(80.0),
         actor_progress_drift_seconds: drift,
         actor_start_residual_seconds: start_residual,
-        actor_next_phase_matches: w.actor_next_phase == [0, 0, 1, 2, 3][stage],
+        actor_next_phase_matches: w.actor_next_phase == stage.actor_next_phase(),
         timing_reason: "native_progress_and_live_inverse_duration",
     }
 }

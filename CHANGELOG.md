@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Named native settings/stages and runtime memory bindings, typed retry errors, interruptible sampling waits and reusable GDI render surfaces with owned resource cleanup.
 - Typed observations throughout the reader, timing calculations and HUD, with bounded payload storage and direct debounce comparisons.
 - Embedded application artwork for Explorer, window/taskbar and tray icons, with nine native sizes.
 - APPROACHING for Moving; FADEOUT displays INCINERATING for 8.5 simulation seconds, then COOLING, with countdowns to each displayed transition.

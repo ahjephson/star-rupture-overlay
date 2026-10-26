@@ -5,16 +5,14 @@
 use crate::{Identity, Mem};
 use anyhow::{Context, Result, bail, ensure};
 use sha2::{Digest, Sha256};
+use starrupture_observation_model::shutdown::StopSignal;
 use std::{
     ffi::c_void,
     fs::File,
     io::Read,
     mem::{size_of, zeroed},
     rc::Rc,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 use windows_sys::Win32::{
@@ -49,11 +47,11 @@ fn checked(ok: i32) -> Result<()> {
     }
 }
 pub(crate) struct ReadBudget {
-    stop: Arc<AtomicBool>,
+    stop: Arc<StopSignal>,
     deadline: Mutex<Instant>,
 }
 impl ReadBudget {
-    pub(crate) fn new(stop: Arc<AtomicBool>) -> Arc<Self> {
+    pub(crate) fn new(stop: Arc<StopSignal>) -> Arc<Self> {
         Arc::new(Self {
             stop,
             deadline: Mutex::new(Instant::now() + Duration::from_secs(60)),
@@ -64,7 +62,7 @@ impl ReadBudget {
             Instant::now() + Duration::from_millis(millis);
     }
     fn check(&self) -> Result<()> {
-        ensure!(!self.stop.load(Ordering::Relaxed), "Reader cancelled");
+        ensure!(!self.stop.is_requested(), "Reader cancelled");
         ensure!(
             Instant::now() <= *self.deadline.lock().unwrap_or_else(|p| p.into_inner()),
             "Reader budget expired"
@@ -193,12 +191,13 @@ mod tests {
     use super::*;
     #[test]
     fn cancelled_or_expired_budget_rejects_reads_before_os_access() {
-        let stop = Arc::new(AtomicBool::new(false));
+        let stop = Arc::new(StopSignal::default());
         let b = ReadBudget::new(stop.clone());
         assert!(b.check().is_ok());
-        stop.store(true, Ordering::Relaxed);
+        stop.request();
         assert!(b.check().is_err());
-        stop.store(false, Ordering::Relaxed);
+        let stop = Arc::new(StopSignal::default());
+        let b = ReadBudget::new(stop);
         *b.deadline.lock().unwrap() = Instant::now() - Duration::from_secs(1);
         assert!(b.check().is_err());
         b.renew(1000);

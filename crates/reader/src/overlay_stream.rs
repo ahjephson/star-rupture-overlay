@@ -1,18 +1,17 @@
 //! Embedded read-only engine on the overlay worker thread.
 use crate::{
-    BUILD_HASH, Cache, cache_matches, discover, live_context, platform, sample, sample_context,
+    BUILD_HASH, Cache, RuntimeCache, cache_matches, discover, live_context, platform, sample,
+    sample_context,
 };
 use anyhow::{Context, Result, ensure};
 use starrupture_observation_model::overlay_stream::{
-    Command, GameIdentity, MenuSample, Message, Payload, Statistics, WorldSample,
+    GameIdentity, MenuSample, Message, Payload, Statistics, WorldSample,
 };
+use starrupture_observation_model::shutdown::StopSignal;
 use starrupture_observation_model::{READER_CONTRACT_VERSION, observation::RawObservation};
 use std::{
     path::Path,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 fn now() -> u64 {
@@ -45,7 +44,7 @@ impl Output<'_> {
 }
 struct Session {
     process: platform::Process,
-    base: Cache,
+    base: RuntimeCache,
     live: live_context::resident::Resident,
 }
 async fn attach(
@@ -66,17 +65,18 @@ async fn attach(
         .ok()
         .filter(|c| cache_matches(c, &process.identity));
     let base = if let Some(c) = cached {
+        let c = RuntimeCache::new(c)?;
         if sample(&process, &c).await.is_ok() {
             c
         } else {
-            discover(&process).await?
+            RuntimeCache::new(discover(&process).await?)?
         }
     } else {
-        discover(&process).await?
+        RuntimeCache::new(discover(&process).await?)?
     };
     sample(&process, &base).await?;
     let temporary = directory.join(format!("resident-session-{}.tmp", std::process::id()));
-    std::fs::write(&temporary, serde_json::to_vec(&base)?)?;
+    std::fs::write(&temporary, serde_json::to_vec(&base.record)?)?;
     if path.exists() {
         std::fs::remove_file(&path)?;
     }
@@ -90,18 +90,12 @@ async fn attach(
 }
 pub fn run(
     directory: &Path,
-    stop: Arc<AtomicBool>,
+    stop: Arc<StopSignal>,
     mut sink: impl FnMut(Message) -> Result<()>,
 ) -> Result<()> {
     ensure!(!platform::is_elevated()?, "Do not run overlay elevated");
     ensure!(directory.is_absolute(), "Absolute private cache directory required");
-    let (pause_ms, world_ms) = Command::Start {
-        version: 1,
-        pause_interval_ms: 50,
-        world_interval_ms: 250,
-    }
-    .intervals()
-    .map_err(anyhow::Error::msg)?;
+    let cadence = crate::cadence::Cadence::new(50, 250).map_err(anyhow::Error::msg)?;
     let budget = platform::ReadBudget::new(stop.clone());
     std::fs::create_dir_all(directory)?;
     jmap_dumper::diag::set_verbosity(jmap_dumper::diag::Verbosity::Quiet);
@@ -124,11 +118,11 @@ pub fn run(
         let mut world_due = Instant::now();
         let mut last_menu = None;
         let mut menu_sent = Instant::now();
-        while !stop.load(Ordering::Relaxed) {
+        while !stop.is_requested() {
             budget.renew(5000);
             if session.is_none() {
                 if Instant::now() < retry {
-                    smol::Timer::after(Duration::from_millis(10)).await;
+                    stop.wait_until(retry);
                     continue;
                 }
                 budget.renew(60000);
@@ -181,7 +175,7 @@ pub fn run(
                         }
                     }
                     menu_max_micros = menu_max_micros.max(clock.elapsed().as_micros());
-                    pause_due = Instant::now() + Duration::from_millis(pause_ms);
+                    pause_due = Instant::now() + cadence.menu;
                 }
                 if Instant::now() >= world_due {
                     let cycle = Instant::now();
@@ -211,17 +205,13 @@ pub fn run(
                         },
                     })))?;
                     world_reads += 1;
-                    world_due = cycle + Duration::from_millis(world_ms);
+                    world_due = cycle + cadence.world;
                 }
                 Ok(())
             }
             .await;
             if let Err(e) = result {
-                let reason = e.to_string();
-                if reason == "Wave phase changed during observation"
-                    || reason == "Phase changed while sampling"
-                    || reason == "Timer configuration changed during observation"
-                {
+                if crate::error::is_retryable(&e) {
                     // Discard a torn wave read, preserving no new timestamp. The
                     // retained world/allocation guards are rechecked next cycle.
                     world_due = Instant::now() + Duration::from_millis(50);
@@ -232,7 +222,7 @@ pub fn run(
                 last_menu = None;
                 retry = Instant::now() + Duration::from_secs(1);
             }
-            smol::Timer::after(Duration::from_millis(1)).await;
+            stop.wait_until(pause_due.min(world_due));
         }
         Ok::<(), anyhow::Error>(())
     })?;

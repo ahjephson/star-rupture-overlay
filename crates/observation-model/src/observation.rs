@@ -70,20 +70,137 @@ pub struct TimerConfiguration {
     pub interval_seconds: f64,
     pub warning_duration_seconds: f64,
 }
+/// Calibrated Heat fields in the native layout at offsets 0x1c through 0x44.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct HeatSettings {
+    pub wave_speed: f64,
+    pub wave_start_position: f64,
+    pub wave_end_position: f64,
+    pub pre_wave_duration: f64,
+    pub fadeout_fire_wave_duration: f64,
+    pub fadeout_burning_duration: f64,
+    pub fadeout_fading_duration: f64,
+    pub growback_moon_phase_duration: f64,
+    pub growback_regrowth_start_duration: f64,
+    pub growback_regrowth_duration: f64,
+    pub pre_wave_explosion_duration: f64,
+}
+impl HeatSettings {
+    /// Decode consecutive native float32 fields promoted to float64.
+    pub const fn from_native_fields(values: [f64; 11]) -> Self {
+        let [
+            wave_speed,
+            wave_start_position,
+            wave_end_position,
+            pre_wave_duration,
+            fadeout_fire_wave_duration,
+            fadeout_burning_duration,
+            fadeout_fading_duration,
+            growback_moon_phase_duration,
+            growback_regrowth_start_duration,
+            growback_regrowth_duration,
+            pre_wave_explosion_duration,
+        ] = values;
+        Self {
+            wave_speed,
+            wave_start_position,
+            wave_end_position,
+            pre_wave_duration,
+            fadeout_fire_wave_duration,
+            fadeout_burning_duration,
+            fadeout_fading_duration,
+            growback_moon_phase_duration,
+            growback_regrowth_start_duration,
+            growback_regrowth_duration,
+            pre_wave_explosion_duration,
+        }
+    }
+    pub const fn native_fields(self) -> [f64; 11] {
+        [
+            self.wave_speed,
+            self.wave_start_position,
+            self.wave_end_position,
+            self.pre_wave_duration,
+            self.fadeout_fire_wave_duration,
+            self.fadeout_burning_duration,
+            self.fadeout_fading_duration,
+            self.growback_moon_phase_duration,
+            self.growback_regrowth_start_duration,
+            self.growback_regrowth_duration,
+            self.pre_wave_explosion_duration,
+        ]
+    }
+}
+/// Native active-stage identifiers for the supported executable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum NativeStage {
+    PreWave = 1,
+    Moving = 2,
+    Fadeout = 3,
+    Growback = 4,
+}
+impl TryFrom<u8> for NativeStage {
+    type Error = &'static str;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(Self::PreWave),
+            2 => Ok(Self::Moving),
+            3 => Ok(Self::Fadeout),
+            4 => Ok(Self::Growback),
+            _ => Err("Unknown native wave stage"),
+        }
+    }
+}
+impl NativeStage {
+    pub const fn phase(self) -> Phase {
+        match self {
+            Self::PreWave => Phase::PreWave,
+            Self::Moving => Phase::Moving,
+            Self::Fadeout => Phase::Fadeout,
+            Self::Growback => Phase::Growback,
+        }
+    }
+    pub const fn duration_seconds(self) -> f64 {
+        match self {
+            Self::PreWave => 120.0,
+            Self::Moving => 10.0,
+            Self::Fadeout => 80.0,
+            Self::Growback => 735.0,
+        }
+    }
+    pub const fn end_from_wave_start_seconds(self) -> f64 {
+        match self {
+            Self::PreWave => 0.0,
+            Self::Moving => 10.0,
+            Self::Fadeout => 90.0,
+            Self::Growback => 825.0,
+        }
+    }
+    pub const fn following_active_seconds(self) -> f64 {
+        match self {
+            Self::PreWave | Self::Growback => 0.0,
+            Self::Moving => 815.0,
+            Self::Fadeout => 735.0,
+        }
+    }
+    /// The timer actor numbers its next-phase targets from zero.
+    pub const fn actor_next_phase(self) -> i32 {
+        self as i32 - 1
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ActivePhase {
     pub getter_layouts_verified: bool,
-    pub stage: u8,
+    pub stage: NativeStage,
     pub wave_type: u8,
     pub progress: f64,
     pub inverse_duration: f64,
     pub native_update_binding_verified: bool,
     pub delta_cap_seconds: f64,
     pub wave_start_seconds: f64,
-    /// Native float32 fields at offsets 0x1c through 0x44: speed, start, end,
-    /// pre-wave, fire wave, burning, fading, moon phase, regrowth start,
-    /// regrowth and pre-wave explosion durations, promoted to float64.
-    pub settings: [f64; 11],
+    pub settings: HeatSettings,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum PhaseEvidence {
@@ -99,7 +216,7 @@ pub struct WaveObservation {
     pub disabled: bool,
     pub specific_pause: bool,
     pub wave_count: i64,
-    pub previous_stage: u8,
+    pub previous_stage: Option<NativeStage>,
     pub waiting_remaining_seconds: Option<f64>,
     pub native_waiting_countdown: bool,
     pub actor_next_time: Option<f64>,

@@ -1,33 +1,7 @@
 //! Bounded observation envelopes, process identities and sequence validation.
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 pub const MAX_OBSERVATION_BYTES: usize = 65536;
 pub const GAME_HASH: &str = "95f95eee0b1913b8716de7fa5bf19877a91abe86e63bf2b6f0a29bd48d1d76f1";
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
-pub enum Command {
-    Start {
-        version: u32,
-        pause_interval_ms: u32,
-        world_interval_ms: u32,
-    },
-    Stop,
-}
-impl Command {
-    pub fn intervals(&self) -> Result<(u64, u64), &'static str> {
-        match self {
-            Self::Start {
-                version: 1,
-                pause_interval_ms,
-                world_interval_ms,
-            } if (25..=100).contains(pause_interval_ms)
-                && (250..=1000).contains(world_interval_ms) =>
-            {
-                Ok((u64::from(*pause_interval_ms), u64::from(*world_interval_ms)))
-            }
-            _ => Err("Invalid stream start or cadence bounds"),
-        }
-    }
-}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GameIdentity {
     pub pid: u32,
@@ -178,25 +152,6 @@ mod tests {
     }
     #[test]
     fn stream_bounds_and_commands_reject_unsafe_input() {
-        assert!(
-            Command::Start {
-                version: 1,
-                pause_interval_ms: 50,
-                world_interval_ms: 250
-            }
-            .intervals()
-            .is_ok()
-        );
-        assert!(
-            Command::Start {
-                version: 1,
-                pause_interval_ms: 1,
-                world_interval_ms: 250
-            }
-            .intervals()
-            .is_err()
-        );
-        assert!(serde_json::from_str::<Command>(r#"{"command":"start","version":1,"pause_interval_ms":50,"world_interval_ms":250,"address":1}"#).is_err());
         let oversized = Message {
             payload: Payload::Unavailable("x".repeat(MAX_OBSERVATION_BYTES)),
             ..message(false, 1, 1)

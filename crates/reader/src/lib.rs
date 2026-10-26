@@ -1,6 +1,9 @@
 //! Embedded, bounded read-only wave reader; never writes or invokes game code.
+mod bindings;
 mod cache;
+mod cadence;
 mod discovery;
+mod error;
 mod live_context;
 mod live_phase;
 mod live_timer_config;
@@ -8,6 +11,7 @@ pub mod overlay_stream;
 mod platform;
 
 use anyhow::{Context, Result, ensure};
+use bindings::RuntimeCache;
 use discovery::discover;
 use jmap_dumper::{
     Config,
@@ -129,51 +133,45 @@ async fn path(ctx: &Ctx, address: u64) -> Result<String> {
     }
     Ok(out)
 }
-async fn sample(process: &platform::Process, cache: &Cache) -> Result<PlayerSample> {
-    ensure!(cache_matches(cache, &process.identity), "Stale session cache");
+async fn sample(process: &platform::Process, cache: &RuntimeCache) -> Result<PlayerSample> {
+    ensure!(cache.matches(&process.identity), "Stale session cache");
     let ctx = jmap_dumper::connect_manual(process.clone(), cache.config.clone(), None).await?;
     sample_context(process, cache, ctx).await
 }
 async fn sample_context(
     process: &platform::Process,
-    cache: &Cache,
+    cache: &RuntimeCache,
     ctx: Ctx,
 ) -> Result<PlayerSample> {
-    ensure!(cache_matches(cache, &process.identity), "Stale session cache");
+    ensure!(cache.matches(&process.identity), "Stale session cache");
     ensure!(
         stamp(&ctx, cache.controller.address).await? == cache.controller,
         "Controller identity changed"
     );
-    let off = |c: &str, f: &str| cache.offsets[&key(c, f)] as u64;
     let controller = cache.controller.address;
-    let player: u64 =
-        ctx.read(controller + off("/Script/Engine.PlayerController", "Player")).await?;
+    let player: u64 = ctx.read(controller + cache.fields.player).await?;
     stamp(&ctx, player).await?;
     ensure!(
-        ctx.read::<u64>(player + off("/Script/Engine.Player", "PlayerController")).await?
-            == controller,
+        ctx.read::<u64>(player + cache.fields.player_controller).await? == controller,
         "Local player roundtrip failed"
     );
-    let pawn: u64 = ctx.read(controller + off("/Script/Engine.Controller", "Pawn")).await?;
-    let character: u64 =
-        ctx.read(controller + off("/Script/Engine.Controller", "Character")).await?;
-    let ack: u64 =
-        ctx.read(controller + off("/Script/Engine.PlayerController", "AcknowledgedPawn")).await?;
+    let pawn: u64 = ctx.read(controller + cache.fields.pawn).await?;
+    let character: u64 = ctx.read(controller + cache.fields.character).await?;
+    let ack: u64 = ctx.read(controller + cache.fields.acknowledged_pawn).await?;
     ensure!(
         pawn != 0 && pawn == character && ack == pawn,
         "Possession unsupported/changing; character not established"
     );
     let char_stamp = stamp(&ctx, character).await?;
     ensure!(char_stamp.name.starts_with("BP_PlayerCharacter_C_"), "Unsupported character type");
-    let root: u64 = ctx.read(character + off("/Script/Engine.Actor", "RootComponent")).await?;
+    let root: u64 = ctx.read(character + cache.fields.root_component).await?;
     let root_stamp = stamp(&ctx, root).await?;
     ensure!(
-        ctx.read::<u64>(root + off("/Script/Engine.SceneComponent", "AttachParent")).await? == 0,
+        ctx.read::<u64>(root + cache.fields.attach_parent).await? == 0,
         "Attached root: world coordinates not established"
     );
     let mut bytes = [0; 24];
-    ctx.read_buf(root + off("/Script/Engine.SceneComponent", "RelativeLocation"), &mut bytes)
-        .await?;
+    ctx.read_buf(root + cache.fields.relative_location, &mut bytes).await?;
     let first = decode_position(&bytes)?;
     let char_path = path(&ctx, character).await?;
     let package = char_path.split('.').next().context("Missing world package")?;
@@ -181,8 +179,7 @@ async fn sample_context(
         package == "/Game/Chimera/Maps/ChimeraMain/ChimeraMain",
         "Unsupported current world frame; refusing map coordinates"
     );
-    ctx.read_buf(root + off("/Script/Engine.SceneComponent", "RelativeLocation"), &mut bytes)
-        .await?;
+    ctx.read_buf(root + cache.fields.relative_location, &mut bytes).await?;
     let position = decode_position(&bytes)?;
     ensure!(
         ((first.x - position.x).powi(2)
@@ -193,9 +190,8 @@ async fn sample_context(
         "Position changed too quickly; retry"
     );
     ensure!(
-        ctx.read::<u64>(controller + off("/Script/Engine.Controller", "Pawn")).await? == pawn
-            && ctx.read::<u64>(character + off("/Script/Engine.Actor", "RootComponent")).await?
-                == root
+        ctx.read::<u64>(controller + cache.fields.pawn).await? == pawn
+            && ctx.read::<u64>(character + cache.fields.root_component).await? == root
             && stamp(&ctx, character).await? == char_stamp
             && stamp(&ctx, root).await? == root_stamp,
         "References changed during sample"
@@ -281,5 +277,13 @@ mod tests {
         ] {
             assert!(!cache_matches(&c, &changed));
         }
+        let bytes = serde_json::to_vec(&c).unwrap();
+        let runtime = RuntimeCache::new(c).unwrap();
+        assert!(runtime.matches(&id));
+        assert_eq!(serde_json::to_vec(&runtime.record).unwrap(), bytes);
+        assert!(!runtime.matches(&Identity {
+            pid: 13,
+            ..id
+        }));
     }
 }

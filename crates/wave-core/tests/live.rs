@@ -12,7 +12,7 @@ use starrupture_wave_core::{
 fn wave(stage: usize, progress: f64) -> WaveObservation {
     let duration = [0.0, 120.0, 10.0, 80.0, 735.0][stage];
     WaveObservation {
-        previous_stage: stage as u8,
+        previous_stage: Some(NativeStage::try_from(stage as u8).unwrap()),
         configuration: Some(TimerConfiguration {
             native_control_flow_verified: true,
             interval_includes_warning: true,
@@ -23,7 +23,7 @@ fn wave(stage: usize, progress: f64) -> WaveObservation {
         actor_next_phase: [0, 0, 1, 2, 3][stage],
         phase: PhaseEvidence::Active(ActivePhase {
             getter_layouts_verified: true,
-            stage: stage as u8,
+            stage: NativeStage::try_from(stage as u8).unwrap(),
             wave_type: 1,
             progress,
             inverse_duration: 1.0 / duration,
@@ -136,14 +136,14 @@ fn invalid_phase_settings_pause_binding_and_cap_fail_closed() {
             5 => p.getter_layouts_verified = false,
             6 => p.native_update_binding_verified = false,
             7 => p.delta_cap_seconds = 0.2,
-            8 => p.settings[3] = 30.0,
+            8 => p.settings.pre_wave_duration = 30.0,
             9 => p.wave_start_seconds = 20000.0,
-            10 => w.previous_stage = 2,
+            10 => w.previous_stage = Some(NativeStage::Moving),
             11 => p.progress = f64::NAN,
             12 => p.inverse_duration = f64::INFINITY,
             13 => p.delta_cap_seconds = f64::NAN,
-            14 => p.settings[0] = f64::NAN,
-            15 => p.stage = 255,
+            14 => p.settings.wave_speed = f64::NAN,
+            15 => w.previous_stage = None,
             16 => p.wave_start_seconds = -1.0,
             17 => p.wave_start_seconds = f64::NAN,
             18 => w.phase = PhaseEvidence::Unavailable,

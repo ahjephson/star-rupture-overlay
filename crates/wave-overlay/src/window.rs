@@ -3,11 +3,12 @@
 //! Win32 handles and the boxed App remain alive through the message loop. The
 //! reader only publishes locked data and posts a notification; it never touches
 //! GDI resources. Shutdown cancels and joins it before the shared state drops.
+use starrupture_observation_model::shutdown::StopSignal;
 mod diagnostics;
 mod render;
 
 use diagnostics::{self_test, window_events_self_test, window_self_test};
-use render::{STAGE_TOP_PADDING, panel_points, render_layer};
+use render::{LayerRenderer, STAGE_TOP_PADDING, panel_points};
 use starrupture_observation_model::observation::{Observation, PauseState};
 use starrupture_observation_model::wave::{HudFrame, HudPresenter, style};
 use starrupture_wave_core::{config::Config, formatting::now_ms};
@@ -15,10 +16,7 @@ use std::{
     ffi::c_void,
     mem::size_of,
     path::PathBuf,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex},
 };
 use windows_sys::Win32::{
     Foundation::*,
@@ -48,9 +46,10 @@ struct Reading {
 }
 struct App {
     shared: Arc<Mutex<Reading>>,
-    stop: Arc<AtomicBool>,
+    stop: Arc<StopSignal>,
     frame: HudFrame,
     presenter: HudPresenter,
+    renderer: LayerRenderer,
     preview: Option<String>,
     hidden: bool,
     unlocked: bool,
@@ -212,7 +211,7 @@ unsafe fn paint(window: HWND) {
     let mut ps = PAINTSTRUCT::default();
     let dc = unsafe { BeginPaint(window, &mut ps) };
     unsafe {
-        if !render_layer(window, dc, &a.frame) {
+        if !a.renderer.render(window, dc, &a.frame) {
             eprintln!(
                 "Wave timer: layered frame update failed: {}",
                 std::io::Error::last_os_error()
@@ -360,7 +359,7 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
         }
         WM_DESTROY => {
             if let Some(a) = unsafe { app(window) } {
-                a.stop.store(true, Ordering::Relaxed)
+                a.stop.request()
             };
             let icon = NOTIFYICONDATAW {
                 cbSize: size_of::<NOTIFYICONDATAW>() as u32,
@@ -471,7 +470,7 @@ pub fn run() -> Result<()> {
         return Err("Unknown preview stage".into());
     }
     let mut config = Config::load(path.as_deref())?;
-    if preview_phase.is_none() && config.live.as_ref().is_some_and(|v| !v.enabled) {
+    if preview_phase.is_none() && !config.live_enabled {
         return Err("Live reading is disabled by the supplied configuration".into());
     }
     if config.cache_directory.is_none() {
@@ -485,7 +484,7 @@ pub fn run() -> Result<()> {
         return Ok(());
     }
 
-    let stop = Arc::new(AtomicBool::new(false));
+    let stop = Arc::new(StopSignal::default());
     let shared = Arc::new(Mutex::new(Reading {
         value: None,
         menu: None,
@@ -511,6 +510,7 @@ pub fn run() -> Result<()> {
         stop: stop.clone(),
         frame: preview("unavailable"),
         presenter: HudPresenter::default(),
+        renderer: LayerRenderer::default(),
         preview: preview_phase,
         hidden: false,
         unlocked: false,
@@ -536,7 +536,7 @@ pub fn run() -> Result<()> {
         )
     };
     if window.is_null() {
-        stop.store(true, Ordering::Relaxed);
+        stop.request();
         return Err(std::io::Error::last_os_error().into());
     }
     app_icons.set_window(window);
@@ -594,7 +594,7 @@ pub fn run() -> Result<()> {
         };
     }
     drop(window_events);
-    stop.store(true, Ordering::Relaxed);
+    stop.request();
     if let Some(worker) = worker {
         let _ = worker.join();
     }
@@ -604,7 +604,7 @@ pub fn run() -> Result<()> {
 fn reader(
     config: Config,
     shared: Arc<Mutex<Reading>>,
-    stop: Arc<AtomicBool>,
+    stop: Arc<StopSignal>,
     window: usize,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
@@ -626,7 +626,7 @@ fn reader(
                 }
             }
             drop(r);
-            if !stop.load(Ordering::Relaxed) {
+            if !stop.is_requested() {
                 unsafe {
                     PostMessageW(window as HWND, READING_READY, 0, 0);
                 }

@@ -2,6 +2,7 @@
 use serde::Serialize;
 use starrupture_observation_model::observation::{Observation, OverlaySession};
 use starrupture_observation_model::overlay_stream::{Payload, Statistics, Validator};
+use starrupture_observation_model::shutdown::StopSignal;
 use starrupture_wave_core::{config::Config, formatting::now_ms, live};
 use std::{
     sync::{
@@ -27,7 +28,7 @@ pub enum Update {
 }
 pub fn run(
     config: Config,
-    stop: Arc<AtomicBool>,
+    stop: Arc<StopSignal>,
     mut publish: impl FnMut(Update),
 ) -> Result<RunStatistics, String> {
     let cache = config.cache_directory.as_ref().ok_or("Private cache directory required")?;
@@ -119,7 +120,7 @@ impl<F: FnMut(Update)> ObservationSink<F> {
 
 pub fn self_test(dir: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(dir)?;
-    let stop = Arc::new(AtomicBool::new(false));
+    let stop = Arc::new(StopSignal::default());
     let done = Arc::new(AtomicBool::new(false));
     let deadline_stop = stop.clone();
     let deadline_done = done.clone();
@@ -127,7 +128,7 @@ pub fn self_test(dir: &std::path::Path) -> Result<(), Box<dyn std::error::Error>
         let start = Instant::now();
         while !deadline_done.load(Ordering::Relaxed) {
             if start.elapsed() > Duration::from_secs(60) {
-                deadline_stop.store(true, Ordering::Relaxed);
+                deadline_stop.request();
                 break;
             }
             std::thread::sleep(Duration::from_millis(10));
@@ -142,7 +143,7 @@ pub fn self_test(dir: &std::path::Path) -> Result<(), Box<dyn std::error::Error>
         if matches!(event, Update::World(_)) {
             worlds += 1;
             if worlds >= 24 {
-                stop.store(true, Ordering::Relaxed);
+                stop.request();
             }
         }
     });

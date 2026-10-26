@@ -1,14 +1,12 @@
 //! Native diagnostics using owned hidden or off-screen windows and synthetic HUD data.
-use super::render::{BACKGROUND_ALPHA, STAGE_TOP_PADDING, draw, render_layer};
+use super::render::{BACKGROUND_ALPHA, LayerRenderer, STAGE_TOP_PADDING, draw};
 use super::{App, Reading, Result, preview, procedure, wide};
 use serde_json::json;
+use starrupture_observation_model::shutdown::StopSignal;
 use starrupture_observation_model::wave::HudPresenter;
 use std::{
     mem::size_of,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex},
 };
 use windows_sys::Win32::{
     Foundation::*, Graphics::Gdi::*, System::LibraryLoader::GetModuleHandleW,
@@ -53,9 +51,10 @@ pub(super) fn window_events_self_test() -> Result<()> {
         }));
         let mut state = Box::new(App {
             shared: shared.clone(),
-            stop: Arc::new(AtomicBool::new(false)),
+            stop: Arc::new(StopSignal::default()),
             frame: preview("waiting"),
             presenter: HudPresenter::default(),
+            renderer: LayerRenderer::default(),
             preview: None,
             hidden: false,
             unlocked: false,
@@ -197,7 +196,7 @@ pub(super) fn window_self_test() -> Result<()> {
         if RegisterClassW(&wc) == 0 {
             return Err(std::io::Error::last_os_error().into());
         }
-        let stop = Arc::new(AtomicBool::new(false));
+        let stop = Arc::new(StopSignal::default());
         let mut state = Box::new(App {
             shared: Arc::new(Mutex::new(Reading {
                 value: None,
@@ -207,6 +206,7 @@ pub(super) fn window_self_test() -> Result<()> {
             stop: stop.clone(),
             frame: preview("Moving"),
             presenter: HudPresenter::default(),
+            renderer: LayerRenderer::default(),
             preview: Some("Moving".into()),
             hidden: true,
             unlocked: false,
@@ -239,7 +239,7 @@ pub(super) fn window_self_test() -> Result<()> {
             == app_icons.large as isize
             && SendMessageW(window, WM_GETICON, ICON_SMALL as usize, 0) == app_icons.small as isize;
         let screen = GetDC(std::ptr::null_mut());
-        let alpha_update = render_layer(window, screen, &state.frame);
+        let alpha_update = state.renderer.render(window, screen, &state.frame);
         ReleaseDC(std::ptr::null_mut(), screen);
         let locked = SendMessageW(window, WM_NCHITTEST, 0, 0) == HTTRANSPARENT as isize;
         state.unlocked = true;
@@ -252,7 +252,7 @@ pub(super) fn window_self_test() -> Result<()> {
         DeleteObject(region);
         let invisible = IsWindowVisible(window) == 0;
         DestroyWindow(window);
-        let destroyed = IsWindow(window) == 0 && stop.load(Ordering::Relaxed);
+        let destroyed = IsWindow(window) == 0 && stop.is_requested();
         let focus_preserved = foreground == GetForegroundWindow();
         if !(assigned_icons
             && alpha_update

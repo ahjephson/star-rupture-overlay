@@ -13,15 +13,15 @@ The UI thread owns the window, tray icon, embedded fonts and GDI resources. A pe
 
 The data flow is game memory → reader → validated observation → timing calculation → HUD presentation. Shared Rust structs and enums define player, world, clock, pause, phase and timing data. All application crates inherit the workspace release version. The observation validator checks its schema and `READER_CONTRACT_VERSION` independently of the release version.
 
-The worker moves typed observations through validation into shared UI state. The 64 KiB observation limit accounts for the envelope, boxed world payload and allocated string capacities. Fixed-size arrays hold native phase settings and substage identifiers. The HUD presenter compares process, session, world, phase and configuration fields directly, retaining a debounce key until those fields change. JSON is used for settings, discovery cache files and explicit diagnostic output.
+The worker moves typed observations through validation into shared UI state. The 64 KiB observation limit accounts for the envelope, boxed world payload and allocated string capacities. Named Heat settings and a native-stage enum express timing data; fixed-size arrays hold coordinates and substage identifiers in documented order. The HUD presenter compares process, session, world, phase and configuration fields directly, retaining a debounce key until those fields change. JSON is used for settings, discovery cache files and explicit diagnostic output. Configuration file validation preserves accepted compatibility keys and produces operational settings containing only the cache directory and live-reading switch.
 
 ## Reader lifetime and observation guards
 
-Closing the app cancels the worker and joins it before shared state is dropped. Cancellation is checked before memory reads, process enumeration and executable-hash chunks. Monotonic budgets bound discovery to 60 seconds and ordinary sampling operations to five seconds. These checks are cooperative; an individual blocking OS call can delay cancellation. The worker shares the application process.
+Closing the app cancels the worker and joins it before shared state is dropped. A condition variable waits until the next sampling or attachment deadline and wakes immediately when cancellation is requested. Cancellation is also checked before memory reads, process enumeration and executable-hash chunks. Monotonic budgets bound discovery to 60 seconds and ordinary sampling operations to five seconds. These checks are cooperative; an individual blocking OS call can delay cancellation. The worker shares the application process.
 
 Menu checks target 50 ms; complete world/timer observations target 250 ms. They run serially, so a full observation can defer a menu check. Menu timestamps affect layout only and cannot refresh timer evidence or establish simulation pause.
 
-Observations carry a bounded read window, process creation identity, executable hash, session generation and sequence. World/object allocation identities and native timing configuration are validated before use. Torn phase/configuration reads are discarded without refreshing evidence. Other identity failures invalidate the observation before reacquisition. Cache files contain bounded discovery hints checked against live identities.
+Observations carry a bounded read window, process creation identity, executable hash, session generation and sequence. World/object allocation identities and native timing configuration are validated before use. Typed observation-conflict errors discard torn phase/configuration reads without refreshing evidence. Other identity failures invalidate the observation before reacquisition. Cache files contain bounded discovery hints checked against live identities. Checked player/context offsets, boolean masks and clock offsets are resolved into named runtime bindings at attachment; sampling retains identity and numeric-bound checks.
 
 ## Wave timing and presentation
 
@@ -41,6 +41,8 @@ Fadeout elapsed time is its validated native duration minus native remaining sim
 The HUD floors seconds and suppresses an isolated one-second upward rounding correction within an unchanged phase/session. A second independent observation confirms that correction. The presenter resets its debounce when the displayed target changes. Countdowns advance with observed simulation time; timer evidence older than five seconds becomes unavailable. Native render diagnostics and presentation tests cover geometry, colours, glyph counts and play/menu anchors.
 
 ## Native API boundary
+
+GDI objects use ownership guards that restore selected objects before release. The UI retains its render bitmap and memory device context until the client dimensions change. Rendering tests compare reused and resized surfaces with fresh pixels and check GDI handle counts after cleanup.
 
 Win32 process handles close through RAII and remain on the worker thread using `Rc`. Cancellation and deadlines use thread-safe shared state. Reads validate pointer/size bounds before `ReadProcessMemory`. The supported path and SHA256 are pinned as described in [compatibility](COMPATIBILITY.md). The reader opens the game with query/read permissions under standard user privileges.
 
