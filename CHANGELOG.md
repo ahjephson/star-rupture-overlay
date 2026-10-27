@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Show both overlays above a focused topmost fullscreen game, hiding and demoting them on Alt-Tab and restoring normal ordering in Borderless. Fullscreen, Alt-Tab and return to Borderless were manually verified on the supported game build.
+- Match Settings labels and checkbox backgrounds to the native tab surface.
+- Populate executable Details with app name, author, copyright and versions derived from the app version, checked during package verification.
+
 - Rename the application and release ZIP to starrupture-overlay, with legacy executable support for deployment and rollback.
 
 - Prepare recipe icons, font and research definitions automatically from the installed game, with verified first-run component downloads and a reusable local cache.

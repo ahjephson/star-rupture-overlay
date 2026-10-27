@@ -6,7 +6,7 @@
 - The UI thread owns the native HUD, tray icon, on-demand dialogs, fonts and GDI resources. Preferences and process-presence notifications remain separate from observation validation. The reader runs on one worker thread. Shutdown cancels and joins that worker before shared state is released.
 - Menu observations affect layout only. Timer observations independently establish simulation time and pause evidence. Countdowns advance with validated simulation observations, and evidence older than five seconds becomes unavailable.
 - Native Waiting displays STABLE; Moving displays APPROACHING. Fadeout displays INCINERATING for its first 8.5 simulation seconds, then COOLING. Both labels share the native Fadeout phase duration.
-- Preserve the Oxanium typography, stage colours, frame geometry, background transparency, countdown formatting and play/menu positions. Window ordering places the HUD immediately above the game in the ordinary window stack.
+- Preserve the Oxanium typography, stage colours, frame geometry, background transparency, countdown formatting and play/menu positions. Window ordering places the HUD immediately above the game. A topmost game is followed only while foreground; focus loss hides and demotes both overlays. Non-topmost games use the ordinary window stack. The owner verified both overlays in Fullscreen, Alt-Tab and return to Borderless on 2026-10-27; underlying exclusive presentation was not measured.
 - Preserve configuration keys, cache and diagnostic file formats, typed observation validation and the reader's observation compatibility version.
 
 See [architecture](ARCHITECTURE.md) for timing limits, observation guards and native resource ownership.

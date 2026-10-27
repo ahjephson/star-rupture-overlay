@@ -5,10 +5,12 @@ The 0.2.7 development candidate supports the environment below.
 | Requirement | Supported scope |
 | --- | --- |
 | Operating system | Windows 10/11 x64 |
-| Display mode | Borderless/windowed; exclusive fullscreen is not validated |
+| Display mode | Borderless/windowed; Fullscreen verified on the supported game build |
 | Game distribution | Steam build 25646882, one exact executable hash |
 | Installation | Location detected from the running game process |
 | Game/map state | Supported main-map running session |
+
+Manual display-mode checks, reported by the owner on 2026-10-27: the earlier build hid both overlays in Fullscreen because it rejected topmost game windows. With foreground-only topmost following installed, both overlays work in Fullscreen; Alt-Tab away and back and switching back to Borderless also work. This verifies the supported game’s Fullscreen setting on the tested system. The underlying exclusive/fullscreen-optimization presentation mode was not measured; true exclusive fullscreen on other configurations is not certified.
 
 Executable filename: `StarRuptureGameSteam-Win64-Shipping.exe`. Windows supplies its full path; the reader checks the executable hash and process creation identity before reading game memory. Multiple matching processes are rejected as ambiguous.
 

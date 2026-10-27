@@ -230,6 +230,11 @@ fn dirty(state: &State) {
 }
 fn settings_init(state: &State) {
     let window = state.window.get();
+    // Match labels, checkbox backgrounds and the dialog to the native tab surface.
+    // Windows owns the theme brush and updates it when the system theme changes.
+    unsafe {
+        EnableThemeDialogTexture(window, ETDT_ENABLE | ETDT_USETABTEXTURE);
+    }
     for (index, label) in ["General", "Recipe tracker"].iter().enumerate() {
         let mut label = desktop::wide(label);
         let item = TCITEMW {

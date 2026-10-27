@@ -29,7 +29,7 @@ The app finds the running game automatically. Run it normally, without administr
 ### Requirements
 
 - Windows 10 or 11, 64-bit.
-- The supported Steam version of StarRupture in borderless or windowed mode. Exclusive fullscreen is not validated.
+- The supported Steam version of StarRupture in borderless, windowed or fullscreen mode. Fullscreen was tested on the supported build; true exclusive fullscreen on other configurations is not guaranteed.
 - Internet access for the recipe tracker's first setup (about 50 MB of setup downloads). The app downloads verified setup components and prepares the required icons and font from your installed game. Later launches reuse the local cache.
 
 Game updates can temporarily break compatibility. Check [supported versions](docs/COMPATIBILITY.md) if the overlay cannot connect.

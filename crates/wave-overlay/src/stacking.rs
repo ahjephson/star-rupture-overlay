@@ -7,27 +7,37 @@ pub(super) const EXTENDED_STYLE: u32 =
     WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_LAYERED;
 const POSITION_FLAGS: u32 = SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOMOVE | SWP_NOSIZE;
 
-/// Changes only our HWND. Invalid/minimized/hidden targets fail closed. A topmost
-/// game cannot be followed safely in the ordinary band, so hide rather than
-/// promote the HUD above unrelated windows. The UI retries on its existing tick.
+/// Changes only our HWND. Topmost games are followed only while foreground;
+/// switching away hides and demotes the HUD without activating another window.
 pub(super) fn follow_game(overlay: HWND, game: HWND) -> bool {
+    follow_game_with_foreground(overlay, game, || unsafe { GetForegroundWindow() })
+}
+
+// A foreground provider lets the owned-window diagnostic exercise focus transitions
+// without stealing the user's actual foreground window.
+fn follow_game_with_foreground(overlay: HWND, game: HWND, foreground: impl Fn() -> HWND) -> bool {
     unsafe {
         if IsWindow(overlay) == 0 || overlay == game {
             return false;
         }
         if !target_available(game) {
-            ShowWindow(overlay, SW_HIDE);
+            hide_and_demote(overlay);
             return false;
         }
-        if GetWindowLongPtrW(overlay, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST != 0 {
-            // Demote only our window. Never change the game or any other app.
-            if SetWindowPos(overlay, HWND_NOTOPMOST, 0, 0, 0, 0, POSITION_FLAGS) == 0 {
-                ShowWindow(overlay, SW_HIDE);
-                return false;
-            }
+        let game_topmost = topmost(game);
+        if game_topmost && foreground() != game {
+            hide_and_demote(overlay);
+            return false;
+        }
+        if !game_topmost
+            && topmost(overlay)
+            && SetWindowPos(overlay, HWND_NOTOPMOST, 0, 0, 0, 0, POSITION_FLAGS) == 0
+        {
+            hide_and_demote(overlay);
+            return false;
         }
         let previous = GetWindow(game, GW_HWNDPREV);
-        let result = if previous == overlay {
+        let result = if previous == overlay && topmost(overlay) == game_topmost {
             if IsWindowVisible(overlay) == 0 {
                 SetWindowPos(
                     overlay,
@@ -42,10 +52,18 @@ pub(super) fn follow_game(overlay: HWND, game: HWND) -> bool {
                 true
             }
         } else {
-            // hWndInsertAfter is the predecessor, not the game itself. Inserting
-            // after the game would put the HUD behind the game's surface.
-            let after = if previous.is_null() {
-                HWND_TOP
+            // Stay immediately above the game, below any existing covering window.
+            // At the band boundary use TOP rather than a topmost predecessor, which
+            // would implicitly promote an ordinary HUD. Only fullscreen needs TOPMOST.
+            let after = if previous.is_null()
+                || previous == overlay
+                || (!game_topmost && topmost(previous))
+            {
+                if game_topmost {
+                    HWND_TOPMOST
+                } else {
+                    HWND_TOP
+                }
             } else {
                 previous
             };
@@ -53,22 +71,33 @@ pub(super) fn follow_game(overlay: HWND, game: HWND) -> bool {
         };
         let valid = result
             && target_available(game)
+            && topmost(game) == game_topmost
+            && (!game_topmost || foreground() == game)
             && GetWindow(game, GW_HWNDPREV) == overlay
-            && GetWindowLongPtrW(overlay, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST == 0;
+            && topmost(overlay) == game_topmost;
         if !valid {
-            ShowWindow(overlay, SW_HIDE);
+            hide_and_demote(overlay);
         }
         valid
     }
 }
 
+unsafe fn topmost(window: HWND) -> bool {
+    unsafe { GetWindowLongPtrW(window, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST != 0 }
+}
+
+unsafe fn hide_and_demote(overlay: HWND) {
+    unsafe {
+        ShowWindow(overlay, SW_HIDE);
+        if topmost(overlay) {
+            SetWindowPos(overlay, HWND_NOTOPMOST, 0, 0, 0, 0, POSITION_FLAGS);
+        }
+    }
+}
+
 unsafe fn target_available(game: HWND) -> bool {
     unsafe {
-        !game.is_null()
-            && IsWindow(game) != 0
-            && IsWindowVisible(game) != 0
-            && IsIconic(game) == 0
-            && GetWindowLongPtrW(game, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST == 0
+        !game.is_null() && IsWindow(game) != 0 && IsWindowVisible(game) != 0 && IsIconic(game) == 0
     }
 }
 
@@ -239,12 +268,68 @@ pub(super) fn self_test() -> Result<(), Box<dyn std::error::Error>> {
         require(follow_game(hud.0, game.0), "restore minimized target")?;
         require(raise(game.0, HWND_TOPMOST), "topmost fixture game")?;
         require(
-            !follow_game(hud.0, game.0) && IsWindowVisible(hud.0) == 0,
-            "topmost target fails closed",
+            !follow_game_with_foreground(hud.0, game.0, || browser.0)
+                && IsWindowVisible(hud.0) == 0
+                && !topmost(hud.0),
+            "unfocused topmost target hides and demotes HUD",
         )?;
         require(
-            raise(game.0, HWND_NOTOPMOST) && follow_game(hud.0, game.0),
-            "normal band recovery",
+            follow_game_with_foreground(hud.0, game.0, || game.0)
+                && topmost(hud.0)
+                && above(hud.0, game.0),
+            "foreground topmost game promotes HUD",
+        )?;
+        require(raise(cover.0, HWND_TOPMOST), "topmost covering fixture")?;
+        for _ in 0..100 {
+            require(
+                follow_game_with_foreground(hud.0, game.0, || game.0)
+                    && above(cover.0, hud.0)
+                    && above(hud.0, game.0),
+                "topmost cover stays above HUD",
+            )?;
+        }
+        require(
+            !follow_game_with_foreground(hud.0, game.0, || browser.0)
+                && IsWindowVisible(hud.0) == 0
+                && !topmost(hud.0),
+            "Alt-Tab hides and demotes promoted HUD",
+        )?;
+        require(
+            follow_game_with_foreground(hud.0, game.0, || game.0) && topmost(hud.0),
+            "fullscreen focus return restores HUD",
+        )?;
+        let focus_reads = std::cell::Cell::new(0);
+        require(
+            !follow_game_with_foreground(hud.0, game.0, || {
+                let n = focus_reads.get();
+                focus_reads.set(n + 1);
+                if n == 0 {
+                    game.0
+                } else {
+                    browser.0
+                }
+            }) && IsWindowVisible(hud.0) == 0
+                && !topmost(hud.0),
+            "focus changed during synchronization hides and demotes HUD",
+        )?;
+        require(
+            follow_game_with_foreground(hud.0, game.0, || game.0),
+            "restore before fullscreen minimize",
+        )?;
+        ShowWindow(game.0, SW_SHOWMINNOACTIVE);
+        require(
+            !follow_game_with_foreground(hud.0, game.0, || game.0)
+                && IsWindowVisible(hud.0) == 0
+                && !topmost(hud.0),
+            "minimized fullscreen target demotes HUD",
+        )?;
+        ShowWindow(game.0, SW_SHOWNOACTIVATE);
+        require(
+            raise(game.0, HWND_NOTOPMOST)
+                && follow_game(hud.0, game.0)
+                && !topmost(hud.0)
+                && above(cover.0, hud.0),
+            "normal band recovery below topmost cover",
         )?;
         require(
             raise(hud.0, HWND_TOPMOST)
@@ -270,7 +355,11 @@ pub(super) fn self_test() -> Result<(), Box<dyn std::error::Error>> {
                 "manualPositionPreserved": true,
                 "repeatedSyncs": 100,
                 "hiddenMinimizedDestroyed": true,
-                "topmostFailsClosed": true,
+                "topmostForegroundFollow": true,
+                "topmostCoverPreserved": true,
+                "topmostFocusLossDemotes": true,
+                "focusRaceDemotes": true,
+                "normalBandRecovery": true,
                 "accidentalPromotionRecovered": true,
                 "foregroundPreserved": true
             })

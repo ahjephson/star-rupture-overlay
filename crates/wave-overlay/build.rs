@@ -37,7 +37,7 @@ fn resource_compiler() -> PathBuf {
 fn main() {
     println!("cargo:rerun-if-changed=assets/icon/app.ico");
     println!("cargo:rerun-if-changed=assets/icon/app.rc");
-    for path in ["assets/app.rc", "assets/dialogs.rc", "assets/app.manifest"] {
+    for path in ["assets/app.rc", "assets/dialogs.rc", "assets/version.rc", "assets/app.manifest"] {
         println!("cargo:rerun-if-changed={path}");
     }
     let revision = Command::new("git")
@@ -74,10 +74,27 @@ fn main() {
         "Windows MSVC target required"
     );
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("Cargo manifest directory"));
-    let output =
-        PathBuf::from(env::var_os("OUT_DIR").expect("Cargo output directory")).join("app-icon.res");
+    let output_directory = PathBuf::from(env::var_os("OUT_DIR").expect("Cargo output directory"));
+    let version = env::var("CARGO_PKG_VERSION").expect("Cargo package version");
+    assert!(version.bytes().all(|c| c.is_ascii_alphanumeric() || b".-+".contains(&c)));
+    let components = ["MAJOR", "MINOR", "PATCH"].map(|part| {
+        env::var(format!("CARGO_PKG_VERSION_{part}"))
+            .expect("Cargo version component")
+            .parse::<u16>()
+            .expect("Windows version components must fit in 16 bits")
+    });
+    std::fs::write(
+        output_directory.join("overlay-version.h"),
+        format!(
+            "#define OVERLAY_VERSION {},{},{},0\n#define OVERLAY_VERSION_STRING \"{}\\0\"\n",
+            components[0], components[1], components[2], version
+        ),
+    )
+    .expect("Could not write Windows version header");
+    let output = output_directory.join("app-icon.res");
     let compiler = resource_compiler();
     let mut command = Command::new(&compiler);
+    command.arg("/I").arg(&output_directory);
     if let Some(headers) = sdk_headers(&compiler) {
         command.arg("/I").arg(headers.join("um")).arg("/I").arg(headers.join("shared"));
     }
