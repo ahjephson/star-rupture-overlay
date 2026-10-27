@@ -32,10 +32,23 @@ def fixture(source, path, change):
 
 
 def main(archive, work):
+    new_name = "starrupture-overlay.exe"
+    old_name = "starrupture-wave-overlay.exe"
+    fresh = work / "fresh-installation"
+    powershell("Deploy.ps1", "-ArchivePath", archive, "-Destination", fresh)
+    fresh_state = json.loads((fresh / "installation.json").read_text(encoding="utf-8-sig"))
+    assert (fresh / fresh_state["current"] / new_name).is_file()
+    def legacy_name(files):
+        files[old_name] = files.pop(new_name)
+        manifest = json.loads(files["manifest.json"])
+        manifest["files"][old_name] = manifest["files"].pop(new_name)
+        manifest.pop("executable", None)
+        files["manifest.json"] = json.dumps(manifest).encode()
+    legacy = fixture(archive, work / "legacy.zip", legacy_name)
     deployed = work / "installation"
-    powershell("Deploy.ps1", "-ArchivePath", archive, "-Destination", deployed)
+    powershell("Deploy.ps1", "-ArchivePath", legacy, "-Destination", deployed)
     first = json.loads((deployed / "installation.json").read_text(encoding="utf-8-sig"))
-    assert (deployed / first["current"] / "starrupture-wave-overlay.exe").is_file()
+    assert (deployed / first["current"] / old_name).is_file()
     # Same build repackaged with a synthetic note exercises a distinct version folder.
     def next_version(files):
         files["README.md"] += b"\nSynthetic deployment regression fixture.\n"
@@ -46,13 +59,26 @@ def main(archive, work):
     powershell("Deploy.ps1", "-ArchivePath", second, "-Destination", deployed)
     state = json.loads((deployed / "installation.json").read_text(encoding="utf-8-sig"))
     assert state["previous"] == first["current"] and state["current"] != state["previous"]
+    assert (deployed / state["current"] / new_name).is_file()
     powershell("Deploy.ps1", "-Rollback", "-Destination", deployed)
     restored = json.loads((deployed / "installation.json").read_text(encoding="utf-8-sig"))
     assert restored["current"] == first["current"]
+    assert (deployed / restored["current"] / old_name).is_file()
     # Each malformed package must fail without switching the installed selection.
+    def both_executables(files):
+        files[old_name] = files[new_name]
+        manifest = json.loads(files["manifest.json"])
+        manifest["files"][old_name] = manifest["files"][new_name]
+        files["manifest.json"] = json.dumps(manifest).encode()
+    def wrong_executable(files):
+        manifest = json.loads(files["manifest.json"])
+        manifest["executable"] = old_name
+        files["manifest.json"] = json.dumps(manifest).encode()
     cases = {
+        "two-executables": both_executables,
+        "wrong-executable": wrong_executable,
         "traversal": lambda files: files.update({"../escaped.txt": b"escape"}),
-        "tampered": lambda files: files.update({"starrupture-wave-overlay.exe": b"tampered"}),
+        "tampered": lambda files: files.update({"starrupture-overlay.exe": b"tampered"}),
         "extra": lambda files: files.update({"licenses/extra/manifest.json": b"{}"}),
         "duplicate-case": lambda files: files.update({"license": files["LICENSE"]}),
         "rooted": lambda files: files.update({"/escaped.txt": b"escape"}),
@@ -67,7 +93,7 @@ def main(archive, work):
     powershell("Deploy.ps1", "-ArchivePath", bad, "-Destination", deployed, succeeds=False)
     assert not (work / "escaped.txt").exists()
     assert not (deployed / "escaped.txt").exists()
-    print(json.dumps({"status": "passed", "installUpgradeRollback": True, "rejectedArchiveCases": list(cases) + ["bad-checksum"], "appLaunched": False}))
+    print(json.dumps({"status": "passed", "installUpgradeRollback": True, "legacyNameUpgradeRollback": True, "rejectedArchiveCases": list(cases) + ["bad-checksum"], "appLaunched": False}))
 
 
 if __name__ == "__main__":

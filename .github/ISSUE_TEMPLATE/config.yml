@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Help and troubleshooting
+    url: https://github.com/ahjephson/star-rupture-overlay/blob/main/docs/SUPPORT.md
+    about: Setup, SmartScreen, compatibility and common problems.
+  - name: Security reporting
+    url: https://github.com/ahjephson/star-rupture-overlay/blob/main/SECURITY.md
+    about: Read how to report a security concern privately.

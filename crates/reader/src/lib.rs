@@ -9,6 +9,7 @@ mod live_phase;
 mod live_timer_config;
 pub mod overlay_stream;
 mod platform;
+pub mod recipe;
 
 use anyhow::{Context, Result, ensure};
 use bindings::RuntimeCache;

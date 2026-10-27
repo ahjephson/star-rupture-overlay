@@ -1,9 +1,15 @@
 # Security
 
-The app opens the supported game process with query/read permissions and runs with standard user privileges. Game observations are read through an embedded worker with process/build/session identity checks, allocation guards, read budgets and freshness limits. Unknown builds, invalid identities and unavailable evidence produce unavailable data.
+The overlay reads the supported game process with standard user permissions. It also reads installed game archives to prepare recipe icons, fonts and definitions. It does not write to game memory, game files or saves. Unsupported builds and unavailable readings remain unavailable.
 
-Version 0.1.0 is in development. Security maintenance targets the latest published version. The dependency policy is in deny.toml; reviewed exceptions and vendor changes are documented in docs/DEPENDENCIES.md.
+## Reporting a vulnerability
 
-For a suspected vulnerability, use GitHub private vulnerability reporting when enabled. If it is unavailable, request a private contact through an issue. Keep vulnerability details, saves, caches, memory dumps and credentials private.
+Use **Security > Report a vulnerability** on this repository when private vulnerability reporting is available. If that option is missing, open an issue asking for a private security contact without including the vulnerability details. Keep reproduction details, credentials, saves, memory dumps and local data out of public issues.
 
-Release archives include SHA256 checksums and file manifests for integrity. The candidate is unsigned. Publisher signing and provenance are release-readiness items.
+Security maintenance targets the latest published version. The current 0.2.7 candidate is in development; no public release has been published yet. The project makes no guaranteed response-time commitment.
+
+## Downloads and first-run setup
+
+The app is unsigned. Published release ZIPs include SHA256 checksums and file manifests for checking integrity; these are not publisher signatures.
+
+The recipe tracker's initial setup downloads pinned extraction components from their upstream GitHub releases. Their hashes are verified before use. The setup runs with standard user permissions in a local cache, and its temporary process tree is stopped on cancellation or timeout. Derived assets and game data stay on the user's computer. See [setup dependencies](docs/DEPENDENCIES.md#recipe-setup-components) and [support](docs/SUPPORT.md).

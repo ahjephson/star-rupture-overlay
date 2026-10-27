@@ -26,7 +26,7 @@ allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 # First-party licence only; dependencies retain their own licences.
 
 [[licenses.exceptions]]
-name = "starrupture-wave-overlay"
+name = "starrupture-overlay"
 allow = ["LicenseRef-PolyForm-Strict-1.0.0"]
 
 [[licenses.exceptions]]

@@ -15,3 +15,9 @@ Selected source revisions, file hashes and local adaptations are recorded in [th
 Registry dependencies are pinned in Cargo.lock. For crate archives omitting licence files, exact upstream source copies, URLs and hashes are retained under licenses/registry. These notices are included when exporting the reachable dependency graph. The standard Apache-2.0 text is not a replacement for an upstream copyright notice where one exists.
 
 Oxanium font binaries are embedded under their original names and retain their original licence.
+
+## Recipe setup components
+
+First-run recipe setup downloads a pinned UnrealAssetScout executable and its required decompressors from the upstream sources used by that release. They are stored in the local user cache rather than included in this repository or the app ZIP. UnrealAssetScout uses MIT, CUE4Parse uses Apache-2.0, and their other components retain the licences in the upstream notices. Oodle Data is proprietary and is not redistributed with the app.
+
+Exact versions, sources and hashes are recorded in [the setup component inventory](licenses/asset-setup/index.json). The app archive includes the [UnrealAssetScout licence](licenses/asset-setup/UnrealAssetScout-LICENSE.txt) and [upstream third-party notices](licenses/asset-setup/UnrealAssetScout-NOTICES.txt). Locally extracted StarRupture icons, fonts and definitions stay in the user cache and retain their owners' rights.

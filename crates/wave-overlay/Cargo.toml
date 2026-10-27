@@ -1,6 +1,6 @@
 [package]
-name = "starrupture-wave-overlay"
-description = "Native Windows HUD for StarRupture wave stages and countdowns"
+name = "starrupture-overlay"
+description = "Native Windows overlay for StarRupture rupture timing and recipe research"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,6 +10,7 @@ publish = false
 
 [dependencies]
 anyhow = "1"
+sha2.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 windows = { version = "0.62", features = ["Win32_System_Com", "Win32_UI_Shell", "Win32_Storage_FileSystem"] }
@@ -24,6 +25,7 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_Registry",
     "Win32_System_DataExchange",
     "Win32_System_Memory",
+    "Win32_System_JobObjects",
     "Win32_Storage_FileSystem",
     "Win32_UI_Controls",
     "Win32_UI_WindowsAndMessaging",
