@@ -1,5 +1,16 @@
 //! Compile native dialogs, the manifest and the reviewed icon with the Windows SDK.
-use std::{env, path::PathBuf, process::Command};
+use std::{
+    env,
+    path::{Path, PathBuf},
+    process::Command,
+};
+
+fn sdk_headers(compiler: &Path) -> Option<PathBuf> {
+    let version = compiler.parent()?.parent()?;
+    let sdk = version.parent()?.parent()?;
+    let include = sdk.join("Include").join(version.file_name()?);
+    (include.join("um/windows.h").is_file() && include.join("shared").is_dir()).then_some(include)
+}
 
 fn resource_compiler() -> PathBuf {
     if let Some(explicit) = env::var_os("RC") {
@@ -65,7 +76,12 @@ fn main() {
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("Cargo manifest directory"));
     let output =
         PathBuf::from(env::var_os("OUT_DIR").expect("Cargo output directory")).join("app-icon.res");
-    let result = Command::new(resource_compiler())
+    let compiler = resource_compiler();
+    let mut command = Command::new(&compiler);
+    if let Some(headers) = sdk_headers(&compiler) {
+        command.arg("/I").arg(headers.join("um")).arg("/I").arg(headers.join("shared"));
+    }
+    let result = command
         .current_dir(root)
         .arg("/nologo")
         .arg("/c65001")

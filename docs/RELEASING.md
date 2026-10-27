@@ -1,6 +1,6 @@
 # Release process
 
-Releases use reviewed version tags and a manually dispatched draft workflow. Repository visibility changes and final publication are separate, explicitly authorized operations.
+The maintainer prepares releases; pull requests are not accepted. Releases use reviewed version tags and a manually dispatched draft workflow. Repository visibility changes and final publication are separate, explicitly authorized operations.
 
 Routine Windows CI checks development builds. Run **Windows package verification** on the candidate revision before preparing a release. This workflow builds and tests a release package and retains its ZIP and checksum for two days. It also runs automatically for changes to dependencies, build and packaging scripts, workflows, assets and licence files. The tagged draft workflow below independently builds and verifies the release source.
 
@@ -11,7 +11,7 @@ Routine Windows CI checks development builds. Run **Windows package verification
 3. Run Build.ps1 into a new output folder. This checks formatting, Clippy with warnings denied, all first-party tests and vendor hashes before the release build.
 4. Run Package-Release.ps1 and Test-Release.ps1. Verify the executable, eight native stage renders (including both FADEOUT display substages and unknown timing), native icon extraction/loading/window assignment, dialog defaults/Save/Cancel/error handling, licence inventory, extraction guards and install/upgrade/rollback regressions.
 5. Run the candidate's bounded `--self-test-reader ABSOLUTE-PRIVATE-DIRECTORY` diagnostic against the supported running game. Verify reader, timing and compatibility changes through the relevant live checks. Summarize the supported game build, live checks and untested conditions in the release notes, with links to the candidate's CI results. Keep captures and caches private.
-6. Review public content and all Git history again, including any newly added binary assets. Review the documented maintenance exception in deny.toml. Decide whether unsigned distribution is acceptable or establish publisher signing/provenance before publication.
+6. Review public content and all Git history again, including any newly added binary assets. Review the documented maintenance exception in deny.toml. Keep unsigned distribution and its SmartScreen guidance explicit. Verify pinned first-run component downloads, licence notices, an empty asset cache, cache reuse and setup cancellation before publication.
 
 The build uses locked dependencies, static Visual C++ runtime linkage, thin LTO, one code-generation unit and stripped symbols. It remaps source and cache paths. ZIP entry ordering and timestamps are stable; compiler output can vary across SDK and toolchain environments.
 

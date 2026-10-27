@@ -1,0 +1,53 @@
+{
+  "reviewed": "2026-10-27",
+  "distribution": "Components are downloaded at first use, not embedded or redistributed in the app ZIP.",
+  "notices": [
+    {
+      "file": "UnrealAssetScout-LICENSE.txt",
+      "source": "https://github.com/AndrewSav/UnrealAssetScout/blob/v0.5.0/LICENSE",
+      "sha256": "4c9897c4ba034a4a7f0de13dad4353ccf491373fc3a70732848f27bf32aca0c7"
+    },
+    {
+      "file": "UnrealAssetScout-NOTICES.txt",
+      "source": "https://github.com/AndrewSav/UnrealAssetScout/blob/v0.5.0/THIRD-PARTY-NOTICES",
+      "sha256": "097df4ba2b3473e72f0928a8d9af5592e72cdefc0af6b17bf9738cebace9ad10"
+    }
+  ],
+  "components": [
+    {
+      "name": "UnrealAssetScout",
+      "version": "0.5.0+f6978440ba19",
+      "source": "https://github.com/AndrewSav/UnrealAssetScout/releases/tag/v0.5.0",
+      "archiveSha256": "6af6e1ca983833b88fb767a1d5b89dd8037167a467cf58bbbb0113f9ca69443d",
+      "executableSha256": "1cb1294459b9f9a261357c1944d7219e665de10727103b3b9b4f2fc3dce6c792",
+      "licence": "MIT; bundled components retain their upstream licences"
+    },
+    {
+      "name": "CUE4Parse",
+      "revision": "ec6595e46448",
+      "source": "https://github.com/FabianFG/CUE4Parse/tree/ec6595e46448",
+      "licence": "Apache-2.0; included in pinned UnrealAssetScout"
+    },
+    {
+      "name": "Oodle Data",
+      "version": "2.9.16",
+      "source": "https://github.com/WorkingRobot/OodleUE/releases/tag/2026-06-04-1357",
+      "archiveSha256": "37f816a3e8f5a65a11f6defc8c28c0508287602767741ba4803c6a21a62a877b",
+      "dllSha256": "cba19529d0a3b5ec9c630e95652af01e123ae29a34a8a5f7507f5bcf23d9e82b",
+      "licence": "Proprietary; downloaded from the upstream location used by pinned CUE4Parse; not redistributed"
+    },
+    {
+      "name": "zlib-ng",
+      "source": "https://github.com/NotOfficer/Zlib-ng.NET/releases/tag/1.0.0",
+      "archiveSha256": "e11f814f64821c482fb81c05fb20d9e5a3be0feb0e2f8fd9480d1f341163e2c1",
+      "dllSha256": "454be2f3d10f804ace577198401431db5e95d0286b59589bc28a40085388e7c2",
+      "licence": "Zlib"
+    },
+    {
+      "name": "Detex",
+      "source": "https://github.com/FabianFG/CUE4Parse/tree/ec6595e46448/CUE4Parse-Conversion/Resources",
+      "dllSha256": "a434f5759fadb73bf386e636481e4fddb29e6a2e9c177334c53770a7aba19a7e",
+      "licence": "MIT; extracted from the verified helper embedded resources"
+    }
+  ]
+}

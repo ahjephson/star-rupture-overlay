@@ -10,9 +10,9 @@ Push-Location $script:ProjectRoot
 try {
     & (Join-Path $PSScriptRoot 'Test.ps1') -Offline:$Offline
     $locked = @('--locked'); if ($Offline) { $locked += '--offline' }
-    Invoke-Cargo (@('build', '--release', '--target', 'x86_64-pc-windows-msvc', '-p', 'starrupture-wave-overlay') + $locked)
+    Invoke-Cargo (@('build', '--release', '--target', 'x86_64-pc-windows-msvc', '-p', 'starrupture-overlay') + $locked)
     $target = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $script:ProjectRoot 'target' }
-    $exe = Join-Path $target 'x86_64-pc-windows-msvc/release/starrupture-wave-overlay.exe'
+    $exe = Join-Path $target 'x86_64-pc-windows-msvc/release/starrupture-overlay.exe'
     New-Item -ItemType Directory -Force -Path $output | Out-Null
     Copy-Item -LiteralPath $exe -Destination $output
     foreach ($name in @('LICENSE', 'THIRD-PARTY-NOTICES.md')) {
@@ -22,12 +22,12 @@ try {
     & (Join-Path $PSScriptRoot 'Export-Notices.ps1') -OutputDirectory $output -Offline:$Offline
     $metadata = (& cargo metadata --no-deps --format-version 1 --locked | ConvertFrom-Json)
     if ($LASTEXITCODE -ne 0) { throw 'Could not read version metadata.' }
-    $version = ($metadata.packages | Where-Object name -eq 'starrupture-wave-overlay').version
+    $version = ($metadata.packages | Where-Object name -eq 'starrupture-overlay').version
     $revision = & git rev-parse HEAD
     if ($LASTEXITCODE -ne 0) { throw 'A Git checkout is required for release provenance.' }
     $dirty = [bool](& git status --porcelain)
     $manifest = [ordered]@{
-        schemaVersion = 1; version = $version; revision = $revision; uncommittedChanges = $dirty
+        schemaVersion = 1; version = $version; executable = 'starrupture-overlay.exe'; revision = $revision; uncommittedChanges = $dirty
         target = 'x86_64-pc-windows-msvc'; toolchain = '1.99.1'; files = (Get-FileInventory $output)
     }
     Write-JsonFile $manifest (Join-Path $output 'manifest.json')

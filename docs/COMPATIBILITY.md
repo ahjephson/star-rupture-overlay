@@ -1,12 +1,12 @@
 # Supported environment
 
-Version 0.1.0 supports the environment below.
+The 0.2.7 development candidate supports the environment below.
 
 | Requirement | Supported scope |
 | --- | --- |
 | Operating system | Windows 10/11 x64 |
 | Display mode | Borderless/windowed; exclusive fullscreen is not validated |
-| Game distribution | Steam, one exact executable hash |
+| Game distribution | Steam build 25646882, one exact executable hash |
 | Installation | Location detected from the running game process |
 | Game/map state | Supported main-map running session |
 
@@ -20,4 +20,4 @@ Supported executable SHA256:
 
 A game update can invalidate support. Unsupported builds and runtime states produce unavailable data. Compatibility updates require reflection, allocation and timing verification plus live tests.
 
-The executable statically links the Visual C++ runtime and uses Windows system DLLs. The app starts with default settings and accepts an optional configuration file.
+The overlay executable statically links the Visual C++ runtime. Recipe setup uses the Windows PowerShell included with Windows and downloads a self-contained extraction helper, so users do not need a separate SDK or runtime installation. The first setup needs internet access; a validated asset cache is reused on later launches. Preparing native type information requires a supported loaded world. Game files remain read-only.
