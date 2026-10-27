@@ -13,6 +13,8 @@ mod icons;
 #[cfg(windows)]
 mod preferences;
 #[cfg(windows)]
+mod recipe_tracker;
+#[cfg(windows)]
 mod stacking;
 #[cfg(windows)]
 mod status;

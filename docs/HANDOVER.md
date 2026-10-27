@@ -21,6 +21,6 @@ Application deployment is a separate operation from building and testing. Exit t
 
 ## Release status
 
-Version 0.1.0 is in development. Public distribution remains subject to the work in [release readiness](PUBLIC-READINESS.md) and the checks in [releasing](RELEASING.md). Publication, tags, repository visibility and installation changes require explicit authorization.
+Version 0.2.6 is in development. The optional [recipe tracker](RECIPE-TRACKER.md) uses Alt+X to pin or switch to a hovered unfinished station row, or clear that same row, with a local game asset pack and settings for position, scale and shortcut. Recipe hover and in-game appearance require manual candidate acceptance. Public distribution remains subject to the work in [release readiness](PUBLIC-READINESS.md) and the checks in [releasing](RELEASING.md). Publication, tags, repository visibility and installation changes require explicit authorization.
 
 Source provenance is documented in [EXTRACTION.md](EXTRACTION.md). Keep runtime records and backups in ignored local storage.

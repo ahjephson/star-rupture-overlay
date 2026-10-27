@@ -8,7 +8,7 @@ The native Waiting phase displays **STABLE**, and Moving displays **APPROACHING*
 
 ## Run
 
-Version 0.1.0 is in development. Release packages use the following installation procedure:
+Version 0.2.6 is in development. Release packages use the following installation procedure:
 
 1. Download the Windows x64 ZIP and its matching `.sha256` file from this repository's Releases page.
 2. Check the archive hash, extract it to a user-writable folder and double-click `starrupture-wave-overlay.exe`.
@@ -60,6 +60,10 @@ Choose whether to keep the overlay running, ask before exiting or exit automatic
 Settings can create or remove a desktop shortcut named **Play StarRupture with Overlay**. It starts the overlay, then requests game launch through Steam, reusing existing instances. Shortcut changes take effect immediately; Save applies startup and game-exit preferences, and Cancel discards unsaved preferences. Game launch requests time out after two minutes so you can retry.
 
 About shows the app version, source revision, supported build, connection status and detected game location. Copy support details omits personal paths and game data. Licence notices are available in About. Game-exit preferences are stored in `%LOCALAPPDATA%/StarRuptureWaveOverlay/preferences.json`.
+
+**Recipe tracker** in Settings controls the tracker, its shortcut, right-side position and scale. With StarRupture focused, hover over a recipe row in the recipe station and press **Alt+X** to pin it. Hover over a different unfinished recipe and press Alt+X to switch. Use Alt+X on the pinned unfinished recipe to clear it. Outside the station, Alt+X clears a pinned recipe and otherwise does nothing. In the station, no hovered row or a completed recipe leaves the panel unchanged. The panel keeps the pinned recipe while you leave the station and shows submitted/required research payments, including completed requirements. The panel appears after its first successful reading. Counters turn white whenever your bag contains any of that material; an orange count inside the tile shows how much you carry. Partial submitted counts use two lines. Unsupported or stale readings show unavailable counts rather than inventing progress. Shortcut conflicts appear in Settings; choose another Alt or Ctrl combination there.
+
+The tracker uses a local asset pack beside the executable in `recipe-assets/`. It contains icons, recipe requirements and the Nippo font extracted from the supported game. These game assets are not included in the source repository or standard release archive. [Local asset preparation and candidate testing](docs/RECIPE-TRACKER.md) explains the import and checks. Without the pack, the wave HUD continues to work and Recipe tracker settings explain what is missing.
 
 The app uses default configuration on first run and stores caches under `%LOCALAPPDATA%/StarRuptureWaveOverlay/cache`. To use another cache directory, set `cacheDirectory` in a configuration file and pass its path with `--config PATH`; see [config/example.json](config/example.json).
 

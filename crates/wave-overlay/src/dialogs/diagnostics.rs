@@ -21,6 +21,31 @@ pub fn self_test(directory: &Path) -> Result<()> {
         "Default exit preference changed"
     );
     capture(window, &directory.join("settings.bmp"))?;
+    unsafe {
+        SendDlgItemMessageW(window, 155, TCM_SETCURSEL, 1, 0);
+    }
+    settings_tab(&dialogs.windows[0].0);
+    capture(window, &directory.join("settings-recipe.bmp"))?;
+    ensure!(
+        unsafe { GetWindowLongPtrW(GetDlgItem(window, 150), GWL_STYLE) } as u32 & WS_VISIBLE != 0,
+        "Recipe tab controls hidden"
+    );
+    ensure!(
+        unsafe { GetWindowLongPtrW(GetDlgItem(window, 110), GWL_STYLE) } as u32 & WS_VISIBLE == 0,
+        "General tab overlaps recipe controls"
+    );
+    unsafe {
+        SendDlgItemMessageW(window, 155, TCM_SETCURSEL, 0, 0);
+    }
+    settings_tab(&dialogs.windows[0].0);
+    ensure!(
+        shortcut_text(&dialogs.windows[0].0) == "Alt+X",
+        "Default recipe shortcut is not Alt+X"
+    );
+    ensure!(
+        unsafe { SendDlgItemMessageW(window, 150, BM_GETCHECK, 0, 0) } == BST_CHECKED as isize,
+        "Recipe tracker default changed"
+    );
     let mut selected_label = [0u16; 128];
     let selected_length = unsafe {
         GetDlgItemTextW(window, 111, selected_label.as_mut_ptr(), selected_label.len() as i32)
@@ -33,6 +58,7 @@ pub fn self_test(directory: &Path) -> Result<()> {
     // Diagnostic windows remain hidden when reused too.
     unsafe {
         SendDlgItemMessageW(window, 111, CB_SETCURSEL, 1, 0);
+        SendDlgItemMessageW(window, 150, BM_SETCHECK, BST_UNCHECKED as usize, 0);
         SendMessageW(window, WM_COMMAND, 111 | ((CBN_SELCHANGE as usize) << 16), 0);
     }
     ensure!(
@@ -47,6 +73,9 @@ pub fn self_test(directory: &Path) -> Result<()> {
     let window = dialogs.windows[0].0.window.get();
     unsafe {
         SendDlgItemMessageW(window, 111, CB_SETCURSEL, 2, 0);
+        text(window, 151, "Ctrl+Alt+J");
+        SendDlgItemMessageW(window, 152, CB_SETCURSEL, 2, 0);
+        SendDlgItemMessageW(window, 153, CB_SETCURSEL, 2, 0);
         SendMessageW(window, WM_COMMAND, IDOK as usize, 0);
     }
     ensure!(
@@ -56,6 +85,11 @@ pub fn self_test(directory: &Path) -> Result<()> {
     ensure!(
         context.preferences.get().game_exit == GameExit::Exit,
         "Save did not update running preferences"
+    );
+    let recipe = preferences::load(&context.preferences_path)?.recipe_tracker;
+    ensure!(
+        recipe.key == 0x4a && recipe.modifiers == 3 && recipe.position == 2 && recipe.scale == 125,
+        "Recipe preferences did not round trip through native controls"
     );
     let blocked = directory.join("blocked");
     fs::create_dir_all(&blocked)?;

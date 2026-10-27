@@ -1,6 +1,6 @@
 # Release readiness
 
-Version 0.1.0 is a development version. This checklist describes the remaining release work. Automated check results are available in CI; release-specific live checks belong in the release notes.
+Version 0.2.0 is a development version. This checklist describes the remaining release work. Automated check results are available in CI; release-specific live checks belong in the release notes. The optional recipe tracker's extracted game asset pack stays local and is excluded from standard release archives.
 
 ## Existing release infrastructure
 

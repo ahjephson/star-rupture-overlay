@@ -124,8 +124,17 @@ pub fn run(
 pub fn run_with_status(
     directory: &Path,
     stop: Arc<StopSignal>,
+    sink: impl FnMut(Message) -> Result<()>,
+    status: impl FnMut(GameStatus),
+) -> Result<()> {
+    run_with_tracker(directory, stop, sink, status, None)
+}
+pub fn run_with_tracker(
+    directory: &Path,
+    stop: Arc<StopSignal>,
     mut sink: impl FnMut(Message) -> Result<()>,
     mut status: impl FnMut(GameStatus),
+    tracker: Option<crate::recipe::Tracker>,
 ) -> Result<()> {
     ensure!(!platform::is_elevated()?, "Do not run overlay elevated");
     ensure!(directory.is_absolute(), "Absolute private cache directory required");
@@ -153,6 +162,12 @@ pub fn run_with_status(
         let mut last_menu = None;
         let mut menu_sent = Instant::now();
         let mut presence_due = Instant::now();
+        let mut recipe_binding = None;
+        let mut recipe_setup_attempts = 0u8;
+        let mut recipe_setup_retry = Instant::now();
+
+        let mut recipe_generation = 0;
+        let mut recipe_due = Instant::now();
         while !stop.is_requested() {
             budget.renew(5000);
             if Instant::now() >= presence_due
@@ -187,10 +202,39 @@ pub fn run_with_status(
                             creation_ticks: s.process.identity.creation_ticks,
                             executable_sha256: BUILD_HASH,
                         });
-                        output.send(Payload::Ready)?;
                         sessions += 1;
                         failures = 0;
+                        recipe_binding = if tracker.is_some() {
+                            budget.renew(60000);
+                            let started = Instant::now();
+                            match crate::recipe::Binding::discover(&s.live.context()).await {
+                                Ok(binding) => {
+                                    eprintln!(
+                                        "Recipe bindings prepared in {} ms.",
+                                        started.elapsed().as_millis()
+                                    );
+                                    Some(binding)
+                                }
+                                Err(error) => {
+                                    eprintln!("Recipe binding preparation unavailable: {error:#}");
+                                    None
+                                }
+                            }
+                        } else {
+                            None
+                        };
                         session = Some(s);
+                        recipe_setup_attempts = if tracker.is_some() {
+                            1
+                        } else {
+                            0
+                        };
+                        recipe_setup_retry = Instant::now() + Duration::from_secs(2);
+
+                        if let Some(t) = &tracker {
+                            t.control.clear();
+                        }
+                        output.send(Payload::Ready)?;
                         last_menu = None;
                         pause_due = Instant::now();
                         world_due = Instant::now();
@@ -273,6 +317,107 @@ pub fn run_with_status(
                 session = None;
                 last_menu = None;
                 retry = Instant::now() + Duration::from_secs(1);
+            }
+            if let (Some(t), Some(s)) = (&tracker, session.as_mut()) {
+                let request = t.control.request();
+                // Recovery belongs to connection setup, never to a shortcut or
+                // menu opening. Limit retries instead of repeatedly rescanning.
+                if recipe_binding.is_none()
+                    && recipe_setup_attempts < 3
+                    && request.cursor.is_none()
+                    && Instant::now() >= recipe_setup_retry
+                {
+                    recipe_setup_attempts += 1;
+                    budget.renew(60000);
+                    match crate::recipe::Binding::discover(&s.live.context()).await {
+                        Ok(binding) => {
+                            recipe_binding = Some(binding);
+                            eprintln!("Recipe connection setup recovered.");
+                        }
+                        Err(error) => {
+                            eprintln!("Recipe connection setup retry unavailable: {error:#}")
+                        }
+                    }
+                    recipe_setup_retry = Instant::now() + Duration::from_secs(2);
+                }
+                if request.generation != recipe_generation {
+                    recipe_generation = request.generation;
+                    recipe_due = Instant::now();
+                }
+                if request.active && Instant::now() >= recipe_due {
+                    budget.renew(5000);
+                    let selection = request.cursor.is_some();
+                    let started = Instant::now();
+                    let read: Result<_> = async {
+                        s.live.menu(&s.process, &s.base).await?;
+                        let ctx = s.live.context();
+                        let binding = recipe_binding.as_ref().context(
+                            "Recipe connection setup is unavailable; see the local diagnostic log",
+                        )?;
+                        if selection {
+                            crate::recipe::foreground_matches(s.process.identity.pid)?;
+                            if !binding.in_station(&ctx, &s.base).await? {
+                                s.live.menu(&s.process, &s.base).await?;
+                                anyhow::ensure!(
+                                    !binding.in_station(&ctx, &s.base).await?,
+                                    "Recipe station opened during clear"
+                                );
+                                crate::recipe::foreground_matches(s.process.identity.pid)?;
+                                return Ok(None);
+                            }
+                        }
+                        let id = if selection {
+                            crate::recipe::cursor_matches(request.cursor, s.process.identity.pid)?;
+                            let id = binding.capture(&ctx, &s.base, &t.catalogue).await?;
+                            crate::recipe::cursor_matches(request.cursor, s.process.identity.pid)?;
+                            id
+                        } else {
+                            t.control.view().snapshot.context("No recipe selected")?.recipe_id
+                        };
+                        let sample = binding
+                            .sample(
+                                &ctx,
+                                &s.base,
+                                s.live.world_address(),
+                                &id,
+                                &t.catalogue,
+                                request.generation,
+                            )
+                            .await?;
+                        if selection {
+                            crate::recipe::cursor_matches(request.cursor, s.process.identity.pid)?;
+                            anyhow::ensure!(
+                                binding.in_station(&ctx, &s.base).await?,
+                                "Recipe station closed during capture"
+                            );
+                        }
+                        s.live.menu(&s.process, &s.base).await?;
+                        Ok(Some(sample))
+                    }
+                    .await;
+                    if selection {
+                        eprintln!(
+                            "Recipe shortcut read completed in {} ms.",
+                            started.elapsed().as_millis()
+                        );
+                        match read {
+                            Ok(None) => t.control.clear_requested(request),
+                            Ok(snapshot) => t.control.captured(request, snapshot),
+                            Err(e) => {
+                                eprintln!("Recipe shortcut ignored: {e:#}");
+                                t.control.captured(request, None);
+                            }
+                        }
+                    } else {
+                        match read {
+                            Ok(sample) => t.control.publish(request, sample, String::new()),
+                            Err(e) => t
+                                .control
+                                .unavailable(request, format!("{e:#}").chars().take(220).collect()),
+                        }
+                    }
+                    recipe_due = Instant::now() + Duration::from_millis(500);
+                }
             }
             stop.wait_until(pause_due.min(world_due));
         }

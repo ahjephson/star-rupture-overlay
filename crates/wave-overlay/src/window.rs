@@ -55,6 +55,7 @@ struct Reading {
     connection: Connection,
 }
 struct App {
+    recipe: crate::recipe_tracker::Panel,
     dialogs: Dialogs,
     dialog_context: dialogs::Context,
     closed_sessions: u64,
@@ -164,6 +165,9 @@ unsafe fn tick(window: HWND) {
     }
     a.game = found.1;
     let visible = !a.hidden && !a.game.is_null() && unsafe { IsIconic(a.game) } == 0;
+    a.recipe.tick(window, a.game, visible, a.dialog_context.preferences.get().recipe_tracker, pid);
+    *a.dialog_context.recipe_status.borrow_mut() = a.recipe.status.clone();
+    a.dialogs.refresh_recipe_status();
     if !visible {
         unsafe { ShowWindow(window, SW_HIDE) };
         return;
@@ -500,11 +504,23 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
                 && a.preview.is_none()
             {
                 crate::stacking::follow_game(window, a.game);
+                a.recipe.shortcut(
+                    window,
+                    a.game,
+                    a.dialog_context.preferences.get().recipe_tracker,
+                );
+                a.recipe.follow(a.game);
             }
             0
         }
         WM_TIMER | READING_READY => {
             unsafe { tick(window) };
+            0
+        }
+        WM_HOTKEY => {
+            if let Some(a) = unsafe { app(window) } {
+                a.recipe.pressed(w, a.game);
+            }
             0
         }
         WM_PAINT => {
@@ -605,6 +621,25 @@ pub fn run() -> Result<()> {
     let mut preview_phase = None;
     let mut launch_game = false;
     if let Some(first) = args.next() {
+        if first == "--self-test-recipes" {
+            let dir = args.next().ok_or("Missing recipe render directory")?;
+            return Ok(crate::recipe_tracker::self_test(std::path::Path::new(&dir))?);
+        }
+        if first == "--self-test-recipe-reader" {
+            let dir = args.next().ok_or("Missing recipe reader directory")?;
+            return Ok(starrupture_overlay_reader::recipe::self_test(std::path::Path::new(&dir))?);
+        }
+        if first == "--self-test-recipe-warmup" {
+            let dir = args.next().ok_or("Missing recipe warmup directory")?;
+            return Ok(starrupture_overlay_reader::recipe::self_test_warmup(
+                std::path::Path::new(&dir),
+            )?);
+        }
+        #[cfg(debug_assertions)]
+        if first == "--self-test-recipe-probe" {
+            let dir = args.next().ok_or("Missing recipe diagnostic directory")?;
+            return Ok(starrupture_overlay_reader::recipe::probe(std::path::Path::new(&dir))?);
+        }
         if first == "--self-test-dialogs" {
             let directory = args.next().ok_or("Missing dialog test directory")?;
             if args.next().is_some() {
@@ -732,6 +767,7 @@ pub fn run() -> Result<()> {
         preferences_path,
         config: path,
         diagnostic: false,
+        recipe_status: Rc::new(RefCell::new(String::new())),
     };
 
     let stop = Arc::new(StopSignal::default());
@@ -757,6 +793,7 @@ pub fn run() -> Result<()> {
         return Err(std::io::Error::last_os_error().into());
     }
     let mut app = Box::new(App {
+        recipe: crate::recipe_tracker::Panel::new(),
         dialogs: Dialogs::default(),
         dialog_context,
         closed_sessions: 0,
@@ -832,7 +869,13 @@ pub fn run() -> Result<()> {
         None
     };
     let worker = if app.preview.is_none() {
-        Some(reader(config, app.shared.clone(), stop.clone(), window as usize))
+        Some(reader(
+            config,
+            app.shared.clone(),
+            stop.clone(),
+            window as usize,
+            app.recipe.tracker(),
+        ))
     } else {
         None
     };
@@ -873,6 +916,7 @@ fn reader(
     shared: Arc<Mutex<Reading>>,
     stop: Arc<StopSignal>,
     window: usize,
+    tracker: Option<starrupture_overlay_reader::recipe::Tracker>,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         use crate::stream_client::Update;
@@ -903,7 +947,7 @@ fn reader(
             }
         };
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            crate::stream_client::run(config, stop.clone(), &publish)
+            crate::stream_client::run_with_tracker(config, stop.clone(), &publish, tracker)
         }));
         match result {
             Ok(Ok(stats)) => eprintln!("Embedded reader stopped: {stats:?}"),
