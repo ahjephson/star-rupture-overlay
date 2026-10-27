@@ -16,6 +16,8 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 smol = "2"
+jmap = { path = "../../third-party/jmap/jmap" }
+usmap = { path = "../../third-party/jmap/usmap" }
 jmap_dumper = { path = "../../third-party/jmap/jmap_dumper" }
 patternsleuth = { path = "../../third-party/patternsleuth/patternsleuth", features = ["image-pe", "process-external"] }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_Security", "Win32_UI_WindowsAndMessaging"] }

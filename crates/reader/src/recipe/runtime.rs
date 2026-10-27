@@ -122,7 +122,7 @@ async fn serial(ctx: &Ctx, object: u64) -> Result<(crate::ObjectStamp, i32)> {
 }
 /// Bulk registry hints avoid repeated chunk-header reads per slot. A hint is
 /// never target evidence: consumers revalidate the selected live allocation.
-async fn registered_objects(ctx: &Ctx) -> Result<Vec<(usize, u64)>> {
+pub(super) async fn registered_objects(ctx: &Ctx) -> Result<Vec<(usize, u64)>> {
     REGISTRY_SCANS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     ensure!(ctx.struct_member("FUObjectItem", "Object") == 0, "Registry object layout");
     let registry = Ptr::<FChunkedFixedUObjectArray>::new(

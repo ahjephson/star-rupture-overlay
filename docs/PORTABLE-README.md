@@ -1,39 +1,37 @@
-# StarRupture Overlay — Windows x64
+# StarRupture Overlay - Windows x64
 
-Extract this complete folder to a user-writable location and double-click starrupture-wave-overlay.exe. Run it with standard user privileges. Version, source revision and per-file hashes are recorded in manifest.json.
+A rupture countdown and recipe research sidebar for StarRupture. Extract this complete folder to a location you want to keep and open `starrupture-wave-overlay.exe`. Run normally, without administrator rights, then start StarRupture and load your world.
 
-Right-click the tray icon to start StarRupture when it is absent, or show/hide and position the HUD when it is running. Settings, About and Exit are always available. Double-click the icon to open Settings. Unlock the HUD to move it, then lock it when finished. Exit through the tray before starting a different version.
+Right-click the overlay icon in the Windows notification area for Settings, positioning controls, About and Exit. Double-click it to open Settings. The icon may be under the hidden icons arrow. You can start the game from the tray menu or create a Play StarRupture with Overlay desktop shortcut in Settings.
 
-The HUD moves below the pause-menu border and freezes its countdown when simulation pause is verified. STABLE is the game's native Waiting phase; APPROACHING is Moving. Fadeout displays INCINERATING for its first 8.5 simulation seconds, then COOLING.
+## Recipe tracker
 
-The HUD stays immediately above the game window. Windows covering the game also cover the HUD. It remains visible over the game when focus moves to another monitor and hides when the game is minimized or closed. Unavailable readings or timer evidence older than five seconds display `--:--`.
+With the game focused, hover over an unfinished recipe in the recipe station and press Alt+X. Press it over a different unfinished recipe to switch, over the same unfinished recipe to clear, or outside the station to clear. A completed recipe or empty space inside the station keeps the current pin.
 
-## Supported game
+The tracker prepares its icons, font and recipe definitions automatically from your installed game. The first setup needs internet access to download verified setup components. Progress appears in Settings > Recipe tracker; later launches reuse the local cache. No manual extraction or separate SDK is required.
 
-Windows 10/11 x64 with borderless/windowed gameplay. The reader detects the installation location of the running `StarRuptureGameSteam-Win64-Shipping.exe` process.
+Counters show submitted/required research amounts. White text means you have some material in your bag, and the orange number shows that quantity. A tick marks a completed requirement. Submit materials in the game.
 
-Executable SHA256: `95f95eee0b1913b8716de7fa5bf19877a91abe86e63bf2b6f0a29bd48d1d76f1`
+## Requirements and help
 
-Unknown builds or unsupported runtime states produce unavailable data. Game updates require a verified compatibility update.
+Windows 10/11 x64, the supported Steam game build, and borderless or windowed mode. The app finds the running game automatically. Game updates may require an overlay compatibility update. About shows connection and version information; Copy support details prepares information for a bug report.
 
-## Settings
+The countdown follows game time and pauses when simulation pause is verified. It shows `--:--` when timing is unavailable. The overlay hides with a minimized or closed game, and other windows can cover it.
 
-Start with Windows runs the overlay at sign-in for the current user and requires no administrator rights. It is off by default and waits in the tray for the game. Windows Startup Apps controls can disable automatic startup. The desktop shortcut starts the overlay and game through Steam. Creating or removing the shortcut takes effect immediately. Save applies startup and game-exit preferences; Cancel discards unsaved preferences.
+The app is unsigned. Windows may show a SmartScreen warning on the first launch of a downloaded build. Only use More info > Run anyway after checking the source and deciding you trust the app. The release checksum checks download integrity; it does not remove that warning.
 
-Choose Keep running, Ask before exiting or Exit automatically when a connected game process closes. Keep running is the default. Game-exit preferences are stored in `%LOCALAPPDATA%/StarRuptureWaveOverlay/preferences.json`. About provides connection information, licence notices and support details that omit personal paths and game data.
+## Updates and removal
 
-## Data and updates
+Exit the overlay before starting a new version. Extract updates into a new folder and keep the previous version for rollback. If enabled, disable Start with Windows and remove the desktop shortcut in the old copy's Settings, then recreate them from the new copy.
 
-The app reads game memory with query/read permissions under standard user privileges. It stores discovery caches under `%LOCALAPPDATA%/StarRuptureWaveOverlay/cache` and validates cached references against the current process and session before reuse.
+To uninstall, disable startup and remove the shortcut in Settings, exit the app and delete its extracted folder. Preferences and caches are stored separately under `%LOCALAPPDATA%/StarRuptureWaveOverlay`; delete that folder too if you want to remove local data. The app reads game memory and installed archives without changing the game or its saves.
 
-For updates, compare the ZIP checksum with its matching .sha256 file, extract to a new folder and keep the previous version until verified. The candidate is unsigned; the checksum verifies archive integrity. Before moving or uninstalling the app, disable Start with Windows and remove its desktop shortcut in Settings. After moving it, recreate those entries from the new copy. Uninstall by exiting the app and deleting its extracted folder; remove preferences and caches separately if desired.
+## Support and licence
 
-## Licence and support
+Help: https://github.com/ahjephson/star-rupture-overlay/blob/main/docs/SUPPORT.md
 
-First-party code: PolyForm Strict 1.0.0, copyright (c) 2026 Alex Jephson; see LICENSE. Keep THIRD-PARTY-NOTICES.md and licenses/ with the executable. dependency-inventory.json lists dependency versions and licence declarations.
+Bug reports and feature requests: https://github.com/ahjephson/star-rupture-overlay/issues
 
-An unofficial community utility for StarRupture.
+Pull requests and code contributions are not accepted. Keep saves, settings, caches, memory dumps and extracted assets out of public reports.
 
-Source, documentation and issue reports: https://github.com/ahjephson/star-rupture-overlay
-
-When reporting a problem, include overlay/game versions and reproduction steps. Keep saves, memory dumps, caches and personal settings private.
+Licensed under PolyForm Strict 1.0.0, copyright (c) 2026 Alex Jephson; see LICENSE. Keep THIRD-PARTY-NOTICES.md and licenses/ with the app. An unofficial community utility, unaffiliated with StarRupture's developers or publisher.

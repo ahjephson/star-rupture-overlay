@@ -621,6 +621,20 @@ pub fn run() -> Result<()> {
     let mut preview_phase = None;
     let mut launch_game = false;
     if let Some(first) = args.next() {
+        if first == "--self-test-asset-disabled" {
+            let dir = args.next().ok_or("Missing disabled asset setup directory")?;
+            return Ok(crate::recipe_tracker::self_test_asset_disabled(std::path::Path::new(
+                &dir,
+            ))?);
+        }
+        if first == "--self-test-asset-cancel" {
+            let dir = args.next().ok_or("Missing asset cancellation directory")?;
+            return Ok(crate::recipe_tracker::self_test_asset_cancel(std::path::Path::new(&dir))?);
+        }
+        if first == "--self-test-asset-setup" {
+            let dir = args.next().ok_or("Missing asset setup directory")?;
+            return Ok(crate::recipe_tracker::self_test_asset_setup(std::path::Path::new(&dir))?);
+        }
         if first == "--self-test-recipes" {
             let dir = args.next().ok_or("Missing recipe render directory")?;
             return Ok(crate::recipe_tracker::self_test(std::path::Path::new(&dir))?);
@@ -875,6 +889,7 @@ pub fn run() -> Result<()> {
             stop.clone(),
             window as usize,
             app.recipe.tracker(),
+            app.recipe.asset_setup(app.dialog_context.preferences.get().recipe_tracker.enabled),
         ))
     } else {
         None
@@ -917,6 +932,7 @@ fn reader(
     stop: Arc<StopSignal>,
     window: usize,
     tracker: Option<starrupture_overlay_reader::recipe::Tracker>,
+    setup: Option<Box<dyn starrupture_overlay_reader::recipe::AssetSetup>>,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         use crate::stream_client::Update;
@@ -947,7 +963,7 @@ fn reader(
             }
         };
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            crate::stream_client::run_with_tracker(config, stop.clone(), &publish, tracker)
+            crate::stream_client::run_with_assets(config, stop.clone(), &publish, tracker, setup)
         }));
         match result {
             Ok(Ok(stats)) => eprintln!("Embedded reader stopped: {stats:?}"),

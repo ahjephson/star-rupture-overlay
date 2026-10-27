@@ -132,9 +132,19 @@ pub fn run_with_status(
 pub fn run_with_tracker(
     directory: &Path,
     stop: Arc<StopSignal>,
+    sink: impl FnMut(Message) -> Result<()>,
+    status: impl FnMut(GameStatus),
+    tracker: Option<crate::recipe::Tracker>,
+) -> Result<()> {
+    run_with_assets(directory, stop, sink, status, tracker, None)
+}
+pub fn run_with_assets(
+    directory: &Path,
+    stop: Arc<StopSignal>,
     mut sink: impl FnMut(Message) -> Result<()>,
     mut status: impl FnMut(GameStatus),
-    tracker: Option<crate::recipe::Tracker>,
+    mut tracker: Option<crate::recipe::Tracker>,
+    mut setup: Option<Box<dyn crate::recipe::AssetSetup>>,
 ) -> Result<()> {
     ensure!(!platform::is_elevated()?, "Do not run overlay elevated");
     ensure!(directory.is_absolute(), "Absolute private cache directory required");
@@ -162,6 +172,7 @@ pub fn run_with_tracker(
         let mut last_menu = None;
         let mut menu_sent = Instant::now();
         let mut presence_due = Instant::now();
+        let mut asset_setup_attempted = false;
         let mut recipe_binding = None;
         let mut recipe_setup_attempts = 0u8;
         let mut recipe_setup_retry = Instant::now();
@@ -202,9 +213,10 @@ pub fn run_with_tracker(
                             creation_ticks: s.process.identity.creation_ticks,
                             executable_sha256: BUILD_HASH,
                         });
+                        asset_setup_attempted = false;
                         sessions += 1;
                         failures = 0;
-                        recipe_binding = if tracker.is_some() {
+                        recipe_binding = if tracker.is_some() && setup.is_none() {
                             budget.renew(60000);
                             let started = Instant::now();
                             match crate::recipe::Binding::discover(&s.live.context()).await {
@@ -318,6 +330,44 @@ pub fn run_with_tracker(
                 last_menu = None;
                 retry = Instant::now() + Duration::from_secs(1);
             }
+            if setup.as_ref().is_some_and(|preparation| !preparation.enabled()) {
+                asset_setup_attempted = false;
+            }
+            if !asset_setup_attempted
+                && let (Some(preparation), Some(s)) = (setup.as_mut(), session.as_ref())
+                && preparation.enabled()
+            {
+                asset_setup_attempted = true;
+                let prepared: Result<_> = async {
+                    let executable = Path::new(&s.process.identity.executable);
+                    if let Some(cached) = preparation.cached(executable)? {
+                        return Ok(cached);
+                    }
+                    preparation.preparing();
+                    budget.renew(120000);
+                    let started = Instant::now();
+                    let mappings = crate::recipe::asset_mappings(&s.live.context()).await?;
+                    eprintln!(
+                        "Recipe asset schema prepared in {} ms.",
+                        started.elapsed().as_millis()
+                    );
+                    preparation.complete(executable, &mappings, &stop)
+                }
+                .await;
+                match prepared {
+                    Ok(ready) => {
+                        tracker = Some(ready);
+                        recipe_binding = None;
+                        recipe_setup_attempts = 0;
+                        recipe_setup_retry = Instant::now();
+                    }
+                    Err(error) => {
+                        preparation.failed(&format!("{error:#}"));
+                        tracker = None;
+                        eprintln!("Recipe setup unavailable: {error:#}");
+                    }
+                }
+            }
             if let (Some(t), Some(s)) = (&tracker, session.as_mut()) {
                 let request = t.control.request();
                 // Recovery belongs to connection setup, never to a shortcut or
@@ -332,6 +382,9 @@ pub fn run_with_tracker(
                     match crate::recipe::Binding::discover(&s.live.context()).await {
                         Ok(binding) => {
                             recipe_binding = Some(binding);
+                            if let Some(preparation) = setup.as_mut() {
+                                preparation.ready();
+                            }
                             eprintln!("Recipe connection setup recovered.");
                         }
                         Err(error) => {

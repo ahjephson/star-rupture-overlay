@@ -502,10 +502,13 @@ pub(super) fn render(
     Ok(())
 }
 pub fn self_test(directory: &Path) -> Result<()> {
+    let exe = std::env::current_exe()?;
+    self_test_at(directory, &exe.parent().context("Executable folder")?.join("recipe-assets"))
+}
+pub(super) fn self_test_at(directory: &Path, asset_directory: &Path) -> Result<()> {
     super::self_test_shortcut()?;
     std::fs::create_dir_all(directory)?;
-    let exe = std::env::current_exe()?;
-    let assets = Assets::load(&exe.parent().context("Executable folder")?.join("recipe-assets"))?;
+    let assets = Assets::load(asset_directory)?;
     // Verify the private font is actually selected, not silently substituted.
     let dc = unsafe { CreateCompatibleDC(std::ptr::null_mut()) };
     ensure!(!dc.is_null(), "Font test context");

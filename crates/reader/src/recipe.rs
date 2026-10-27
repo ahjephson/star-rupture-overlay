@@ -4,7 +4,22 @@ use anyhow::{Context, Result, ensure};
 use serde_json::json;
 use starrupture_observation_model::shutdown::StopSignal;
 use std::{path::Path, sync::Arc};
+mod mappings;
 mod runtime;
+pub trait AssetSetup: Send {
+    fn enabled(&self) -> bool;
+    fn cached(&mut self, executable: &Path) -> Result<Option<Tracker>>;
+    fn preparing(&mut self);
+    fn ready(&mut self);
+    fn complete(
+        &mut self,
+        executable: &Path,
+        mappings: &[u8],
+        stop: &StopSignal,
+    ) -> Result<Tracker>;
+    fn failed(&mut self, message: &str);
+}
+pub(crate) use mappings::generate as asset_mappings;
 pub(crate) use runtime::Binding;
 fn foreground_process() -> u32 {
     use windows_sys::Win32::UI::WindowsAndMessaging::*;

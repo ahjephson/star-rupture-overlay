@@ -40,6 +40,15 @@ pub fn run_with_tracker(
     publish: impl FnMut(Update),
     tracker: Option<starrupture_overlay_reader::recipe::Tracker>,
 ) -> Result<RunStatistics, String> {
+    run_with_assets(config, stop, publish, tracker, None)
+}
+pub fn run_with_assets(
+    config: Config,
+    stop: Arc<StopSignal>,
+    publish: impl FnMut(Update),
+    tracker: Option<starrupture_overlay_reader::recipe::Tracker>,
+    setup: Option<Box<dyn starrupture_overlay_reader::recipe::AssetSetup>>,
+) -> Result<RunStatistics, String> {
     let cache = config.cache_directory.as_ref().ok_or("Private cache directory required")?;
     let publish = std::cell::RefCell::new(publish);
     let mut last_status = None;
@@ -50,7 +59,7 @@ pub fn run_with_tracker(
         statistics: None,
         publish: |event| (publish.borrow_mut())(event),
     };
-    starrupture_overlay_reader::overlay_stream::run_with_tracker(
+    starrupture_overlay_reader::overlay_stream::run_with_assets(
         cache,
         stop,
         |message| sink.accept(message).map_err(anyhow::Error::msg),
@@ -61,6 +70,7 @@ pub fn run_with_tracker(
             }
         },
         tracker,
+        setup,
     )
     .map_err(|error| format!("{error:#}"))?;
     Ok(RunStatistics {

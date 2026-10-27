@@ -1,6 +1,6 @@
 # Dependency review
 
-Reviewed 2026-10-26. Cargo.lock pins registry versions. The policy in deny.toml checks the application's Windows x64 dependency graph for advisories, permitted licences and approved registries. The release inventory lists these dependencies.
+Reviewed 2026-10-27. Cargo.lock pins registry versions. The policy in deny.toml checks the application's Windows x64 dependency graph for advisories, permitted licences and approved registries. The release inventory lists these dependencies.
 
 ## Registry dependencies
 
@@ -22,3 +22,11 @@ Registry packages retain their own licence declarations. Export-Notices.ps1 copi
 ## First-party licence
 
 First-party code is licensed under PolyForm Strict 1.0.0, copyright (c) 2026 Alex Jephson. The terms and attribution are in LICENSE. Cargo metadata uses the custom SPDX reference LicenseRef-PolyForm-Strict-1.0.0; deny.toml permits it for the four first-party crates. Dependencies retain their upstream licences.
+
+## Recipe setup components
+
+The Rust dependency graph now directly uses the already vendored jmap and usmap crates to produce a local native type schema on the existing bounded reader worker. This does not invoke the standalone dumper or add a game writer. Native schema enumeration runs only when the derived asset cache needs rebuilding; normal menu and shortcut observations keep their direct-reference route.
+
+First-run setup downloads the pinned self-contained UnrealAssetScout 0.5.0 executable, Oodle Data 2.9.16 and zlib-ng binaries from the upstream URLs used by CUE4Parse ec6595e46448. SHA256 checks cover the downloaded archives and executable/native components. Detex comes from the verified helper's embedded resources. Exact identities and licence-notice provenance are in [licenses/asset-setup/index.json](../licenses/asset-setup/index.json). The helper uses its own pinned dependency set; Cargo's advisory check does not audit that managed/native graph. Upgrading it requires a separate review and an empty-cache extraction check.
+
+The app ZIP contains the helper's licence and notices, but none of those executable components or game assets. Oodle remains proprietary and is downloaded at run time rather than redistributed. Setup requires internet access if its cached components are absent or fail validation. Native helper/library execution is confined to a hidden, cancellable Windows job; first-run requests and outputs stay in the user's recipe cache.

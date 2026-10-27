@@ -124,6 +124,9 @@ pub struct Panel {
     hotkey: Option<RecipeSettings>,
     pub status: String,
     last_settings: RecipeSettings,
+    setup_state: setup::Shared,
+    setup_revision: u64,
+    setup_enabled: Arc<std::sync::atomic::AtomicBool>,
 }
 impl Drop for Panel {
     fn drop(&mut self) {
@@ -137,16 +140,9 @@ impl Drop for Panel {
 }
 impl Panel {
     pub fn new() -> Self {
-        let directory =
-            std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.join("recipe-assets")));
-        let loaded = directory
-            .as_deref()
-            .map(Assets::load)
-            .unwrap_or_else(|| Err(anyhow::anyhow!("Recipe asset directory unavailable")));
-        let (assets, status) = match loaded {
-            Ok(a) => (Some(a), "Alt+X pins or clears a recipe.".into()),
-            Err(e) => (None, format!("{e:#}")),
-        };
+        let assets = None;
+        let status = "Start StarRupture and load your world to prepare the recipe tracker.".into();
+        let setup_state = Arc::new(std::sync::Mutex::new(setup::State::default()));
         Self {
             window: std::ptr::null_mut(),
             hotkey_owner: std::ptr::null_mut(),
@@ -155,6 +151,9 @@ impl Panel {
             hotkey: None,
             status,
             last_settings: RecipeSettings::default(),
+            setup_state,
+            setup_revision: 0,
+            setup_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
         }
     }
     pub fn tracker(&self) -> Option<starrupture_overlay_reader::recipe::Tracker> {
@@ -162,6 +161,45 @@ impl Panel {
             catalogue: a.catalogue.clone(),
             control: self.control.clone(),
         })
+    }
+    pub fn asset_setup(
+        &self,
+        enabled: bool,
+    ) -> Option<Box<dyn starrupture_overlay_reader::recipe::AssetSetup>> {
+        self.setup_enabled.store(enabled, std::sync::atomic::Ordering::Relaxed);
+        let root = std::env::var_os("LOCALAPPDATA")
+            .map(std::path::PathBuf::from)?
+            .join("StarRuptureWaveOverlay/recipe-cache");
+        Some(Box::new(setup::Preparation {
+            root,
+            state: self.setup_state.clone(),
+            control: self.control.clone(),
+            enabled: self.setup_enabled.clone(),
+            pending_directory: None,
+        }))
+    }
+    fn refresh_setup(&mut self) {
+        let state = self.setup_state.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        if state.revision != self.setup_revision {
+            self.setup_revision = state.revision;
+            self.assets = None;
+            self.status = state.message;
+            if let Some(directory) = state.ready {
+                match Assets::load(&directory) {
+                    Ok(assets) => self.assets = Some(assets),
+                    Err(error) => {
+                        self.status = format!("Recipe tracker could not load its cache: {error:#}")
+                    }
+                }
+            }
+        }
+        if self.assets.is_none()
+            && let Some(path) = state.progress
+            && let Ok(message) = std::fs::read_to_string(path)
+            && message.len() <= 512
+        {
+            self.status = message;
+        }
     }
     fn unregister(&mut self) {
         if self.hotkey.take().is_some() {
@@ -206,6 +244,8 @@ impl Panel {
         Ok(())
     }
     pub fn shortcut(&mut self, owner: HWND, game: HWND, settings: RecipeSettings) {
+        self.setup_enabled.store(settings.enabled, std::sync::atomic::Ordering::Relaxed);
+        self.refresh_setup();
         // Hotkeys are delivered to the main window, even though the panel is separate.
         let foreground = !game.is_null() && unsafe { GetForegroundWindow() } == game;
         let desired = foreground && settings.enabled && self.assets.is_some();
@@ -336,6 +376,11 @@ impl Panel {
     }
 }
 
+mod setup;
+pub use setup::{
+    self_test as self_test_asset_setup, self_test_cancel as self_test_asset_cancel,
+    self_test_disabled as self_test_asset_disabled,
+};
 mod render;
 use render::render;
 pub use render::self_test;

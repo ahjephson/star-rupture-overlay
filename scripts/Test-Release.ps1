@@ -8,8 +8,8 @@ $null = Expand-VerifiedRelease -ArchivePath $ArchivePath -Destination $unpacked
 $exe = Join-Path $unpacked 'starrupture-wave-overlay.exe'
 & python (Join-Path $PSScriptRoot 'inspect_pe.py') $exe
 if ($LASTEXITCODE -ne 0) { throw 'Executable format or runtime dependency check failed.' }
-foreach ($case in @('window', 'stacking', 'events', 'icons', 'render', 'dialogs')) {
-    $arguments = if ($case -eq 'window') { @('--self-test-window') } elseif ($case -eq 'stacking') { @('--self-test-stacking') } elseif ($case -eq 'events') { @('--self-test-window-events') } elseif ($case -eq 'icons') { @('--self-test-icons') } elseif ($case -eq 'dialogs') { @('--self-test-dialogs', ('"' + (Join-Path $work 'dialogs') + '"')) } else { @('--self-test-dir', ('"' + (Join-Path $work 'render') + '"')) }
+foreach ($case in @('window', 'stacking', 'events', 'icons', 'render', 'dialogs', 'asset-cancel')) {
+    $arguments = if ($case -eq 'window') { @('--self-test-window') } elseif ($case -eq 'stacking') { @('--self-test-stacking') } elseif ($case -eq 'events') { @('--self-test-window-events') } elseif ($case -eq 'icons') { @('--self-test-icons') } elseif ($case -eq 'dialogs') { @('--self-test-dialogs', ('"' + (Join-Path $work 'dialogs') + '"')) } elseif ($case -eq 'asset-cancel') { @('--self-test-asset-cancel', ('"' + (Join-Path $work 'asset-cancel') + '"')) } else { @('--self-test-dir', ('"' + (Join-Path $work 'render') + '"')) }
     $extension = if ($case -eq 'dialogs') { 'txt' } else { 'json' }
     $process = Start-Process -FilePath $exe -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $work "$case.$extension") -RedirectStandardError (Join-Path $work "$case-stderr.txt")
     if (-not $process.WaitForExit(30000)) { $process.Kill(); throw 'Own-window diagnostic exceeded its deadline.' }
