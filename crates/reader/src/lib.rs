@@ -287,4 +287,18 @@ mod tests {
             ..id
         }));
     }
+    #[test]
+    fn vendored_windows_reader_copies_owned_process_memory() {
+        let expected = Box::new([0x41u8, 0x07, 0xa5, 0x5a, 0x11, 0x22, 0x33, 0x44]);
+        let reader = jmap_dumper::mem::ProcessHandle::new(std::process::id() as i32);
+        let mut actual = [0u8; 8];
+        smol::block_on(jmap_dumper::mem::Mem::read_buf(
+            &reader,
+            expected.as_ptr() as u64,
+            &mut actual,
+        ))
+        .unwrap();
+        assert_eq!(actual, *expected);
+        assert!(smol::block_on(jmap_dumper::mem::Mem::read_buf(&reader, 0, &mut actual)).is_err());
+    }
 }

@@ -157,7 +157,7 @@
     },
     {
       "path": "third-party/jmap/Cargo.toml",
-      "sha256": "67fa0bd22315be4460eb98cc4190af2afe558ac960508ecbc87d591228081502"
+      "sha256": "699e415afc00ba191910e0a629de438c3ce60fb6cf21a45053e74364b4522c8f"
     },
     {
       "path": "third-party/jmap/LICENSE",
@@ -528,6 +528,13 @@
       "originalSha256": "6b6ccfeec4c4b3fd1ef40c7af382a3e2b4982c3fcaa7111cb4a0bae14af00e74",
       "reason": "Update the zstd dependency to the upstream patched 0.14.3 release for RUSTSEC-2026-0391, RUSTSEC-2026-0398, RUSTSEC-2026-0403 and RUSTSEC-2026-0410. Rust source unchanged.",
       "date": "2026-10-26"
+    },
+    {
+      "path": "third-party/jmap/Cargo.toml",
+      "originalSha256": "67fa0bd22315be4460eb98cc4190af2afe558ac960508ecbc87d591228081502",
+      "sha256": "699e415afc00ba191910e0a629de438c3ce60fb6cf21a45053e74364b4522c8f",
+      "reason": "Dependabot PR #6: upgrade read-process-memory from 0.1.6 to 0.3.0. Reviewed Windows read permissions and handle usage; upstream Rust source unchanged.",
+      "date": "2026-10-27"
     }
   ]
 }
