@@ -1,7 +1,12 @@
-# Extraction record
+# Source provenance
 
-Status: extracted2026-10-24 from the Rust MCP development workspace, with user authorization to treat the overlay as a separate system. Source remains installed unchanged.
+The source inventories in this repository record first-party and vendored origins:
 
-The renderer and stream client differ only in the local core crate import. Reader modules and wave presentation/IPC models were copied verbatim. The new wave-core retains the pure original validate_observation/process_response and live_wave_timing implementations. Only required error, JSON, number/time helpers were retained; one-shot orchestration and gameplay/save/data code were excluded. Config now accepts overlay settings only, preserving old explicit disabled/default behavior and lowercase helper pins. Original synthetic wave tests are retained; the obsolete one-shot runner test is excluded because that runner is not part of this project.
+- [extracted-source-sha256.json](extracted-source-sha256.json) records the first-party extraction baseline from 2026-10-24.
+- [third-party/VENDOR.json](../third-party/VENDOR.json) records vendored source revisions, licences, reviewed adaptations and current verification hashes.
+- [reference/helper-vendor-original-hashes.json](reference/helper-vendor-original-hashes.json) records the original selected vendor-source hashes.
+- [vendor-format-verification.json](vendor-format-verification.json) records formatting provenance for 19 gospel source files.
 
-Vendored source files were copied without modification. The source workspace had19 formatted gospel files with stale manifest hashes. Each was proven byte-identical to rustfmt output of the recorded upstream revision, and only this independent project's checksum manifest was updated, retaining original hashes. See vendor-format-verification.json. No parent-workspace path dependencies or data packs are required. Generated artifacts, runtime configuration, game-specific session caches and personal paths are ignored. docs/extracted-source-sha256.json records this extraction's source inventory before standalone build/validation updates.
+The vendor inventory documents manifest adaptations and links retained files to their upstream revisions. Vendor verification compares those files against the inventory. Registry dependency versions and checksums are pinned in Cargo.lock.
+
+First-party code is licensed under PolyForm Strict 1.0.0. Vendored libraries, registry dependencies and embedded fonts retain their own licences; see [third-party notices](../THIRD-PARTY-NOTICES.md) and [dependency review](DEPENDENCIES.md).

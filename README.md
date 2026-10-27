@@ -1,63 +1,78 @@
-# StarRupture Wave Overlay
+# StarRupture Overlay
 
-A small, standalone Windows HUD showing StarRupture's current wave stage and the countdown to the next stage. One executable draws the overlay and reads the running game; no Node.js, Codex, MCP server or save files are required.
+Keep rupture timing and recipe research progress visible while you play StarRupture.
 
-The HUD uses Oxanium, stage-specific colors and a game-style frame. It freezes with verified simulation pause, moves below the pause-menu border, stays visible when the game loses focus and hides when the game is minimized or closed. The native Moving phase is displayed as **INCINERATING**.
+This unofficial Windows companion adds a rupture countdown and an optional recipe tracker over the game. It reads the running game without changing game files, memory or saves.
 
-## Run
+![Example rupture countdown showing STABLE and an illustrative time of 12:34](assets/overlay-preview.png)
 
-No public release has been published yet. When a reviewed release is available:
+*Example display; the time shown is illustrative.*
 
-1. Download the Windows x64 ZIP and its matching `.sha256` file from this repository's Releases page.
-2. Check the archive hash, extract it to a user-writable folder and double-click `starrupture-wave-overlay.exe`.
-3. Start the supported game normally. Use the overlay's tray menu to show/hide, unlock/move/lock, reset its position or exit.
+## What it does
 
-Keep the included licence notices with the executable. Configuration is optional. Do not run the app as administrator. The current candidate is unsigned; a checksum verifies downloaded bytes, not the publisher's identity.
+- Shows the current rupture stage and time remaining, with a countdown that follows the game's simulation and pauses with it.
+- Pins a recipe's research materials in a narrow sidebar, showing how much you have submitted and how much is required.
+- Shows which recipe materials you have in your bag and how many you carry.
+- Offers controls for positioning, recipe scale, keyboard shortcut, starting with Windows and launching the game.
 
-## Compatibility
+## Download and start
 
-- Windows 10/11 x64, with borderless or windowed gameplay.
-- The current reader supports one SHA256-pinned Steam game build at its default C-drive installation path. See [supported builds](docs/COMPATIBILITY.md) before reporting unavailable data.
-- Unknown builds, unsupported maps, changed object identities and stale observations produce unavailable data instead of guessed values.
-- No in-game hooks, injection, memory writes, save editing or automatic saves. The runtime makes no network requests and has no automatic updater.
+A public release is being prepared; there is no published download yet. Release ZIPs will appear on the [Releases page](https://github.com/ahjephson/star-rupture-overlay/releases).
 
-## Build from source
+1. Download the **Windows x64 ZIP** from Releases. The GitHub **Source code** downloads are not the app.
+2. Extract the complete ZIP to a folder you want to keep. Keep the included files together.
+3. Open `starrupture-overlay.exe`, then start StarRupture and load your world. You can also choose **Start StarRupture** from the overlay's tray menu.
+4. Right-click the overlay icon in the Windows notification area for **Settings**, positioning controls and **Exit**. The icon may be under the notification area's hidden icons arrow.
 
-Install Rust through rustup and Visual Studio C++ Build Tools with the Windows SDK. The repository pins Rust **1.99.1**, including Clippy and rustfmt. PowerShell 7, Git and Python 3 are used by the release checks.
+The app finds the running game automatically. Run it normally, without administrator rights. There is no installer or separate developer tool to install.
 
-```powershell
-./scripts/Install-QualityTools.ps1
-./scripts/Test-Dependencies.ps1
-./scripts/Build.ps1 -OutputDirectory local/candidate
-./scripts/Package-Release.ps1 -BuildDirectory local/candidate
-```
+### Requirements
 
-The build runs formatting checks, strict Clippy, tests and vendor verification, then produces a candidate containing the app, dependency inventory, licence notices and a file-integrity manifest. Build/package output must use a new directory; existing installations are never overwritten. The package step requires a clean source checkout by default. For development-only packaging, `-AllowUncommitted` marks the archive accordingly.
+- Windows 10 or 11, 64-bit.
+- The supported Steam version of StarRupture in borderless or windowed mode. Exclusive fullscreen is not validated.
+- Internet access for the recipe tracker's first setup (about 50 MB of setup downloads). The app downloads verified setup components and prepares the required icons and font from your installed game. Later launches reuse the local cache.
 
-`-Offline` uses previously cached dependencies; `-ToolchainDirectory PATH` selects an installed copy of the pinned compiler. Normal builds do not require any other project. [Contributing](CONTRIBUTING.md) explains quality checks; [releases](docs/RELEASING.md) covers review and draft preparation.
+Game updates can temporarily break compatibility. Check [supported versions](docs/COMPATIBILITY.md) if the overlay cannot connect.
 
-## Install, upgrade and roll back
+### Windows SmartScreen
 
-Portable deployment is simply extracting a reviewed ZIP to a new folder. Exit the old overlay from its tray before starting the new one; keep its folder until the new version is verified.
+The app is unsigned, so Windows may show **Windows protected your PC** when you first open a downloaded build. If you have checked the download source and trust the app, choose **More info**, then **Run anyway**. A new download or update may prompt again. Release ZIPs include a matching SHA256 checksum so you can check the download; see [download verification](docs/SUPPORT.md#checking-a-download).
 
-For a managed per-user installation from a source checkout:
+## Using the recipe tracker
 
-```powershell
-./scripts/Deploy.ps1 -ArchivePath PATH-TO-RELEASE.zip
-./scripts/Deploy.ps1 -ArchivePath PATH-TO-NEW-RELEASE.zip -Launch
-./scripts/Deploy.ps1 -Rollback -Launch
-```
+Open the recipe station and move your mouse over an unfinished recipe row, then press **Alt+X**. The sidebar shows the recipe name, materials and submitted/required amounts. It stays visible when you leave the station.
 
-The matching checksum file must sit beside the ZIP. Deployment verifies the archive and every packaged file, installs side by side under `%LOCALAPPDATA%/Programs/StarRuptureWaveOverlay`, and preserves the prior installation. It refuses to replace a running installed app. No administrator access, game-folder writes, system registration or service is needed. [Deployment details](docs/DEPLOYMENT.md).
+| Action | Result |
+| --- | --- |
+| Alt+X over a different unfinished recipe | Switch the sidebar to that recipe |
+| Alt+X over the pinned unfinished recipe | Clear the sidebar |
+| Alt+X outside the recipe station | Clear the sidebar if something is pinned |
+| Alt+X over a completed recipe, or empty space inside the station | Keep the current selection |
 
-## Settings and data
+A white counter means you have some of that material in your bag; the orange number shows your bag quantity. A red counter means you have none. A tick marks a completed requirement. These counters show recipe research submissions; use the game's **INSERT** buttons to submit materials.
 
-Double-click startup needs no settings file. Private discovery caches live under `%LOCALAPPDATA%/StarRuptureWaveOverlay/cache` and are checked against current process/build/session identities before reuse. They are not saved gameplay evidence. An optional `--config PATH` can select another cache directory; see [config/example.json](config/example.json). Historical helper configuration fields are accepted for compatibility, but never launch another executable.
+The first setup runs when the tracker is enabled and a supported world is loaded. Progress appears in **Settings > Recipe tracker**. The sidebar appears after it has read a selected recipe. You do not need to extract or copy game assets yourself.
 
-Fast menu checks target 50 ms; complete timer observations target 250 ms. A full read can defer a menu check. Countdowns use observed simulation time, never wall-time extrapolation; stale timer evidence becomes `--:--` after five seconds. Wave timing has the limits described in [architecture](docs/ARCHITECTURE.md).
+## Settings
 
-## Licence and affiliation
+Double-click the tray icon to open Settings. You can enable the recipe tracker, choose its shortcut, change its right-side position and scale, create a **Play StarRupture with Overlay** desktop shortcut, and choose what happens when the game closes. **Start with Windows** is optional and off by default.
 
-First-party project code is licensed under **PolyForm Strict 1.0.0**, copyright (c) 2026 Alex Jephson. See [LICENSE](LICENSE) for the permitted uses and restrictions. Dependencies and embedded Oxanium fonts retain their own licences; redistribution notices are included in release archives. See [third-party notices](THIRD-PARTY-NOTICES.md).
+The countdown moves below the pause-menu border. The overlay hides when the game is minimized or closed. Windows covering the game also cover the overlay.
 
-This is an unofficial community utility, not affiliated with or endorsed by the game's developers or publisher. No game binaries, extracted assets, datasets, saves or memory captures are distributed.
+## Updating or removing the app
+
+For an update, exit the overlay from its tray menu and extract the new ZIP to a new folder. Keep the old folder until you have checked the new version. If you use Start with Windows or the desktop shortcut, disable/remove those entries in the old copy's Settings and recreate them from the new copy.
+
+To remove the app, disable Start with Windows and remove its desktop shortcut in Settings, exit it, then delete its extracted folder. Preferences and caches are stored separately under `%LOCALAPPDATA%/StarRuptureWaveOverlay`; you can delete that folder too if you want to remove its local data.
+
+## Help and feedback
+
+See [troubleshooting](docs/SUPPORT.md) if the overlay is missing, the countdown shows `--:--`, or recipe setup cannot finish. **About > Copy support details** provides version and connection information for a bug report.
+
+[Bug reports and feature requests](https://github.com/ahjephson/star-rupture-overlay/issues) are welcome. This project is maintained by its owner; **pull requests and code contributions are not accepted**. See the [feedback policy](CONTRIBUTING.md) and [security reporting guidance](SECURITY.md).
+
+## Licence
+
+Licensed under [PolyForm Strict 1.0.0](LICENSE), copyright (c) 2026 Alex Jephson. Source availability does not grant permission to modify or redistribute the app; consult the licence for its terms. Dependencies and fonts retain their own licences; see [third-party notices](THIRD-PARTY-NOTICES.md).
+
+An unofficial community utility, unaffiliated with the developers or publisher of StarRupture.

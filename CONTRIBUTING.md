@@ -1,27 +1,22 @@
-# Contributing
+# Feedback and support
 
-Issue reports and feature requests are welcome. First-party code uses [PolyForm Strict 1.0.0](LICENSE), which restricts modification and redistribution; discuss source-code contributions with the owner before preparing patches. The checks below describe the authorized maintainer workflow. Read [architecture](docs/ARCHITECTURE.md) and [compatibility](docs/COMPATIBILITY.md) before changes.
+Bug reports and feature requests are welcome through [GitHub Issues](https://github.com/ahjephson/star-rupture-overlay/issues). This project is maintained by its owner. Pull requests and code contributions are not accepted; please open an issue to describe the problem or suggestion instead.
 
-## Local checks
+## Reporting a problem
 
-Use the toolchain in rust-toolchain.toml and PowerShell 7:
+Check the [troubleshooting guide](docs/SUPPORT.md) and existing issues first. Include:
 
-```powershell
-./scripts/Format.ps1
-./scripts/Test.ps1
-./scripts/Install-QualityTools.ps1
-./scripts/Test-Dependencies.ps1
-./scripts/Test-PublicContent.ps1
-```
+- Your overlay version and game version.
+- What you expected, what happened and the steps to reproduce it.
+- Relevant details from **About > Copy support details**.
+- A screenshot if it helps, after checking it for personal information.
 
-The formatter visits first-party Rust files only. Do not run a formatter over vendored dependencies. Vendor bytes and font hashes are checked separately; intentional patches require a reason and before/after hashes in third-party/VENDOR.json. Dependency changes must update Cargo.lock and pass the dependency policy in deny.toml.
+Keep save files, memory dumps, account paths, caches, settings and extracted game assets private. Report suspected vulnerabilities through the route in [SECURITY.md](SECURITY.md).
 
-Build and package in a fresh ignored output folder, then run Test-Release.ps1 against the ZIP. CI performs the same checks on Windows. It tests the app's own hidden native window, renderer, archive rejection, installation, upgrade and rollback without a game or elevated privileges.
+## Suggesting a feature
 
-Reader/timing changes also need bounded live verification against the supported build before a release. Never fabricate successful live checks. With the game running, the candidate's `--self-test-reader ABSOLUTE-PRIVATE-DIRECTORY` performs 24 validated observations and stops. The optional `python scripts/test_reader.py` additionally tests GUI startup/duplicates/shutdown; exit other overlay instances before that lifecycle test. Keep raw results local.
+Describe what you want to do and how the change would help while playing. The maintainer decides which suggestions to implement; opening an issue does not guarantee a change or response time.
 
-## Safety and privacy
+## Source and licence
 
-Preserve read-only access, exact build/path pins, object allocation/session checks, observation bounds and stale-data behavior. Fast menu data changes layout only. Do not add writes, injection, privilege escalation, implicit saves or network telemetry.
-
-Do not commit local settings, account paths, process addresses, memory dumps, save files, game assets or extracted datasets. Report bugs using version numbers, reproduction steps and redacted diagnostics. Secret-pattern checks are a useful gate, not proof that arbitrary content is safe to publish.
+The source is available under [PolyForm Strict 1.0.0](LICENSE). Its availability does not change the contribution policy or grant unrestricted modification and redistribution rights. The [maintenance guide](docs/BUILDING.md) records how the owner builds and checks the app.

@@ -1,21 +1,39 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
-//! Explicitly launched standalone desktop HUD. No DirectX hook or controller code.
+//! Windows desktop HUD for StarRupture wave stages and countdowns.
+#[cfg(windows)]
+mod connection;
+#[cfg(windows)]
+mod desktop;
+#[cfg(windows)]
+mod dialogs;
 #[cfg(windows)]
 mod fonts;
+#[cfg(windows)]
+mod icons;
+#[cfg(windows)]
+mod preferences;
+#[cfg(windows)]
+mod recipe_tracker;
+#[cfg(windows)]
+mod stacking;
+#[cfg(windows)]
+mod status;
 #[cfg(windows)]
 mod stream_client;
 #[cfg(windows)]
 mod window;
+#[cfg(windows)]
+mod window_events;
 fn main() {
     #[cfg(windows)]
     if let Err(error) = window::run() {
-        eprintln!("Wave overlay: {error}");
+        eprintln!("StarRupture Overlay: {error}");
         if !std::env::args().any(|a| a.starts_with("--self-test")) {
-            let text: Vec<u16> = format!("The wave overlay could not start:\n\n{error}")
+            let text: Vec<u16> = format!("StarRupture Overlay could not start:\n\n{error}")
                 .encode_utf16()
                 .chain([0])
                 .collect();
-            let title: Vec<u16> = "StarRupture Wave Overlay".encode_utf16().chain([0]).collect();
+            let title: Vec<u16> = "StarRupture Overlay".encode_utf16().chain([0]).collect();
             unsafe {
                 windows_sys::Win32::UI::WindowsAndMessaging::MessageBoxW(
                     std::ptr::null_mut(),
@@ -30,7 +48,7 @@ fn main() {
     }
     #[cfg(not(windows))]
     {
-        eprintln!("Wave overlay requires Windows");
+        eprintln!("StarRupture Overlay requires Windows");
         std::process::exit(1)
     }
 }

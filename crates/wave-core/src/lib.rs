@@ -1,5 +1,4 @@
 pub mod config;
-pub mod facts;
 pub mod formatting;
 pub mod live;
 pub mod live_timing;
@@ -9,15 +8,12 @@ use serde::Serialize;
 pub struct AppError {
     pub code: &'static str,
     pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<serde_json::Value>,
 }
 impl AppError {
     pub fn new(code: &'static str, message: impl Into<String>) -> Self {
         Self {
             code,
             message: message.into(),
-            details: None,
         }
     }
 }

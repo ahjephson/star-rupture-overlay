@@ -1,15 +1,3 @@
-## Change
+Pull requests and code contributions are not accepted for this project.
 
-Describe the problem and resulting behavior.
-
-## Validation
-
-- [ ] Formatting, Clippy and workspace tests pass.
-- [ ] Vendor/font provenance and dependency checks pass.
-- [ ] Package and deployment regression checks pass.
-- [ ] Live checks completed if reader/timing behavior changed, or explain why not needed.
-- [ ] No captures, local settings, saves or personal paths included.
-
-## Compatibility and release notes
-
-Note game-build compatibility, intentional vendor patches and migration needs.
+Please use [GitHub Issues](https://github.com/ahjephson/star-rupture-overlay/issues/new/choose) to report a bug or suggest a feature. See the [feedback policy](../CONTRIBUTING.md).

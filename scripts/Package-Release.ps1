@@ -6,7 +6,7 @@ $output = Get-ProjectOutputPath $OutputDirectory
 $manifest = Test-ReleaseDirectory $build
 if ($manifest.uncommittedChanges -and -not $AllowUncommitted) { throw 'Official packages require a clean source checkout.' }
 $suffix = if ($manifest.uncommittedChanges) { '-uncommitted' } else { '' }
-$name = "starrupture-wave-overlay-v$($manifest.version)$suffix-windows-x64.zip"
+$name = "starrupture-overlay-v$($manifest.version)$suffix-windows-x64.zip"
 New-Item -ItemType Directory -Force -Path $output | Out-Null
 $path = Join-Path $output $name
 if (Test-Path -LiteralPath $path) { throw 'Package already exists; never overwrite release assets.' }

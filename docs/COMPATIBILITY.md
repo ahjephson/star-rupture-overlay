@@ -1,20 +1,16 @@
 # Supported environment
 
-Status: initial Windows x64 development candidate, 2026-10-24.
+The 0.2.7 development candidate supports the environment below.
 
 | Requirement | Supported scope |
 | --- | --- |
-| Operating system | Windows 10/11 x64; actual live development validation on the maintainer's Windows system |
+| Operating system | Windows 10/11 x64 |
 | Display mode | Borderless/windowed; exclusive fullscreen is not validated |
-| Game distribution | Steam, one exact executable hash |
-| Installation | Default C-drive Steam path below; other library locations currently fail closed |
-| Game/map state | Supported main-map running session; no saved-data fallback |
+| Game distribution | Steam build 25646882, one exact executable hash |
+| Installation | Location detected from the running game process |
+| Game/map state | Supported main-map running session |
 
-Executable path:
-
-```text
-C:\Program Files (x86)\Steam\steamapps\common\StarRupture\StarRupture\Binaries\Win64\StarRuptureGameSteam-Win64-Shipping.exe
-```
+Executable filename: `StarRuptureGameSteam-Win64-Shipping.exe`. Windows supplies its full path; the reader checks the executable hash and process creation identity before reading game memory. Multiple matching processes are rejected as ambiguous.
 
 Supported executable SHA256:
 
@@ -22,6 +18,6 @@ Supported executable SHA256:
 95f95eee0b1913b8716de7fa5bf19877a91abe86e63bf2b6f0a29bd48d1d76f1
 ```
 
-A game update can invalidate support. Do not replace the hash or remove guards merely to make an unknown build attach. A compatibility update needs fresh reflection/allocation/timing verification and live tests. Extending installation-location support is a future task; the current release intentionally retains the validated path boundary.
+A game update can invalidate support. Unsupported builds and runtime states produce unavailable data. Compatibility updates require reflection, allocation and timing verification plus live tests.
 
-Published candidate binaries statically link the VC runtime. Their import table is checked for accidental separate VC redistributable dependencies. Windows system DLLs remain required. No Node.js, .NET, Python, Rust compiler, MCP server or settings file is needed to run the packaged app.
+The overlay executable statically links the Visual C++ runtime. Recipe setup uses the Windows PowerShell included with Windows and downloads a self-contained extraction helper, so users do not need a separate SDK or runtime installation. The first setup needs internet access; a validated asset cache is reused on later launches. Preparing native type information requires a supported loaded world. Game files remain read-only.
