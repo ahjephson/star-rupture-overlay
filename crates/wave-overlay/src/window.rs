@@ -257,7 +257,7 @@ unsafe fn update_connection(window: HWND) {
     let launch = action == crate::connection::LaunchAction::OpenSteam;
     let timeout = action == crate::connection::LaunchAction::TimedOut;
     let label = if a.launch.pending() {
-        "Starting StarRuptureâ€¦"
+        "Starting StarRupture…"
     } else {
         connection.label()
     };
@@ -389,7 +389,7 @@ unsafe fn menu(window: HWND) {
                     },
                 5,
                 wide(if launching {
-                    "Starting StarRuptureâ€¦"
+                    "Starting StarRupture…"
                 } else {
                     "Start StarRupture"
                 })
@@ -399,8 +399,8 @@ unsafe fn menu(window: HWND) {
         if running || connection.can_launch() {
             AppendMenuW(m, MF_SEPARATOR, 0, std::ptr::null());
         }
-        AppendMenuW(m, MF_STRING, 6, wide("Settingsâ€¦").as_ptr());
-        AppendMenuW(m, MF_STRING, 7, wide("Aboutâ€¦").as_ptr());
+        AppendMenuW(m, MF_STRING, 6, wide("Settings…").as_ptr());
+        AppendMenuW(m, MF_STRING, 7, wide("About…").as_ptr());
         AppendMenuW(m, MF_SEPARATOR, 0, std::ptr::null());
         AppendMenuW(m, MF_STRING, 4, wide("Exit").as_ptr());
     }
@@ -862,7 +862,7 @@ pub fn run() -> Result<()> {
         hIcon: app_icons.small,
         ..Default::default()
     };
-    let tip = wide("StarRupture Overlay â€” right-click for controls");
+    let tip = wide("StarRupture Overlay — right-click for controls");
     icon.szTip[..tip.len()].copy_from_slice(&tip);
     if unsafe { Shell_NotifyIconW(NIM_ADD, &icon) } == 0 {
         unsafe { DestroyWindow(window) };

@@ -9,6 +9,9 @@ try {
         if ([IO.Path]::GetExtension($relative) -in @('.ttf', '.png', '.ico')) { continue }
         if (-not (Test-Path -LiteralPath $relative)) { continue } # staged deletion
         $text = Get-Content -LiteralPath $relative -Raw -Encoding utf8
+        if ($relative -notmatch '^third-party/' -and $text -match '\u00e2(?:\u20ac|\u2020)|\u00c3[\u0080-\u00bf]|\u00c2[\u00a0-\u00bf]|\ufffd') {
+            throw "Corrupted text encoding found in $relative; read and write source as UTF-8 explicitly."
+        }
         foreach ($pattern in $patterns) {
             if ($text -match $pattern) { throw "Sensitive-data pattern found in $relative; inspect locally." }
         }
