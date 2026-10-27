@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Rename the application and release ZIP to starrupture-overlay, with legacy executable support for deployment and rollback.
+
 - Prepare recipe icons, font and research definitions automatically from the installed game, with verified first-run component downloads and a reusable local cache.
 - Cancel and stop the complete setup process tree when the overlay exits or the tracker is disabled. Invalid cache contents or changed game archives require preparation again.
 - User-focused setup, update and troubleshooting documentation, issue forms, and an explicit policy that pull requests are not accepted.

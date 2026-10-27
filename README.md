@@ -21,7 +21,7 @@ A public release is being prepared; there is no published download yet. Release 
 
 1. Download the **Windows x64 ZIP** from Releases. The GitHub **Source code** downloads are not the app.
 2. Extract the complete ZIP to a folder you want to keep. Keep the included files together.
-3. Open `starrupture-wave-overlay.exe`, then start StarRupture and load your world. You can also choose **Start StarRupture** from the overlay's tray menu.
+3. Open `starrupture-overlay.exe`, then start StarRupture and load your world. You can also choose **Start StarRupture** from the overlay's tray menu.
 4. Right-click the overlay icon in the Windows notification area for **Settings**, positioning controls and **Exit**. The icon may be under the notification area's hidden icons arrow.
 
 The app finds the running game automatically. Run it normally, without administrator rights. There is no installer or separate developer tool to install.

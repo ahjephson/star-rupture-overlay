@@ -5,7 +5,8 @@ $work = Join-Path $script:ProjectRoot ('local/release-test-' + [Guid]::NewGuid()
 New-Item -ItemType Directory -Force -Path $work | Out-Null
 $unpacked = Join-Path $work 'unpacked'
 $null = Expand-VerifiedRelease -ArchivePath $ArchivePath -Destination $unpacked
-$exe = Join-Path $unpacked 'starrupture-wave-overlay.exe'
+$manifest = Test-ReleaseDirectory $unpacked
+$exe = Join-Path $unpacked (Get-ReleaseExecutableName $manifest)
 & python (Join-Path $PSScriptRoot 'inspect_pe.py') $exe
 if ($LASTEXITCODE -ne 0) { throw 'Executable format or runtime dependency check failed.' }
 foreach ($case in @('window', 'stacking', 'events', 'icons', 'render', 'dialogs', 'asset-cancel')) {

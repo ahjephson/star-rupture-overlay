@@ -1,6 +1,6 @@
 # StarRupture Overlay - Windows x64
 
-A rupture countdown and recipe research sidebar for StarRupture. Extract this complete folder to a location you want to keep and open `starrupture-wave-overlay.exe`. Run normally, without administrator rights, then start StarRupture and load your world.
+A rupture countdown and recipe research sidebar for StarRupture. Extract this complete folder to a location you want to keep and open `starrupture-overlay.exe`. Run normally, without administrator rights, then start StarRupture and load your world.
 
 Right-click the overlay icon in the Windows notification area for Settings, positioning controls, About and Exit. Double-click it to open Settings. The icon may be under the hidden icons arrow. You can start the game from the tray menu or create a Play StarRupture with Overlay desktop shortcut in Settings.
 

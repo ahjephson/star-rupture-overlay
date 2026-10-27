@@ -6,7 +6,7 @@ $metadata = & cargo @arguments | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0) { throw 'Dependency metadata failed.' }
 $packages = @{}; foreach ($package in $metadata.packages) { $packages[$package.id] = $package }
 $nodes = @{}; foreach ($node in $metadata.resolve.nodes) { $nodes[$node.id] = $node }
-$root = $metadata.packages | Where-Object name -eq 'starrupture-wave-overlay'
+$root = $metadata.packages | Where-Object name -eq 'starrupture-overlay'
 $pending = [Collections.Generic.Stack[string]]::new(); $pending.Push($root.id)
 $reachable = [Collections.Generic.HashSet[string]]::new()
 while ($pending.Count) {

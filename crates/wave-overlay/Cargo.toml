@@ -1,6 +1,6 @@
 [package]
-name = "starrupture-wave-overlay"
-description = "Native Windows HUD for StarRupture wave stages and countdowns"
+name = "starrupture-overlay"
+description = "Native Windows overlay for StarRupture rupture timing and recipe research"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -21,7 +21,7 @@ function Expand-VerifiedRelease {
             $total += $entry.Length
             if ($entry.Length -gt 64MB -or $total -gt 128MB -or $zip.Entries.Count -gt 2000) { throw 'Release archive exceeds extraction limits.' }
             if ($name -match '[\\:]|(^|/)\.\.?(/|$)|^/' -or -not $names.Add($name)) { throw 'Unsafe or duplicate archive entry.' }
-            if ($name -notmatch '^(starrupture-wave-overlay\.exe|LICENSE|README\.md|THIRD-PARTY-NOTICES\.md|manifest\.json|dependency-inventory\.json|licenses/[A-Za-z0-9_./+ -]+)$') { throw 'Unexpected release archive entry.' }
+            if ($name -notmatch '^(starrupture-(wave-)?overlay\.exe|LICENSE|README\.md|THIRD-PARTY-NOTICES\.md|manifest\.json|dependency-inventory\.json|licenses/[A-Za-z0-9_./+ -]+)$') { throw 'Unexpected release archive entry.' }
             $path = [IO.Path]::GetFullPath((Join-Path $destination $name))
             if (-not $path.StartsWith($destination + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Archive path escapes destination.' }
         }
@@ -52,8 +52,17 @@ function Test-ReleaseDirectory {
         $file = Get-Item -LiteralPath $path
         if ($file.Length -ne $entry.Value.bytes -or (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $entry.Value.sha256) { throw 'Release file integrity check failed.' }
     }
-    foreach ($required in @('starrupture-wave-overlay.exe', 'LICENSE', 'README.md', 'THIRD-PARTY-NOTICES.md', 'dependency-inventory.json', 'licenses/Oxanium/OFL.txt')) {
+    foreach ($required in @('LICENSE', 'README.md', 'THIRD-PARTY-NOTICES.md', 'dependency-inventory.json', 'licenses/Oxanium/OFL.txt')) {
         if ($required -notin $expected.Name) { throw "Missing required release file: $required" }
     }
+    $null = Get-ReleaseExecutableName $manifest
     return $manifest
+}
+
+function Get-ReleaseExecutableName {
+    param([Parameter(Mandatory)]$Manifest)
+    $names = @(@('starrupture-overlay.exe', 'starrupture-wave-overlay.exe') | Where-Object { $_ -in $Manifest.files.PSObject.Properties.Name })
+    if ($names.Count -ne 1) { throw 'Release must contain exactly one recognised overlay executable.' }
+    if (($Manifest.PSObject.Properties.Name -contains 'executable') -and $Manifest.executable -cne $names[0]) { throw 'Release executable does not match its file inventory.' }
+    return $names[0]
 }
