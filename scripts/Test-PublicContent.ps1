@@ -1,7 +1,7 @@
 . (Join-Path $PSScriptRoot 'Common.ps1')
 Push-Location $script:ProjectRoot
 try {
-    $files = & git ls-files
+    $files = & git ls-files --cached --others --exclude-standard
     if ($LASTEXITCODE -ne 0) { throw 'Cannot inventory tracked files.' }
     $patterns = @('[A-Za-z]:[\/]+Users[\/]', 'gh[pousr]_[A-Za-z0-9]{20,}', 'github_pat_[A-Za-z0-9_]{20,}', '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----', 'AKIA[0-9A-Z]{16}')
     foreach ($relative in $files) {

@@ -46,5 +46,70 @@
         "sha256": "9369f62987b3a116111f2edfdc4cc72633e44ddc94d5d0c68659cf537b76a31f"
       }
     ]
+  },
+  {
+    "name": "bcdec_rs",
+    "version": "0.2.1",
+    "license": "MIT",
+    "files": [
+      {
+        "file": "LICENSE",
+        "url": "https://raw.githubusercontent.com/ScanMountGoat/image_dds/5e1ef829f8c44980e21bdcda2e1ffb574b81b57b/LICENSE",
+        "sha256": "0194fa871df6d82a26d58f3b6e035bed033afdc413e2a6ac0ae2f15b7becbb20"
+      },
+      {
+        "file": "LICENSE-bcdec",
+        "url": "https://raw.githubusercontent.com/iOrange/bcdec/80859ed3b7afb1c527a2a99d70c61457bea72d0c/LICENSE",
+        "sha256": "2414c782587f6e96661cb0d19d752432ddecfcc1a221b4cb12bc2253a54dc5ac"
+      }
+    ]
+  },
+  {
+    "name": "pariter",
+    "version": "0.5.1",
+    "license": "MPL-2.0 OR MIT OR Apache-2.0",
+    "selectedLicense": "Apache-2.0",
+    "review": "Pinned upstream tree and published crate omit standalone licence files. Retain exact published manifest/README declarations and authors plus the standard Apache-2.0 text; no copyright notice invented.",
+    "files": [
+      {
+        "file": "UPSTREAM-Cargo.toml",
+        "url": "https://raw.githubusercontent.com/",
+        "sha256": "ccc2908fd0214d48cd9b1725cef132b4fb4daff7f50a533e99d08645c1c661d2"
+      },
+      {
+        "file": "UPSTREAM-README.md",
+        "url": "https://raw.githubusercontent.com/",
+        "sha256": "8af91404607ace20db1f74be6cd951326ecb2dec174c26dcd2db271278fe9897"
+      },
+      {
+        "file": "LICENSE-APACHE",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+        "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
+      }
+    ]
+  },
+  {
+    "name": "typed-path",
+    "version": "0.12.0",
+    "license": "MIT OR Apache-2.0",
+    "selectedLicense": "Apache-2.0",
+    "review": "Pinned upstream tree and published crate omit standalone licence files. Retain exact published manifest/README declarations and authors plus the standard Apache-2.0 text; no copyright notice invented.",
+    "files": [
+      {
+        "file": "UPSTREAM-Cargo.toml",
+        "url": "https://raw.githubusercontent.com/",
+        "sha256": "c4285f8be429a24d3b2f3275cca093cd94f2aa659c5cf4d499440bdb2ce30207"
+      },
+      {
+        "file": "UPSTREAM-README.md",
+        "url": "https://raw.githubusercontent.com/",
+        "sha256": "f921ac1c6abbae3292968a86d54e959426d189c9ef73f662e0782326e9fe6cc8"
+      },
+      {
+        "file": "LICENSE-APACHE",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+        "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
+      }
+    ]
   }
 ]

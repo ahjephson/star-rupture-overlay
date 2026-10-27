@@ -1,0 +1,20 @@
+[package]
+name = "starrupture-assets"
+description = "Bounded offline extraction of supported StarRupture recipe assets"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+anyhow = "1"
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+retoc = { path = "../../third-party/retoc/retoc" }
+repak = { path = "../../third-party/repak/repak", default-features = false }
+usmap = { path = "../../third-party/jmap/usmap" }
+bcdec_rs = "=0.2.1"
+starrupture-observation-model = { path = "../observation-model" }

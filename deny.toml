@@ -40,3 +40,7 @@ allow = ["LicenseRef-PolyForm-Strict-1.0.0"]
 [[licenses.exceptions]]
 name = "starrupture-observation-model"
 allow = ["LicenseRef-PolyForm-Strict-1.0.0"]
+
+[[licenses.exceptions]]
+name = "starrupture-assets"
+allow = ["LicenseRef-PolyForm-Strict-1.0.0"]

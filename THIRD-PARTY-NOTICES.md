@@ -5,6 +5,9 @@ PolyForm Strict 1.0.0 applies to first-party project code only, copyright (c) 20
 | Component | Upstream | Licence | Source-checkout notice location |
 | --- | --- | --- | --- |
 | jmap | https://github.com/trumank/jmap | MIT | third-party/jmap/LICENSE |
+| retoc | https://github.com/trumank/retoc | MIT | third-party/retoc/LICENSE |
+| repak | https://github.com/trumank/repak | MIT OR Apache-2.0 | third-party/repak/LICENSE-MIT and LICENSE-APACHE |
+| bcdec_rs | https://github.com/ScanMountGoat/image_dds | MIT | Exported registry licence in release licenses/ |
 | gospel | https://github.com/trumank/gospel | MIT OR Apache-2.0 | third-party/gospel/LICENSE (MIT) |
 | patternsleuth | https://github.com/trumank/patternsleuth | MIT OR Apache-2.0 | Upstream manifest declaration; standard Apache-2.0 text in third-party/LICENSE-APACHE |
 | ser-hex | https://github.com/trumank/ser-hex | MIT OR Apache-2.0 | Both upstream licence texts retained |
@@ -18,6 +21,4 @@ Oxanium font binaries are embedded under their original names and retain their o
 
 ## Recipe setup components
 
-First-run recipe setup downloads a pinned UnrealAssetScout executable and its required decompressors from the upstream sources used by that release. They are stored in the local user cache rather than included in this repository or the app ZIP. UnrealAssetScout uses MIT, CUE4Parse uses Apache-2.0, and their other components retain the licences in the upstream notices. Oodle Data is proprietary and is not redistributed with the app.
-
-Exact versions, sources and hashes are recorded in [the setup component inventory](licenses/asset-setup/index.json). The app archive includes the [UnrealAssetScout licence](licenses/asset-setup/UnrealAssetScout-LICENSE.txt) and [upstream third-party notices](licenses/asset-setup/UnrealAssetScout-NOTICES.txt). Locally extracted StarRupture icons, fonts and definitions stay in the user cache and retain their owners' rights.
+Recipe assets are prepared offline by built-in Rust code from the user's installed game. No third-party executable or native decompressor is downloaded or bundled. Selected retoc/repak source and the BC3 decoder retain their licences listed above. The local retoc/repak adaptations exclude unused native loaders and reject unsupported compressed archives. Locally extracted StarRupture icons, fonts and definitions remain in the user cache and retain their owners' rights.

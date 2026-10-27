@@ -24,8 +24,7 @@ foreach ($field in $expectedDetails.Keys) {
 $versionParts = @($manifest.version.Split('-')[0].Split('.') | ForEach-Object { [int]$_ })
 if ($details.FileMajorPart -ne $versionParts[0] -or $details.FileMinorPart -ne $versionParts[1] -or $details.FileBuildPart -ne $versionParts[2] -or $details.FilePrivatePart -ne 0 -or $details.ProductMajorPart -ne $versionParts[0] -or $details.ProductMinorPart -ne $versionParts[1] -or $details.ProductBuildPart -ne $versionParts[2] -or $details.ProductPrivatePart -ne 0) { throw 'Executable numeric version does not match the release.' }
 Write-Output 'Executable Details metadata matches the release version.'
-& python (Join-Path $PSScriptRoot 'inspect_pe.py') $exe
-if ($LASTEXITCODE -ne 0) { throw 'Executable format or runtime dependency check failed.' }
+& (Join-Path $PSScriptRoot 'Inspect-Executable.ps1') -Path $exe
 foreach ($case in @('window', 'stacking', 'events', 'icons', 'render', 'dialogs', 'asset-cancel')) {
     $arguments = if ($case -eq 'window') { @('--self-test-window') } elseif ($case -eq 'stacking') { @('--self-test-stacking') } elseif ($case -eq 'events') { @('--self-test-window-events') } elseif ($case -eq 'icons') { @('--self-test-icons') } elseif ($case -eq 'dialogs') { @('--self-test-dialogs', ('"' + (Join-Path $work 'dialogs') + '"')) } elseif ($case -eq 'asset-cancel') { @('--self-test-asset-cancel', ('"' + (Join-Path $work 'asset-cancel') + '"')) } else { @('--self-test-dir', ('"' + (Join-Path $work 'render') + '"')) }
     $extension = if ($case -eq 'dialogs') { 'txt' } else { 'json' }
@@ -33,6 +32,5 @@ foreach ($case in @('window', 'stacking', 'events', 'icons', 'render', 'dialogs'
     if (-not $process.WaitForExit(30000)) { $process.Kill(); throw 'Own-window diagnostic exceeded its deadline.' }
     if ($process.ExitCode -ne 0) { throw "Native $case check failed." }
 }
-& python (Join-Path $PSScriptRoot 'test_release.py') $ArchivePath $work
-if ($LASTEXITCODE -ne 0) { throw 'Archive or deployment regression failed.' }
+& (Join-Path $PSScriptRoot 'Test-Deployment.ps1') -ArchivePath $ArchivePath -WorkDirectory $work
 Write-Output "Release tests passed; private results: $work"

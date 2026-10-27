@@ -621,6 +621,22 @@ pub fn run() -> Result<()> {
     let mut preview_phase = None;
     let mut launch_game = false;
     if let Some(first) = args.next() {
+        if first == "--prepare-recipe-assets"
+            || first == "--self-test-asset-wait"
+            || first == "--self-test-asset-wait-child"
+        {
+            let path = args.next().ok_or("Missing asset operation path")?;
+            if args.next().is_some() {
+                return Err("Unexpected asset operation argument".into());
+            }
+            if first == "--prepare-recipe-assets" {
+                return Ok(starrupture_assets::run(std::path::Path::new(&path))?);
+            }
+            return Ok(crate::recipe_tracker::asset_wait_fixture(
+                std::path::Path::new(&path),
+                first == "--self-test-asset-wait-child",
+            )?);
+        }
         if first == "--self-test-asset-disabled" {
             let dir = args.next().ok_or("Missing disabled asset setup directory")?;
             return Ok(crate::recipe_tracker::self_test_asset_disabled(std::path::Path::new(
@@ -641,12 +657,21 @@ pub fn run() -> Result<()> {
         }
         if first == "--self-test-recipe-reader" {
             let dir = args.next().ok_or("Missing recipe reader directory")?;
-            return Ok(starrupture_overlay_reader::recipe::self_test(std::path::Path::new(&dir))?);
+            let recipe = args.next();
+            if args.next().is_some() {
+                return Err("Unexpected recipe reader argument".into());
+            }
+            return Ok(starrupture_overlay_reader::recipe::self_test_recipe(
+                std::path::Path::new(&dir),
+                &crate::recipe_tracker::diagnostic_catalogue()?,
+                recipe.as_deref().unwrap_or("/Game/Chimera/Crafting/CR_Biofilament"),
+            )?);
         }
         if first == "--self-test-recipe-warmup" {
             let dir = args.next().ok_or("Missing recipe warmup directory")?;
             return Ok(starrupture_overlay_reader::recipe::self_test_warmup(
                 std::path::Path::new(&dir),
+                &crate::recipe_tracker::diagnostic_catalogue()?,
             )?);
         }
         #[cfg(debug_assertions)]

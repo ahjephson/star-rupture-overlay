@@ -10,6 +10,7 @@ publish = false
 autobins = false
 
 [dependencies]
+object = { version = "0.32.2", default-features = false, features = ["read", "std"] }
 anyhow = "1.0.100"
 async-trait = "0.1"
 serde.workspace = true

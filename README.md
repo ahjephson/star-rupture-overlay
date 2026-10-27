@@ -29,8 +29,8 @@ The app finds the running game automatically. Run it normally, without administr
 ### Requirements
 
 - Windows 10 or 11, 64-bit.
-- The supported Steam version of StarRupture in borderless, windowed or fullscreen mode. Fullscreen was tested on the supported build; true exclusive fullscreen on other configurations is not guaranteed.
-- Internet access for the recipe tracker's first setup (about 50 MB of setup downloads). The app downloads verified setup components and prepares the required icons and font from your installed game. Later launches reuse the local cache.
+- The supported Steam version of StarRupture in borderless, windowed or fullscreen mode. See [supported versions](docs/COMPATIBILITY.md) for the fullscreen compatibility scope.
+- A supported installed game for recipe setup. The app prepares icons, names and the font locally using its built-in Rust reader. Setup works offline and later launches reuse the local cache.
 
 Game updates can temporarily break compatibility. Check [supported versions](docs/COMPATIBILITY.md) if the overlay cannot connect.
 
@@ -48,6 +48,8 @@ Open the recipe station and move your mouse over an unfinished recipe row, then 
 | Alt+X over the pinned unfinished recipe | Clear the sidebar |
 | Alt+X outside the recipe station | Clear the sidebar if something is pinned |
 | Alt+X over a completed recipe, or empty space inside the station | Keep the current selection |
+
+The sidebar closes automatically when the pinned recipe is completed.
 
 A white counter means you have some of that material in your bag; the orange number shows your bag quantity. A red counter means you have none. A tick marks a completed requirement. These counters show recipe research submissions; use the game's **INSERT** buttons to submit materials.
 

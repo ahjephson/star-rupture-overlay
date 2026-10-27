@@ -28,7 +28,8 @@ fn main() {
     #[cfg(windows)]
     if let Err(error) = window::run() {
         eprintln!("StarRupture Overlay: {error}");
-        if !std::env::args().any(|a| a.starts_with("--self-test")) {
+        if !std::env::args().any(|a| a.starts_with("--self-test") || a == "--prepare-recipe-assets")
+        {
             let text: Vec<u16> = format!("StarRupture Overlay could not start:\n\n{error}")
                 .encode_utf16()
                 .chain([0])

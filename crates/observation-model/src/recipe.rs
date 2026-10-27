@@ -150,6 +150,10 @@ impl Control {
         if *r != request {
             return;
         }
+        // A fully submitted update closes the pin. A successful reader absence
+        // arrives as None; unavailable observations use the separate error path.
+        let snapshot = snapshot
+            .filter(|s| s.ingredients.is_empty() || s.ingredients.iter().any(|i| i.remaining > 0));
         if snapshot.is_none() {
             r.active = false
         }
@@ -293,6 +297,26 @@ mod tests {
         assert!(progress(&r, &[("a".into(), 100)]).is_err());
         assert!(progress(&r, &[("a".into(), 100), ("a".into(), 0)]).is_err());
         assert_eq!(progress(&r, &[("a".into(), 400), ("b".into(), 600)]).unwrap()[0].remaining, 0);
+    }
+    #[test]
+    fn completed_updates_close_the_pin_but_errors_and_stale_updates_do_not() {
+        let c = Control::default();
+        capture(&c, Some(sample("A", 100)));
+        let old = c.request();
+        c.unavailable(old, "temporary read error".into());
+        assert_eq!(c.view().snapshot.unwrap().recipe_id, "A");
+        c.publish(old, Some(sample("A", 0)), String::new());
+        assert!(c.view().snapshot.is_none());
+        assert!(!c.request().active);
+        capture(&c, Some(sample("A", 100)));
+        let stale = c.request();
+        capture(&c, Some(sample("B", 100)));
+        c.publish(stale, Some(sample("A", 0)), String::new());
+        c.publish(stale, None, String::new());
+        assert_eq!(c.view().snapshot.unwrap().recipe_id, "B");
+        c.publish(c.request(), None, String::new());
+        assert!(c.view().snapshot.is_none());
+        assert!(!c.request().active);
     }
     #[test]
     fn clearing_blocks_delayed_capture() {

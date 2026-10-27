@@ -502,13 +502,63 @@ pub(super) fn render(
     Ok(())
 }
 pub fn self_test(directory: &Path) -> Result<()> {
-    let exe = std::env::current_exe()?;
-    self_test_at(directory, &exe.parent().context("Executable folder")?.join("recipe-assets"))
+    self_test_at(directory, &super::setup::diagnostic_assets()?)
 }
 pub(super) fn self_test_at(directory: &Path, asset_directory: &Path) -> Result<()> {
     super::self_test_shortcut()?;
     std::fs::create_dir_all(directory)?;
-    let assets = Assets::load(asset_directory)?;
+    let mut assets = Assets::load(asset_directory)?;
+    // Exercise every recipe with the actual asset pack, including repeated selection
+    // and clear. This also bounds image residency independently of draw output.
+    let baseline: usize = assets.images.values().map(|i| i.pixels.capacity()).sum();
+    let ids: Vec<_> = assets.catalogue.recipes.keys().cloned().collect();
+    let mut maximum = baseline;
+    let mut switches = Vec::new();
+    for id in &ids {
+        let recipe = &assets.catalogue.recipes[id];
+        let ingredients = starrupture_observation_model::recipe::progress(
+            &recipe.requirements,
+            &recipe.requirements.keys().map(|id| (id.clone(), 0)).collect::<Vec<_>>(),
+        )
+        .map_err(anyhow::Error::msg)?;
+        let view = View {
+            snapshot: Some(starrupture_observation_model::recipe::Snapshot {
+                recipe_id: id.clone(),
+                ingredients,
+                observed_at_ms: 1000,
+                generation: 1,
+                process: 1,
+            }),
+            generation: 1,
+            ..View::default()
+        };
+        let started = std::time::Instant::now();
+        assets.prepare(&view)?;
+        switches.push(started.elapsed().as_micros());
+        let bytes: usize = assets.images.values().map(|i| i.pixels.capacity()).sum();
+        maximum = maximum.max(bytes);
+        ensure!(bytes <= IMAGE_BUDGET, "Recipe image budget exceeded");
+        let addresses: Vec<_> = assets.images.values().map(|i| i.pixels.as_ptr()).collect();
+        assets.prepare(&view)?;
+        ensure!(
+            addresses == assets.images.values().map(|i| i.pixels.as_ptr()).collect::<Vec<_>>(),
+            "Repeated selection reloaded pixels"
+        );
+        assets.clear_images();
+        ensure!(
+            assets.images.values().map(|i| i.pixels.capacity()).sum::<usize>() == baseline,
+            "Cleared recipe retained item images"
+        );
+    }
+    switches.sort_unstable();
+    std::fs::write(
+        directory.join("image-cache-validation.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "recipes":ids.len(),"budgetBytes":IMAGE_BUDGET,"idleImageBytes":baseline,"maximumImageBytes":maximum,
+            "switchMedianMicros":switches[switches.len()/2],"switchMaximumMicros":switches.last(),
+            "repeatedSelectionReusesPixels":true,"clearReleasesItemImages":true
+        }))?,
+    )?;
     // Verify the private font is actually selected, not silently substituted.
     let dc = unsafe { CreateCompatibleDC(std::ptr::null_mut()) };
     ensure!(!dc.is_null(), "Font test context");
@@ -628,6 +678,7 @@ pub(super) fn self_test_at(directory: &Path, asset_directory: &Path) -> Result<(
             547
         }) * width
             / 120;
+        assets.prepare(&view)?;
         let surface = Surface::new(width, height)?;
         draw(
             &surface,

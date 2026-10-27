@@ -16,7 +16,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 mod child;
-pub use child::self_test as self_test_cancel;
+pub use child::{self_test as self_test_cancel, wait_fixture};
 
 #[derive(Clone, Default)]
 pub(super) struct State {
@@ -86,6 +86,24 @@ fn source(executable: &Path) -> Result<(Source, PathBuf)> {
         },
         paks,
     ))
+}
+pub(super) fn diagnostic_assets() -> Result<PathBuf> {
+    let root = crate::preferences::directory()?.join("recipe-cache");
+    let receipt: Receipt = serde_json::from_slice(&read_bounded(&root.join("current.json"), 256 * 1024)
+        .context("Prepare the recipe tracker in a supported loaded world before running asset diagnostics")?)?;
+    ensure!(
+        receipt.schema == 3
+            && receipt.directory.starts_with("assets-")
+            && starrupture_observation_model::recipe::safe_file(&receipt.directory),
+        "Invalid prepared-asset receipt"
+    );
+    let directory = root.join(receipt.directory);
+    let cat = catalogue(&directory)?;
+    ensure!(
+        inventory(&directory, &cat)? == receipt.files,
+        "Prepared diagnostic assets failed integrity checks"
+    );
+    Ok(directory)
 }
 fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
     let file = fs::File::open(path)?;
@@ -157,7 +175,7 @@ impl AssetSetup for Preparation {
                 256 * 1024,
             )?)?;
             ensure!(
-                receipt.schema == 1
+                receipt.schema == 3
                     && receipt.source == current
                     && receipt.directory.starts_with("assets-")
                     && starrupture_observation_model::recipe::safe_file(&receipt.directory),
@@ -208,17 +226,18 @@ impl AssetSetup for Preparation {
         fs::write(&mapping_path, mappings)?;
         let progress = output.join("progress.txt");
         let request = output.join("request.json");
-        let tools = self.root.join("tools-v0.5.0");
+        let engine = std::env::current_exe()?;
         fs::write(
             &request,
             serde_json::to_vec(&serde_json::json!({
-                "paks":paks, "mappings":mapping_path, "output":output, "tools":tools, "progress":progress,
+                "paks":paks, "mappings":mapping_path, "output":output, "progress":progress,
+                "error":output.join("setup-error.txt"),
                 "gameHash":starrupture_observation_model::overlay_stream::GAME_HASH,
             }))?,
         )?;
         self.update(None, "Preparing recipe tracker...", Some(progress));
-        child::run(
-            include_str!("prepare.ps1"),
+        child::run_executable(
+            &engine,
             &request,
             &output.join("setup-error.txt"),
             stop,
@@ -230,7 +249,7 @@ impl AssetSetup for Preparation {
         let cat = catalogue(&output)?;
         let files = inventory(&output, &cat)?;
         let receipt = Receipt {
-            schema: 1,
+            schema: 3,
             source: after,
             directory: name,
             files,
@@ -242,7 +261,7 @@ impl AssetSetup for Preparation {
     }
     fn failed(&mut self, message: &str) {
         eprintln!("Recipe asset preparation failed: {message}");
-        self.update(None, "Recipe setup could not finish. Check that Steam has finished updating and that you are online, then turn Recipe tracker off and on to retry.", None);
+        self.update(None, "Recipe setup could not finish. Check that Steam has finished updating and that your world is loaded, then turn Recipe tracker off and on to retry. No internet connection is needed.", None);
     }
 }
 
@@ -268,7 +287,12 @@ fn self_test_impl(directory: &Path, enabled: bool) -> Result<()> {
     let stop = Arc::new(StopSignal::default());
     let started = std::time::Instant::now();
     let mut worlds = 0;
-    starrupture_overlay_reader::overlay_stream::run_with_assets(
+    let deadline_stop = stop.clone();
+    let deadline = std::thread::spawn(move || {
+        deadline_stop.wait_until(std::time::Instant::now() + std::time::Duration::from_secs(320));
+        deadline_stop.request();
+    });
+    let result = starrupture_overlay_reader::overlay_stream::run_with_assets(
         &directory.join("reader-cache"),
         stop.clone(),
         |message| {
@@ -283,7 +307,10 @@ fn self_test_impl(directory: &Path, enabled: bool) -> Result<()> {
         |_| {},
         None,
         Some(Box::new(setup)),
-    )?;
+    );
+    stop.request();
+    deadline.join().map_err(|_| anyhow::anyhow!("Asset diagnostic deadline thread failed"))?;
+    result?;
     let state = state.lock().unwrap_or_else(|p| p.into_inner());
     ensure!(
         worlds >= 24 && state.ready.is_some() == enabled,
@@ -364,7 +391,7 @@ mod tests {
             "tick":"pixel.bgra","frame":"pixel.bgra","background":"pixel.bgra","font":"font.otf"});
         fs::write(directory.join("catalogue.json"), serde_json::to_vec(&data)?)?;
         let receipt = Receipt {
-            schema: 1,
+            schema: 3,
             source: source(&executable)?.0,
             directory: "assets-fixture".into(),
             files: inventory(&directory, catalogue(&directory)?.as_ref())?,

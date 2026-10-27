@@ -37,6 +37,8 @@ impl Image {
 }
 pub struct Assets {
     pub catalogue: Arc<Catalogue>,
+    directory: std::path::PathBuf,
+    selected: Option<String>,
     images: BTreeMap<String, Image>,
     header_frame: Image,
     header_background: Image,
@@ -57,7 +59,7 @@ impl Assets {
         ensure!(data.len() <= 512 * 1024, "Recipe catalogue bound");
         let catalogue: Catalogue = serde_json::from_slice(&data)?;
         catalogue.validate().map_err(anyhow::Error::msg)?;
-        let mut names: Vec<_> = catalogue.items.values().map(|i| i.image.clone()).collect();
+        let mut names = Vec::new();
         names.extend([
             catalogue.tick.clone(),
             catalogue.frame.clone(),
@@ -68,26 +70,10 @@ impl Assets {
         let mut images = BTreeMap::new();
         let mut total = 0;
         for name in names {
-            let b = std::fs::read(directory.join(&name))?;
-            ensure!(b.len() >= 8 && b.len() <= 4 * 1024 * 1024 + 8, "Recipe image bound");
-            let width = u32::from_le_bytes(b[0..4].try_into()?) as usize;
-            let height = u32::from_le_bytes(b[4..8].try_into()?) as usize;
-            ensure!(
-                (1..=1024).contains(&width)
-                    && (1..=1024).contains(&height)
-                    && b.len() == 8 + width * height * 4,
-                "Recipe image dimensions"
-            );
-            total += b.len();
-            ensure!(total <= 64 * 1024 * 1024, "Recipe image pack bound");
-            images.insert(
-                name,
-                Image {
-                    width,
-                    height,
-                    pixels: b[8..].to_vec(),
-                },
-            );
+            let image = Image::load(directory, &name)?;
+            total += image.pixels.len();
+            ensure!(total <= IMAGE_BUDGET, "Recipe image cache bound");
+            images.insert(name, image);
         }
         let font_bytes = std::fs::read(directory.join(&catalogue.font))?;
         ensure!(
@@ -108,12 +94,85 @@ impl Assets {
         let header_background = images[&catalogue.background].clockwise(255);
         Ok(Self {
             catalogue: Arc::new(catalogue),
+            directory: directory.into(),
+            selected: None,
             images,
             header_frame,
             header_background,
             font,
             _font_bytes: font_bytes,
         })
+    }
+}
+const IMAGE_BUDGET: usize = 8 * 1024 * 1024;
+impl Image {
+    fn load(directory: &Path, name: &str) -> Result<Self> {
+        use std::io::Read;
+        ensure!(starrupture_observation_model::recipe::safe_file(name), "Unsafe recipe image name");
+        let mut file = std::fs::File::open(directory.join(name))?;
+        let length = file.metadata()?.len() as usize;
+        ensure!((8..=4 * 1024 * 1024 + 8).contains(&length), "Recipe image bound");
+        let mut header = [0; 8];
+        file.read_exact(&mut header)?;
+        let width = u32::from_le_bytes(header[0..4].try_into()?) as usize;
+        let height = u32::from_le_bytes(header[4..8].try_into()?) as usize;
+        ensure!(
+            (1..=1024).contains(&width)
+                && (1..=1024).contains(&height)
+                && length == 8 + width * height * 4,
+            "Recipe image dimensions"
+        );
+        let mut b = vec![0; length - 8];
+        file.read_exact(&mut b)?;
+        ensure!(file.read(&mut [0])? == 0, "Recipe image changed size");
+        Ok(Self {
+            width,
+            height,
+            pixels: b,
+        })
+    }
+}
+impl Assets {
+    fn prepare(&mut self, view: &View) -> Result<()> {
+        let selected = view.snapshot.as_ref().map(|s| s.recipe_id.as_str());
+        if self.selected.as_deref() == selected {
+            return Ok(());
+        }
+        let mut needed = vec![
+            self.catalogue.tick.clone(),
+            self.catalogue.frame.clone(),
+            self.catalogue.background.clone(),
+        ];
+        if let Some(id) = selected {
+            let recipe = self.catalogue.recipes.get(id).context("Recipe reference missing")?;
+            needed.push(self.catalogue.items[&recipe.item_id].image.clone());
+            for id in recipe.requirements.keys() {
+                needed.push(self.catalogue.items[id].image.clone());
+            }
+        }
+        needed.sort();
+        needed.dedup();
+        self.selected = None;
+        self.images.retain(|name, _| needed.binary_search(name).is_ok());
+        let mut total: usize = self.images.values().map(|i| i.pixels.capacity()).sum();
+        for name in needed {
+            if !self.images.contains_key(&name) {
+                let image = Image::load(&self.directory, &name)?;
+                total += image.pixels.capacity();
+                ensure!(total <= IMAGE_BUDGET, "Recipe image cache bound");
+                self.images.insert(name, image);
+            }
+        }
+        self.selected = selected.map(str::to_owned);
+        Ok(())
+    }
+    fn clear_images(&mut self) {
+        self.images.retain(|name, _| {
+            name == &self.catalogue.tick
+                || name == &self.catalogue.frame
+                || name == &self.catalogue.background
+        });
+        self.selected = None;
     }
 }
 pub struct Panel {
@@ -274,6 +333,9 @@ impl Panel {
         }
         if self.last_settings.enabled && !settings.enabled {
             self.control.clear();
+            if let Some(assets) = self.assets.as_mut() {
+                assets.clear_images();
+            }
         }
         self.last_settings = settings;
     }
@@ -320,6 +382,9 @@ impl Panel {
         }
         let view = self.control.view();
         if view.snapshot.is_none() {
+            if let Some(assets) = self.assets.as_mut() {
+                assets.clear_images();
+            }
             self.hide();
             return;
         }
@@ -364,8 +429,9 @@ impl Panel {
                 SWP_NOZORDER | SWP_NOACTIVATE,
             );
         }
-        if let Some(a) = &self.assets
-            && let Err(e) = render(self.window, a, &view, width, height)
+        if let Some(a) = &mut self.assets
+            && let Err(e) =
+                a.prepare(&view).and_then(|()| render(self.window, a, &view, width, height))
         {
             self.status = e.to_string();
             self.hide();
@@ -443,4 +509,48 @@ fn self_test_shortcut() -> Result<()> {
     ensure!(released, "Shortcut was not released");
     ensure!(unsafe { GetForegroundWindow() } == foreground, "Recipe diagnostics changed focus");
     Ok(())
+}
+
+pub fn diagnostic_catalogue() -> Result<std::path::PathBuf> {
+    Ok(setup::diagnostic_assets()?.join("catalogue.json"))
+}
+
+pub fn asset_wait_fixture(path: &std::path::Path, child: bool) -> anyhow::Result<()> {
+    setup::wait_fixture(path, child)
+}
+
+#[cfg(test)]
+mod image_tests {
+    use super::*;
+    #[test]
+    fn pixel_reader_rejects_truncation_dimensions_and_oversize() {
+        let directory = std::env::temp_dir().join(format!(
+            "starrupture-image-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("icon.bgra");
+        let mut valid = Vec::new();
+        valid.extend(2u32.to_le_bytes());
+        valid.extend(1u32.to_le_bytes());
+        valid.extend([1, 2, 3, 4, 5, 6, 7, 8]);
+        std::fs::write(&path, &valid).unwrap();
+        let image = Image::load(&directory, "icon.bgra").unwrap();
+        assert_eq!((image.width, image.height), (2, 1));
+        assert_eq!(image.pixels, &valid[8..]);
+        assert_eq!(image.pixels.capacity(), 8);
+        for length in [0, 7, 15] {
+            std::fs::write(&path, &valid[..length]).unwrap();
+            assert!(Image::load(&directory, "icon.bgra").is_err());
+        }
+        valid[..4].copy_from_slice(&1025u32.to_le_bytes());
+        std::fs::write(&path, &valid).unwrap();
+        assert!(Image::load(&directory, "icon.bgra").is_err());
+        std::fs::File::create(&path).unwrap().set_len(4 * 1024 * 1024 + 9).unwrap();
+        assert!(Image::load(&directory, "icon.bgra").is_err());
+        assert!(Image::load(&directory, "../icon.bgra").is_err());
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_dir(&directory).unwrap();
+    }
 }

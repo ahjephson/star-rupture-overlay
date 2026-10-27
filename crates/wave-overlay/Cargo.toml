@@ -17,6 +17,7 @@ windows = { version = "0.62", features = ["Win32_System_Com", "Win32_UI_Shell", 
 starrupture-observation-model = { path = "../observation-model" }
 starrupture-overlay-reader = { path = "../reader" }
 starrupture-wave-core = { path = "../wave-core" }
+starrupture-assets = { path = "../assets" }
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Security",

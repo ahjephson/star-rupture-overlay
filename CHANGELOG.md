@@ -2,13 +2,18 @@
 
 ## Unreleased
 
+- Automatically close the pinned recipe panel when its requirements are fully submitted or it leaves the validated active research list. Temporary read failures retain the selection. Completion timing was manually verified alongside the game unlock notification.
+
+- Reduce startup memory by reading executable sections without a duplicate whole-image buffer, releasing them before object discovery, and bounding temporary discovery caches.
+- Load only the pinned recipe's item images and release them on clear or disable, reducing the tracker's regular memory use while keeping repeated updates in memory.
+
 - Show both overlays above a focused topmost fullscreen game, hiding and demoting them on Alt-Tab and restoring normal ordering in Borderless. Fullscreen, Alt-Tab and return to Borderless were manually verified on the supported game build.
 - Match Settings labels and checkbox backgrounds to the native tab surface.
 - Populate executable Details with app name, author, copyright and versions derived from the app version, checked during package verification.
 
 - Rename the application and release ZIP to starrupture-overlay, with legacy executable support for deployment and rollback.
 
-- Prepare recipe icons, font and research definitions automatically from the installed game, with verified first-run component downloads and a reusable local cache.
+- Prepare recipe icons, font and research definitions automatically from the installed game, using built-in offline Rust extraction and a reusable local cache.
 - Cancel and stop the complete setup process tree when the overlay exits or the tracker is disabled. Invalid cache contents or changed game archives require preparation again.
 - User-focused setup, update and troubleshooting documentation, issue forms, and an explicit policy that pull requests are not accepted.
 

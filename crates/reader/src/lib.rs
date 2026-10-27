@@ -3,12 +3,14 @@ mod bindings;
 mod cache;
 mod cadence;
 mod discovery;
+mod discovery_memory;
 mod error;
 mod live_context;
 mod live_phase;
 mod live_timer_config;
 pub mod overlay_stream;
 mod platform;
+mod process_image;
 pub mod recipe;
 
 use anyhow::{Context, Result, ensure};

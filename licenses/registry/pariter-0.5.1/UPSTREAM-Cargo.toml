@@ -1,0 +1,26 @@
+[package]
+authors = ["Dawid Ciężarkiewicz <dpc@dpc.pw>"]
+description = "Parallel iterator processing"
+documentation = "https://docs.rs/pariter"
+edition = "2018"
+homepage = "https://github.com/dpc/pariter"
+keywords = ["parallel", "iterator", "parallel_map"]
+license = "MPL-2.0 OR MIT OR Apache-2.0"
+name = "pariter"
+readme = "README.md"
+repository = "https://github.com/dpc/pariter"
+version = "0.5.1"
+
+[[bench]]
+harness = false
+name = "bench"
+
+[dependencies]
+crossbeam = { version = "0.8", default-features = false, features = ["std"] }
+crossbeam-channel = "0.5.0"
+num_cpus = "1.13"
+
+[dev-dependencies]
+criterion = "0.3"
+quickcheck = "1"
+quickcheck_macros = "1"

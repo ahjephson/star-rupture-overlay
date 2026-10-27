@@ -3,16 +3,19 @@ use crate::{Cache, FIELDS, key, path, platform, stamp, validate_offsets};
 use anyhow::{Context, Result, ensure};
 use jmap_dumper::{
     ConfigOverrides,
-    mem::{BlockCache, Ptr},
+    mem::Ptr,
     objects::{FUObjectArray, UStruct},
 };
 use std::collections::{BTreeMap, HashSet};
 
 pub(super) async fn discover(process: &platform::Process) -> Result<Cache> {
     eprintln!("Discovering current Unreal runtime references...");
-    let image = patternsleuth::process::external::read_image_from_pid(process.identity.pid as i32)?;
-    let memory = BlockCache::wrap(process.clone());
-    let config = jmap_dumper::resolve_config(&memory, &image, &ConfigOverrides::default()).await?;
+    let config = {
+        let image = crate::process_image::read(process).await?;
+        let memory = crate::discovery_memory::DiscoveryMemory::new(process.clone());
+        jmap_dumper::resolve_config(&memory, &image, &ConfigOverrides::default()).await?
+    };
+    let memory = crate::discovery_memory::DiscoveryMemory::new(process.clone());
     ensure!(
         config.engine_version == (5, 6)
             && config.build_change_list.as_deref() == Some("++Earth20+Neon-CL-127004"),

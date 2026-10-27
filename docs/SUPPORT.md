@@ -18,7 +18,7 @@ Outside the station, Alt+X clears an existing pin. Inside the station, a complet
 
 ## Recipe setup cannot finish
 
-The tracker prepares its icons, font and recipe information automatically from the supported installed game. The first setup needs internet access to download verified extraction components from their upstream GitHub releases. These components and the derived game assets are cached locally; no game assets are uploaded.
+The tracker prepares its icons, font and recipe information automatically from the supported installed game. Setup works offline using the built-in Rust asset reader. Derived game assets are cached locally; no components are downloaded and no game assets are uploaded.
 
 Check that Steam has finished installing or updating the game, load a supported world, and check your internet connection. Save Settings with Recipe tracker turned off, then enable it and save again to retry, or restart the overlay. Game updates that change the supported build need an overlay compatibility update; retrying cannot add support for an unknown build.
 
@@ -38,9 +38,9 @@ The app is unsigned. If Windows shows **Windows protected your PC**, only choose
 
 ## Local data
 
-Preferences and caches are stored under `%LOCALAPPDATA%/StarRuptureWaveOverlay`. Recipe assets and first-run setup components are kept in `recipe-cache`. The app reads the running game and its installed archives without changing game memory, files or saves.
+Preferences and caches are stored under `%LOCALAPPDATA%/StarRuptureWaveOverlay`. Recipe assets, native type schemas and cache receipts are kept in `recipe-cache`. The app reads the running game and its installed archives without changing game memory, files or saves.
 
-Before deleting local data, exit the overlay. Removing the recipe cache means the next setup may need to download its components again. See the [README](../README.md#updating-or-removing-the-app) for removal and shortcut instructions.
+Before deleting local data, exit the overlay. Removing the recipe cache means the next setup prepares the assets again from your installed game. See the [README](../README.md#updating-or-removing-the-app) for removal and shortcut instructions.
 
 ## Reporting a bug or requesting a feature
 

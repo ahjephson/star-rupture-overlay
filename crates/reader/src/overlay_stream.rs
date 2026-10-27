@@ -14,6 +14,26 @@ use std::{
     sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+// Outside-station clearing and an absent station target have different shortcut
+// semantics: hovering a completed recipe must preserve another pinned recipe.
+enum RecipeRead {
+    OutsideStation,
+    Research(Option<starrupture_observation_model::recipe::Snapshot>),
+}
+impl RecipeRead {
+    fn apply(
+        self,
+        control: &starrupture_observation_model::recipe::Control,
+        request: starrupture_observation_model::recipe::Request,
+        selection: bool,
+    ) {
+        match self {
+            Self::OutsideStation => control.clear_requested(request),
+            Self::Research(snapshot) if selection => control.captured(request, snapshot),
+            Self::Research(snapshot) => control.publish(request, snapshot, String::new()),
+        }
+    }
+}
 fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64
 }
@@ -416,7 +436,7 @@ pub fn run_with_assets(
                                     "Recipe station opened during clear"
                                 );
                                 crate::recipe::foreground_matches(s.process.identity.pid)?;
-                                return Ok(None);
+                                return Ok(RecipeRead::OutsideStation);
                             }
                         }
                         let id = if selection {
@@ -445,7 +465,7 @@ pub fn run_with_assets(
                             );
                         }
                         s.live.menu(&s.process, &s.base).await?;
-                        Ok(Some(sample))
+                        Ok(RecipeRead::Research(sample))
                     }
                     .await;
                     if selection {
@@ -454,8 +474,7 @@ pub fn run_with_assets(
                             started.elapsed().as_millis()
                         );
                         match read {
-                            Ok(None) => t.control.clear_requested(request),
-                            Ok(snapshot) => t.control.captured(request, snapshot),
+                            Ok(read) => read.apply(&t.control, request, true),
                             Err(e) => {
                                 eprintln!("Recipe shortcut ignored: {e:#}");
                                 t.control.captured(request, None);
@@ -463,7 +482,7 @@ pub fn run_with_assets(
                         }
                     } else {
                         match read {
-                            Ok(sample) => t.control.publish(request, sample, String::new()),
+                            Ok(read) => read.apply(&t.control, request, false),
                             Err(e) => t
                                 .control
                                 .unavailable(request, format!("{e:#}").chars().take(220).collect()),
@@ -480,4 +499,41 @@ pub fn run_with_assets(
         "Overlay reader stopped: {sessions} sessions, {menu_reads} menu reads, {world_reads} world reads"
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod recipe_read_tests {
+    use super::*;
+    use starrupture_observation_model::recipe::{Control, Ingredient, Snapshot};
+    #[test]
+    fn absent_hover_preserves_pin_but_absent_poll_and_outside_shortcut_clear() {
+        let control = Control::default();
+        let pin = || Snapshot {
+            recipe_id: "A".into(),
+            ingredients: vec![Ingredient {
+                item_id: "item".into(),
+                submitted: 0,
+                required: 1,
+                remaining: 1,
+                bag_count: None,
+            }],
+            observed_at_ms: 1000,
+            generation: 0,
+            process: 1,
+        };
+        control.toggle_at(Some([20, 30]));
+        control.captured(control.request(), Some(pin()));
+        control.toggle_at(Some([20, 30]));
+        RecipeRead::Research(None).apply(&control, control.request(), true);
+        assert_eq!(control.view().snapshot.unwrap().recipe_id, "A");
+        RecipeRead::Research(None).apply(&control, control.request(), false);
+        assert!(control.view().snapshot.is_none());
+        assert!(!control.request().active);
+        control.toggle_at(Some([20, 30]));
+        control.captured(control.request(), Some(pin()));
+        control.toggle_at(Some([20, 30]));
+        RecipeRead::OutsideStation.apply(&control, control.request(), true);
+        assert!(control.view().snapshot.is_none());
+        assert!(!control.request().active);
+    }
 }

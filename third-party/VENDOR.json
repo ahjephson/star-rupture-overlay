@@ -24,25 +24,27 @@
       "license": "MIT OR Apache-2.0",
       "revision": "c08722de7e78a5768b88bed05f2cb5fb72176d5c",
       "name": "ser-hex"
+    },
+    {
+      "name": "retoc",
+      "url": "https://github.com/trumank/retoc",
+      "revision": "885a8dae740cb1ce1e41ff2e74f67f9f0c118237",
+      "license": "MIT",
+      "selection": "Library source and licences only; no CLI, game-derived fixtures, native loaders or runtime downloads."
+    },
+    {
+      "name": "repak",
+      "url": "https://github.com/trumank/repak",
+      "revision": "355b5f62f51959c7cc6dd5a51708646ef483065d",
+      "license": "MIT OR Apache-2.0",
+      "selection": "Library source and licences only; no CLI, game-derived fixtures, native loaders or runtime downloads."
     }
   ],
   "scope": "Selected retained upstream code only; no game-derived usmap test fixtures; no runtime dependency on reference paths",
   "files": [
     {
-      "path": "third-party/LICENSE-APACHE",
-      "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
-    },
-    {
       "path": "third-party/gospel/Cargo.toml",
       "sha256": "d30ccf321d62123d79e6f11d83f0298467be689ec298b039ae4e0d5f27a9d55b"
-    },
-    {
-      "path": "third-party/gospel/LICENSE",
-      "sha256": "922b76dbbe1c810736b2b5e3e271b57c160f349ca677c46e78259b4655b8c71b"
-    },
-    {
-      "path": "third-party/gospel/README.md",
-      "sha256": "22d24d6cd344e8374d3a458159244e1eb2e22320be41122c9ad3b09f543a66d3"
     },
     {
       "path": "third-party/gospel/gospel-compiler/Cargo.toml",
@@ -156,24 +158,16 @@
       "originalSha256BeforeInheritedFormatting": "62d708b062247b460d66895793b3b51766b9646b06bde69866ce111673695e64"
     },
     {
+      "path": "third-party/gospel/LICENSE",
+      "sha256": "922b76dbbe1c810736b2b5e3e271b57c160f349ca677c46e78259b4655b8c71b"
+    },
+    {
+      "path": "third-party/gospel/README.md",
+      "sha256": "22d24d6cd344e8374d3a458159244e1eb2e22320be41122c9ad3b09f543a66d3"
+    },
+    {
       "path": "third-party/jmap/Cargo.toml",
       "sha256": "699e415afc00ba191910e0a629de438c3ce60fb6cf21a45053e74364b4522c8f"
-    },
-    {
-      "path": "third-party/jmap/LICENSE",
-      "sha256": "e4677afd5345712bc454d1b8413a2519b9b7fb3adbf8430391b84f96d315cead"
-    },
-    {
-      "path": "third-party/jmap/README.md",
-      "sha256": "5506eab1ae11de72381a90b494cc5bb5eeba55f7243f293d21b88d3f364a8c57"
-    },
-    {
-      "path": "third-party/jmap/jmap/Cargo.toml",
-      "sha256": "e69ca2748dc690c54506c353572df15cfb009bcd8c61bd72e44dff9546ad9016"
-    },
-    {
-      "path": "third-party/jmap/jmap/src/lib.rs",
-      "sha256": "8726c4c3b47e8894691ccc1f83dc35ced8e2d7f634125772a43e8e90782105bd"
     },
     {
       "path": "third-party/jmap/jmap_dumper/Cargo.toml",
@@ -260,6 +254,22 @@
       "sha256": "fc3dbf139431838097bbe2f19e642e57971d39baae439a1979ba8cca61fde339"
     },
     {
+      "path": "third-party/jmap/jmap/Cargo.toml",
+      "sha256": "e69ca2748dc690c54506c353572df15cfb009bcd8c61bd72e44dff9546ad9016"
+    },
+    {
+      "path": "third-party/jmap/jmap/src/lib.rs",
+      "sha256": "8726c4c3b47e8894691ccc1f83dc35ced8e2d7f634125772a43e8e90782105bd"
+    },
+    {
+      "path": "third-party/jmap/LICENSE",
+      "sha256": "e4677afd5345712bc454d1b8413a2519b9b7fb3adbf8430391b84f96d315cead"
+    },
+    {
+      "path": "third-party/jmap/README.md",
+      "sha256": "5506eab1ae11de72381a90b494cc5bb5eeba55f7243f293d21b88d3f364a8c57"
+    },
+    {
       "path": "third-party/jmap/usmap/Cargo.toml",
       "sha256": "d271395f8ff004732ffdeb375a250a361695d604974882624f0e10e0a654277c"
     },
@@ -276,28 +286,28 @@
       "sha256": "3ab85ddfb57d9862f1bb383f0abba542b96a6bac30017944858987914b16f87d"
     },
     {
+      "path": "third-party/LICENSE-APACHE",
+      "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
+    },
+    {
       "path": "third-party/patternsleuth/Cargo.toml",
       "sha256": "7b4f58d95713a698eab4755ef522806a38255e01e74b1256f430bcda8cfb860f"
     },
     {
-      "path": "third-party/patternsleuth/README.md",
-      "sha256": "7e9619e0fc32c54c09b32e85af2f5aff8047a6d2f9979917604f903193ada23a"
+      "path": "third-party/patternsleuth/patternsleuth_scanner/benches/scan.rs",
+      "sha256": "c6976f94d91a11c18f0c0585c37d3e0b023e8ca7c01f49394a743b52150d5205"
+    },
+    {
+      "path": "third-party/patternsleuth/patternsleuth_scanner/Cargo.toml",
+      "sha256": "4d43d154865a5b34febf17eff9242837dae97109cca86938aacfbd78369d286d"
+    },
+    {
+      "path": "third-party/patternsleuth/patternsleuth_scanner/src/lib.rs",
+      "sha256": "0f06485dd959ba313425e399d8aa04a9b69bc82822c46667d2f839d296ff755c"
     },
     {
       "path": "third-party/patternsleuth/patternsleuth/Cargo.toml",
       "sha256": "92f98acec01f8fa7e513c7de686e378a887cdac206b414b945c33c89e5a0db11"
-    },
-    {
-      "path": "third-party/patternsleuth/patternsleuth/src/lib.rs",
-      "sha256": "1751268193e467304cbeb526efa4f88c7af8e931f82de8c2d36c76a00143ce87"
-    },
-    {
-      "path": "third-party/patternsleuth/patternsleuth/src/symbols.rs",
-      "sha256": "634c4f3cb9495a1953d80520b7364bb892e6061073590d5d3f7d819828010f77"
-    },
-    {
-      "path": "third-party/patternsleuth/patternsleuth/src/uesym.rs",
-      "sha256": "5f1c017ccb6b801baa5702746e46192f17960d31902b2e4a7224288953e3eaca"
     },
     {
       "path": "third-party/patternsleuth/patternsleuth/src/image/elf.rs",
@@ -314,6 +324,10 @@
     {
       "path": "third-party/patternsleuth/patternsleuth/src/image/pe.rs",
       "sha256": "a96a1d35515b2091b0b77065b0eeb64ce2402ec2b055714ddbe9078ee026704f"
+    },
+    {
+      "path": "third-party/patternsleuth/patternsleuth/src/lib.rs",
+      "sha256": "1751268193e467304cbeb526efa4f88c7af8e931f82de8c2d36c76a00143ce87"
     },
     {
       "path": "third-party/patternsleuth/patternsleuth/src/process/external.rs",
@@ -400,16 +414,181 @@
       "sha256": "4ac909b011cdbf059ba521c806ca561e2acef39b1feb851505f077547d61cb82"
     },
     {
-      "path": "third-party/patternsleuth/patternsleuth_scanner/Cargo.toml",
-      "sha256": "4d43d154865a5b34febf17eff9242837dae97109cca86938aacfbd78369d286d"
+      "path": "third-party/patternsleuth/patternsleuth/src/symbols.rs",
+      "sha256": "634c4f3cb9495a1953d80520b7364bb892e6061073590d5d3f7d819828010f77"
     },
     {
-      "path": "third-party/patternsleuth/patternsleuth_scanner/benches/scan.rs",
-      "sha256": "c6976f94d91a11c18f0c0585c37d3e0b023e8ca7c01f49394a743b52150d5205"
+      "path": "third-party/patternsleuth/patternsleuth/src/uesym.rs",
+      "sha256": "5f1c017ccb6b801baa5702746e46192f17960d31902b2e4a7224288953e3eaca"
     },
     {
-      "path": "third-party/patternsleuth/patternsleuth_scanner/src/lib.rs",
-      "sha256": "0f06485dd959ba313425e399d8aa04a9b69bc82822c46667d2f839d296ff755c"
+      "path": "third-party/patternsleuth/README.md",
+      "sha256": "7e9619e0fc32c54c09b32e85af2f5aff8047a6d2f9979917604f903193ada23a"
+    },
+    {
+      "path": "third-party/README.md",
+      "sha256": "4e6de510d30812bdec3f05095b9ca7cd3638dcca9b79142cd0c8f4dc98f07c08"
+    },
+    {
+      "path": "third-party/repak/Cargo.toml",
+      "sha256": "cc27ca417c1cbea9de14d3d77eb8d707ce3f7eb35bdad7695f230d961c287614",
+      "originalSha256": "7eca56334aca512efbdd074cb43f88e497b23aba1f408dbcbad57a6dc0e1f15a"
+    },
+    {
+      "path": "third-party/repak/LICENSE-APACHE",
+      "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
+    },
+    {
+      "path": "third-party/repak/LICENSE-MIT",
+      "sha256": "adb20183365f414f216f7d2259c49ff92ab681704b863e3ecfe619acbc9eec8a"
+    },
+    {
+      "path": "third-party/repak/README.md",
+      "sha256": "35fafeff1959545c92a8049fad64ce609cdf4060862bbe62c1ec50c16b1bb281"
+    },
+    {
+      "path": "third-party/repak/repak/Cargo.toml",
+      "sha256": "07f0f9a6aa6a6c932f8167974c141cee8c6883b1aaa66a1f8e3e4e0cdb09cd87",
+      "originalSha256": "085825285bd52da23163646c4f1b8e1196e815d5c69340c464d8b5f26f383608"
+    },
+    {
+      "path": "third-party/repak/repak/src/data.rs",
+      "sha256": "165f6fa0a0b8ae159ec5e6fc1d2c8e33eb58c130eb4eeb76378a2479110e76b6",
+      "originalSha256": "a7d1fe294a02bf037e2a3a6a2ce005e8277f2895a0ccff84b9e639d8513d0b13"
+    },
+    {
+      "path": "third-party/repak/repak/src/entry.rs",
+      "sha256": "1a00127735c868b8700eb643de117f06b662463054960003c990cea49b7676fe",
+      "originalSha256": "13559a913d5328bec2a3af8e9db68d9ab40bdd03d2e71951a11cae5709625f37"
+    },
+    {
+      "path": "third-party/repak/repak/src/error.rs",
+      "sha256": "05e7537bd916c312b40dc1afe5806b6fc86194efaeb184991f7881c47fadaf13",
+      "originalSha256": "7da8016d2e258c9b4d143a12fc5a42b00a05cf565e3739e63f70cb79e21d7d36"
+    },
+    {
+      "path": "third-party/repak/repak/src/ext.rs",
+      "sha256": "8941aa6aea264ef140e6b6f7ab418672e448e78590491a3f50de41b78224c2bd"
+    },
+    {
+      "path": "third-party/repak/repak/src/footer.rs",
+      "sha256": "3c0ab1aa678fbc7f797b33011848d66c7b26f44ac251ead73edf3e1d1bb82849"
+    },
+    {
+      "path": "third-party/repak/repak/src/lib.rs",
+      "sha256": "4c7f873de6a1bff51ba2bdaf64a61b6189dbe3810a613a38e18b0972257ec105"
+    },
+    {
+      "path": "third-party/repak/repak/src/pak.rs",
+      "sha256": "9767ca3d4f6131a19f693dbf9e186dede97c61a0853bb4d90994371cb7b7f1cc"
+    },
+    {
+      "path": "third-party/retoc/Cargo.toml",
+      "sha256": "e3e7d1a08880bf61105b6a503b00de20041de2cd0e7e73e6bab9daa1ac4c2738",
+      "originalSha256": "a90aa9525c68e25a2f2e212c2f5b88628137ffddfa3d93a9f4c7e27ee13afed3"
+    },
+    {
+      "path": "third-party/retoc/LICENSE",
+      "sha256": "498a36b40d192dafee5c0512b3b5171f90bb6a7950be2cdbb72af0a4d862ec7d"
+    },
+    {
+      "path": "third-party/retoc/README.md",
+      "sha256": "a99d2460610f0ae75a736faac293c437ea3e53d627951585c7b09d09fcf6f4cb"
+    },
+    {
+      "path": "third-party/retoc/retoc/Cargo.toml",
+      "sha256": "a276175da56bfe97df99d9bf90b14b754d810500b048c028cf5a28b04e5421cf",
+      "originalSha256": "b2836598fc848ee0fb6f5b5f42d67585a925f5802d122e688ad9624f0db1608b"
+    },
+    {
+      "path": "third-party/retoc/retoc/src/asset_conversion.rs",
+      "sha256": "1cd073887a87af891cf4c18807fc5c12e7435c678c116bdcb84c971a48004543"
+    },
+    {
+      "path": "third-party/retoc/retoc/src/asset_registry.rs",
+      "sha256": "3cb1494b21884a87a1bf15fffbfc3e637049fd847c3818af40cfc00c56c9274f"
+    },
+    {
+      "path": "third-party/retoc/retoc/src/compact_binary.rs",
+      "sha256": "37ccdaaa6af33749535940977f51ca0f6b2f5cbcdc63daa6bfa1869ba4bd7119",
+      "originalSha256": "0ea3e3272cb00afdd42a11b5a4ee63e3f319d1e8d99f91eadf8e56fe86ff0c4a"
+    },
+    {
+      "path": "third-party/retoc/retoc/src/compression.rs",
+      "sha256": "58ac855b3f662fcc3653f2f9845adcc6d8dcd9731ca4e8df2d0334f042d74bae",
+      "originalSha256": "ff870f37a328c78b3fdb6ddd0d45fb35e303cc66e7021f4bcf6ed025b4c75f53"
+    },
+    {
+      "path": "third-party/retoc/retoc/src/container_header.rs",
+      "sha256": "5329519e2405b02d18b249c6f2b0816c9cc4a3fc9eb48a494a863bf6a5f5d2a8"
+    },
+    {
+      "path": "third-party/retoc/retoc/src/crc.rs",
+      "sha256": "0c8897c10616113a08405198f8b480fd9fbc20b37e48d178d7b3b4ba4843cc23"
+    },
+    {
+      "path": "third-party/retoc/retoc/src/file_pool.rs",
+      "sha256": "3e43c343c11a87e76344701e08b8a36ee03f33ff9d72ff7cf3789623beda362f"
+    },
+    {
+      "path": "third-party/retoc/retoc/src/iostore_writer.rs",
+      "sha256": "97ec3f6fe824a42cd3bebcee84858902b9527c3cf41bf6e38da9509f0f1ee84e"
+    },
+    {
+      "path": "third-party/retoc/retoc/src/iostore.rs",
+      "sha256": "5fcd52e72d1b27c0609288aa4ce3bfe9060062ecb2a4e69ea8370e9751246df2"
+    },
+    {
+      "path": "third-party/retoc/retoc/src/legacy_asset.rs",
+      "sha256": "d0228f5e9d3523f13b3dedc6216932ea0cff11bb0cda0578c2535f116129fc12"
+    },
+    {
+      "path": "third-party/retoc/retoc/src/lib.rs",
+      "sha256": "3d72bad5f8777a211414fd314c28c32ffcbcb338e622d3aa9a9a53c2a729e6fa"
+    },
+    {
+      "path": "third-party/retoc/retoc/src/logging.rs",
+      "sha256": "de34507ceb4b285eccfa62d9260983626f4475a09311ee92d029d4fbf3fbed23"
+    },
+    {
+      "path": "third-party/retoc/retoc/src/manifest.rs",
+      "sha256": "2ef31014cd31393159775784ad6aabbc51a94d95c2871ab51af59c4b37cb7e79"
+    },
+    {
+      "path": "third-party/retoc/retoc/src/name_map.rs",
+      "sha256": "444cc945915723d97cb373eaef09461c2c3faa3cb72a26dd0c65d50fee0e944c"
+    },
+    {
+      "path": "third-party/retoc/retoc/src/script_objects.rs",
+      "sha256": "9e523822b716731f8dcb8996cda7d27d480a7c5b4acd03e3d87f8f02f3dfce25"
+    },
+    {
+      "path": "third-party/retoc/retoc/src/ser.rs",
+      "sha256": "6867ec26d5081ac3495c97e5ff4de0919482491d55cc810f9ac5e4ecf3125dc7"
+    },
+    {
+      "path": "third-party/retoc/retoc/src/shader_library.rs",
+      "sha256": "6bbdf0886b2a0aa4a5bc602a3392f014e362b0b63ea7d473918c792091c53b43"
+    },
+    {
+      "path": "third-party/retoc/retoc/src/verse_vm_types.rs",
+      "sha256": "23a70a5d229279c05758a2ff871cdc72d630b1f4d37a782569cc16f05e3f00fa"
+    },
+    {
+      "path": "third-party/retoc/retoc/src/version_heuristics.rs",
+      "sha256": "3e95ee889b814823bdd952b2f70504a9016624601dab8ca62660a79982b9d3bb"
+    },
+    {
+      "path": "third-party/retoc/retoc/src/version.rs",
+      "sha256": "e1b97a849aeaedcd4311b0c4b6b0f9453145e69f710fe59638313776bdd952bf"
+    },
+    {
+      "path": "third-party/retoc/retoc/src/zen_asset_conversion.rs",
+      "sha256": "9cc7eac346b9f4c1ae955658ff32f2f1107f1d0e0f49c813584127a487fc85b9"
+    },
+    {
+      "path": "third-party/retoc/retoc/src/zen.rs",
+      "sha256": "816ba31aa1e9cf4ccd0d88b1ab2bdf0f210069b317afef09f1675bd898e3762d"
     },
     {
       "path": "third-party/ser-hex/Cargo.toml",
@@ -442,10 +621,6 @@
     {
       "path": "third-party/ser-hex/ser-hex/src/lib.rs",
       "sha256": "994ea6c46248675c151cf1ac163972c5319c752dd370ee2ecd3aa246f1919fc0"
-    },
-    {
-      "path": "third-party/README.md",
-      "sha256": "f2135815ec7514882cd33ebbbc02fcb2cca7fa7d484840d326d098e04578337e"
     }
   ],
   "originalHashes": "docs/reference/helper-vendor-original-hashes.json",
@@ -535,6 +710,69 @@
       "sha256": "699e415afc00ba191910e0a629de438c3ce60fb6cf21a45053e74364b4522c8f",
       "reason": "Dependabot PR #6: upgrade read-process-memory from 0.1.6 to 0.3.0. Reviewed Windows read permissions and handle usage; upstream Rust source unchanged.",
       "date": "2026-10-27"
+    },
+    {
+      "path": "third-party/retoc/Cargo.toml",
+      "originalSha256": "a90aa9525c68e25a2f2e212c2f5b88628137ffddfa3d93a9f4c7e27ee13afed3",
+      "sha256": "e3e7d1a08880bf61105b6a503b00de20041de2cd0e7e73e6bab9daa1ac4c2738",
+      "date": "2026-10-27",
+      "reason": "Select offline library-only source, local paths and non-publishable manifests; remove unused archive compression/native loader and jmap dependencies; preserve strict compiler compatibility without formatting upstream source."
+    },
+    {
+      "path": "third-party/retoc/retoc/Cargo.toml",
+      "originalSha256": "b2836598fc848ee0fb6f5b5f42d67585a925f5802d122e688ad9624f0db1608b",
+      "sha256": "a276175da56bfe97df99d9bf90b14b754d810500b048c028cf5a28b04e5421cf",
+      "date": "2026-10-27",
+      "reason": "Select offline library-only source, local paths and non-publishable manifests; remove unused archive compression/native loader and jmap dependencies; preserve strict compiler compatibility without formatting upstream source."
+    },
+    {
+      "path": "third-party/retoc/retoc/src/compact_binary.rs",
+      "originalSha256": "0ea3e3272cb00afdd42a11b5a4ee63e3f319d1e8d99f91eadf8e56fe86ff0c4a",
+      "sha256": "37ccdaaa6af33749535940977f51ca0f6b2f5cbcdc63daa6bfa1869ba4bd7119",
+      "date": "2026-10-27",
+      "reason": "Select offline library-only source, local paths and non-publishable manifests; remove unused archive compression/native loader and jmap dependencies; preserve strict compiler compatibility without formatting upstream source."
+    },
+    {
+      "path": "third-party/retoc/retoc/src/compression.rs",
+      "originalSha256": "ff870f37a328c78b3fdb6ddd0d45fb35e303cc66e7021f4bcf6ed025b4c75f53",
+      "sha256": "58ac855b3f662fcc3653f2f9845adcc6d8dcd9731ca4e8df2d0334f042d74bae",
+      "date": "2026-10-27",
+      "reason": "Select offline library-only source, local paths and non-publishable manifests; remove unused archive compression/native loader and jmap dependencies; preserve strict compiler compatibility without formatting upstream source."
+    },
+    {
+      "path": "third-party/repak/Cargo.toml",
+      "originalSha256": "7eca56334aca512efbdd074cb43f88e497b23aba1f408dbcbad57a6dc0e1f15a",
+      "sha256": "cc27ca417c1cbea9de14d3d77eb8d707ce3f7eb35bdad7695f230d961c287614",
+      "date": "2026-10-27",
+      "reason": "Select offline library-only source, local paths and non-publishable manifests; remove unused archive compression/native loader and jmap dependencies; preserve strict compiler compatibility without formatting upstream source."
+    },
+    {
+      "path": "third-party/repak/repak/Cargo.toml",
+      "originalSha256": "085825285bd52da23163646c4f1b8e1196e815d5c69340c464d8b5f26f383608",
+      "sha256": "07f0f9a6aa6a6c932f8167974c141cee8c6883b1aaa66a1f8e3e4e0cdb09cd87",
+      "date": "2026-10-27",
+      "reason": "Select offline library-only source, local paths and non-publishable manifests; remove unused archive compression/native loader and jmap dependencies; preserve strict compiler compatibility without formatting upstream source."
+    },
+    {
+      "path": "third-party/repak/repak/src/data.rs",
+      "originalSha256": "a7d1fe294a02bf037e2a3a6a2ce005e8277f2895a0ccff84b9e639d8513d0b13",
+      "sha256": "165f6fa0a0b8ae159ec5e6fc1d2c8e33eb58c130eb4eeb76378a2479110e76b6",
+      "date": "2026-10-27",
+      "reason": "Select offline library-only source, local paths and non-publishable manifests; remove unused archive compression/native loader and jmap dependencies; preserve strict compiler compatibility without formatting upstream source."
+    },
+    {
+      "path": "third-party/repak/repak/src/entry.rs",
+      "originalSha256": "13559a913d5328bec2a3af8e9db68d9ab40bdd03d2e71951a11cae5709625f37",
+      "sha256": "1a00127735c868b8700eb643de117f06b662463054960003c990cea49b7676fe",
+      "date": "2026-10-27",
+      "reason": "Select offline library-only source, local paths and non-publishable manifests; remove unused archive compression/native loader and jmap dependencies; preserve strict compiler compatibility without formatting upstream source."
+    },
+    {
+      "path": "third-party/repak/repak/src/error.rs",
+      "originalSha256": "7da8016d2e258c9b4d143a12fc5a42b00a05cf565e3739e63f70cb79e21d7d36",
+      "sha256": "05e7537bd916c312b40dc1afe5806b6fc86194efaeb184991f7881c47fadaf13",
+      "date": "2026-10-27",
+      "reason": "Select offline library-only source, local paths and non-publishable manifests; remove unused archive compression/native loader and jmap dependencies; preserve strict compiler compatibility without formatting upstream source."
     }
   ]
 }

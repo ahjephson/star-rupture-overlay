@@ -93,13 +93,10 @@ pub use probe::probe;
 
 /// Exercise connection preparation on the production worker, without a HUD
 /// or a shortcut request. All observations and cancellation use the usual path.
-pub fn self_test_warmup(directory: &Path) -> Result<()> {
+pub fn self_test_warmup(directory: &Path, catalogue_file: &Path) -> Result<()> {
     use starrupture_observation_model::overlay_stream::Payload;
-    let exe = std::env::current_exe()?;
     let catalogue: starrupture_observation_model::recipe::Catalogue =
-        serde_json::from_slice(&std::fs::read(
-            exe.parent().context("Executable folder")?.join("recipe-assets/catalogue.json"),
-        )?)?;
+        serde_json::from_slice(&std::fs::read(catalogue_file)?)?;
     catalogue.validate().map_err(anyhow::Error::msg)?;
     let control = Arc::new(starrupture_observation_model::recipe::Control::default());
     let stop = Arc::new(StopSignal::default());
@@ -138,20 +135,22 @@ pub fn self_test_warmup(directory: &Path) -> Result<()> {
 }
 
 /// Finite production-reader validation. Does not open a HUD or change selection.
-pub fn self_test(directory: &Path) -> Result<()> {
+pub fn self_test(directory: &Path, catalogue_file: &Path) -> Result<()> {
+    self_test_recipe(directory, catalogue_file, "/Game/Chimera/Crafting/CR_Biofilament")
+}
+/// Read one explicit catalogue recipe, including validated absence after completion.
+pub fn self_test_recipe(directory: &Path, catalogue_file: &Path, recipe_id: &str) -> Result<()> {
     std::fs::create_dir_all(directory)?;
     std::fs::create_dir_all(directory.join("cache"))?;
     let stop = Arc::new(StopSignal::default());
     let budget = platform::ReadBudget::new(stop.clone());
     let process = platform::find_game(budget.clone())?;
     ensure!(process.identity.executable_sha256 == crate::BUILD_HASH, "Unsupported game executable");
-    let exe = std::env::current_exe()?;
-    let pack = std::fs::read(
-        exe.parent().context("Executable folder")?.join("recipe-assets/catalogue.json"),
-    )?;
+    let pack = std::fs::read(catalogue_file)?;
     let catalogue: starrupture_observation_model::recipe::Catalogue =
         serde_json::from_slice(&pack)?;
     catalogue.validate().map_err(anyhow::Error::msg)?;
+    ensure!(catalogue.recipes.contains_key(recipe_id), "Unknown diagnostic recipe");
     let cache = std::path::PathBuf::from(std::env::var_os("LOCALAPPDATA").context("App data")?)
         .join("StarRuptureWaveOverlay/cache/session.json");
     let cached = crate::cache::read_json::<Cache>(&cache, 100000)
@@ -204,18 +203,13 @@ pub fn self_test(directory: &Path) -> Result<()> {
             budget.renew(5000);
             let sample_started = std::time::Instant::now();
             live.menu(&process, &base).await?;
-            let sample = binding
-                .sample(
-                    &ctx,
-                    &base,
-                    live.world_address(),
-                    "/Game/Chimera/Crafting/CR_Biofilament",
-                    &catalogue,
-                    1,
-                )
-                .await?;
+            let sample =
+                binding.sample(&ctx, &base, live.world_address(), recipe_id, &catalogue, 1).await?;
             live.menu(&process, &base).await?;
-            samples.push(json!({"recipe":sample.recipe_id,"observedAtMs":sample.observed_at_ms,"readMillis":sample_started.elapsed().as_millis(),"ingredients":sample.ingredients.iter().map(|i|json!({"item":i.item_id,"submitted":i.submitted,"required":i.required,"remaining":i.remaining,"bagCount":i.bag_count})).collect::<Vec<_>>()}));
+            samples.push(match sample {
+                Some(sample)=>json!({"recipe":sample.recipe_id,"observedAtMs":sample.observed_at_ms,"readMillis":sample_started.elapsed().as_millis(),"ingredients":sample.ingredients.iter().map(|i|json!({"item":i.item_id,"submitted":i.submitted,"required":i.required,"remaining":i.remaining,"bagCount":i.bag_count})).collect::<Vec<_>>()}),
+                None=>json!({"recipe":recipe_id,"status":"absent_from_validated_active_research_list","readMillis":sample_started.elapsed().as_millis()}),
+            });
         }
         budget.renew(5000);
         live.menu(&process, &base).await?;

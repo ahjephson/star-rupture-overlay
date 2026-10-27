@@ -4,7 +4,7 @@ use crate::{Identity, ObjectStamp, RuntimeCache, path, platform, stamp};
 use anyhow::{Context, Result, ensure};
 use iced_x86::{Decoder, DecoderOptions, Mnemonic, Register};
 use jmap_dumper::{
-    mem::{BlockCache, Ctx, Ptr},
+    mem::{Ctx, Ptr},
     objects::{FUObjectArray, UFunction, UObject, UStruct, ZBoolProperty},
 };
 use serde::{Deserialize, Serialize};
@@ -103,9 +103,12 @@ async fn world(ctx: &Ctx, cache: &RuntimeCache, b: &RuntimeBindings) -> Result<(
     Ok((world, persistent))
 }
 async fn discover(process: &platform::Process, base: &RuntimeCache) -> Result<Bindings> {
-    let ctx =
-        jmap_dumper::connect_manual(BlockCache::wrap(process.clone()), base.config.clone(), None)
-            .await?;
+    let ctx = jmap_dumper::connect_manual(
+        crate::discovery_memory::DiscoveryMemory::new(process.clone()),
+        base.config.clone(),
+        None,
+    )
+    .await?;
     let array = Ptr::<FUObjectArray>::new(ctx.uobjectarray, ctx.clone())?;
     let count = array.num_elements().await?;
     ensure!((1..=2_000_000).contains(&count), "Invalid registry size");

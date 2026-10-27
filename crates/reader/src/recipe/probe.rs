@@ -182,6 +182,7 @@ pub fn probe(directory: &Path) -> Result<()> {
                 1,
             )
             .await?;
+        let sample = sample.context("Probe recipe is absent from active research")?;
         let ingredients:Vec<_>=sample.ingredients.iter().map(|i|json!({"item":i.item_id,"submitted":i.submitted,"required":i.required,"remaining":i.remaining})).collect();
         let mut weak_codes = Vec::new();
         for extra in &extras {

@@ -10,7 +10,7 @@ The 0.2.7 development candidate supports the environment below.
 | Installation | Location detected from the running game process |
 | Game/map state | Supported main-map running session |
 
-Manual display-mode checks, reported by the owner on 2026-10-27: the earlier build hid both overlays in Fullscreen because it rejected topmost game windows. With foreground-only topmost following installed, both overlays work in Fullscreen; Alt-Tab away and back and switching back to Borderless also work. This verifies the supported game’s Fullscreen setting on the tested system. The underlying exclusive/fullscreen-optimization presentation mode was not measured; true exclusive fullscreen on other configurations is not certified.
+Both overlays support the game's Fullscreen setting on the supported system, including Alt-Tab and switching to Borderless. Topmost fullscreen windows require the game to have focus; the overlays hide while another application is foreground. Support does not extend to unverified exclusive-fullscreen configurations.
 
 Executable filename: `StarRuptureGameSteam-Win64-Shipping.exe`. Windows supplies its full path; the reader checks the executable hash and process creation identity before reading game memory. Multiple matching processes are rejected as ambiguous.
 
@@ -22,4 +22,4 @@ Supported executable SHA256:
 
 A game update can invalidate support. Unsupported builds and runtime states produce unavailable data. Compatibility updates require reflection, allocation and timing verification plus live tests.
 
-The overlay executable statically links the Visual C++ runtime. Recipe setup uses the Windows PowerShell included with Windows and downloads a self-contained extraction helper, so users do not need a separate SDK or runtime installation. The first setup needs internet access; a validated asset cache is reused on later launches. Preparing native type information requires a supported loaded world. Game files remain read-only.
+The overlay executable statically links the Visual C++ runtime. Recipe setup uses built-in Rust code and works offline, with no additional runtime or extraction tool to install. Native type preparation requires a supported loaded world; later launches reuse a validated asset cache. Game files remain read-only.

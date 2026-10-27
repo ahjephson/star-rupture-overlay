@@ -4,7 +4,7 @@ This guide documents the owner's build and maintenance workflow. Pull requests a
 
 ## Build a local candidate
 
-Use Windows with Rust 1.99.1, Visual Studio C++ Build Tools and the Windows SDK, PowerShell 7, Git and Python 3. Run commands from the repository root:
+Use Windows with Rust 1.99.1, Visual Studio C++ Build Tools and the Windows SDK, PowerShell 7 and Git. Run commands from the repository root:
 
 ```powershell
 ./scripts/Install-QualityTools.ps1
@@ -16,7 +16,7 @@ Use Windows with Rust 1.99.1, Visual Studio C++ Build Tools and the Windows SDK,
 
 Build.ps1 checks formatting, strict Clippy, workspace tests and vendor hashes. It requires a fresh output directory and leaves the running app unchanged. Use `-Offline` with cached dependencies, or `-ToolchainDirectory PATH` for the pinned local toolchain. Packaging requires a clean checkout by default; `-AllowUncommitted` marks development archives. [Release preparation](RELEASING.md) and [deployment](DEPLOYMENT.md) describe the separate packaging and activation steps.
 
-First-run recipe setup downloads its tools at runtime; developers do not need to check in or manually prepare game assets. The [recipe tracker guide](RECIPE-TRACKER.md) documents finite setup, cancellation, rendering and live reader diagnostics. All generated data belongs in ignored local storage.
+Recipe setup uses built-in Rust code to prepare assets offline from the supported installed game. A loaded world supplies the native type schema; the app discovers the archives and maintains its local asset cache. The [recipe tracker guide](RECIPE-TRACKER.md) documents finite setup, cancellation, rendering and live reader diagnostics. All generated data belongs in ignored local storage.
 
 ## Rust conventions
 
@@ -48,7 +48,7 @@ Windows CI checks formatting, Clippy, workspace tests, a development build, depe
 
 For full verification, build and package in a fresh ignored output folder, then run Test-Release.ps1 against the ZIP. The **Windows package verification** workflow runs these checks manually and when dependency, build, packaging, workflow, asset or licence files change. It tests the app's own hidden native window, renderer, archive rejection, installation, upgrade and rollback without a game or elevated privileges. Its candidate ZIP and checksum are retained for two days. Run this workflow before release preparation and for source changes that need native package diagnostics.
 
-Reader/timing changes also need bounded live verification against the supported build before a release. Report the live checks actually performed and their limitations. With the game running, the candidate's `--self-test-reader ABSOLUTE-PRIVATE-DIRECTORY` performs 24 validated observations and stops. The optional `python scripts/test_reader.py` additionally tests GUI startup/duplicates/shutdown; exit other overlay instances before that lifecycle test. Keep raw results local.
+Reader/timing changes also need bounded live verification against the supported build before a release. Report the live checks actually performed and their limitations. With the game running, the candidate's `--self-test-reader ABSOLUTE-PRIVATE-DIRECTORY` performs 24 validated observations and stops. The optional `scripts/Test-ReaderLifecycle.ps1` additionally tests GUI startup/duplicates/shutdown; exit other overlay instances before that lifecycle test. Keep raw results local.
 
 ## Artwork
 

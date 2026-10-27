@@ -126,6 +126,25 @@ fn open(pid: u32, budget: Arc<ReadBudget>) -> Result<Process> {
     Ok(p)
 }
 impl Process {
+    pub(crate) fn main_module(&self) -> Result<(u64, usize)> {
+        self.ensure_alive()?;
+        let raw = unsafe {
+            CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, self.identity.pid)
+        };
+        ensure!(raw != INVALID_HANDLE_VALUE, "Cannot enumerate game module");
+        let snapshot = OwnedHandle(raw);
+        let mut module: MODULEENTRY32W = unsafe { zeroed() };
+        module.dwSize = size_of::<MODULEENTRY32W>() as u32;
+        checked(unsafe { Module32FirstW(snapshot.0, &mut module) })?;
+        let n = module.szExePath.iter().position(|v| *v == 0).unwrap_or(module.szExePath.len());
+        ensure!(
+            String::from_utf16(&module.szExePath[..n])?
+                .eq_ignore_ascii_case(&self.identity.executable),
+            "Game module identity changed"
+        );
+        self.ensure_alive()?;
+        Ok((module.modBaseAddr as u64, module.modBaseSize as usize))
+    }
     pub(crate) fn has_exited(&self) -> Result<bool> {
         self.budget.check()?;
         let mut code = 0;

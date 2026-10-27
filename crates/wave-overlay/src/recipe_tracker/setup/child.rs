@@ -41,26 +41,27 @@ fn quoted(value: &str) -> String {
     text.push('"');
     text
 }
-pub(super) fn run(
-    script: &str,
+pub(super) fn run_executable(
+    executable: &Path,
     request: &Path,
     error: &Path,
     stop: &StopSignal,
     enabled: &std::sync::atomic::AtomicBool,
 ) -> Result<()> {
-    let windows = std::env::var_os("SystemRoot").context("Windows folder unavailable")?;
-    let executable = Path::new(&windows).join("System32/WindowsPowerShell/v1.0/powershell.exe");
-    let (parameters, body) = script.split_once('\n').context("Setup script parameters")?;
-    let command = format!(
-        "& {{ {parameters}\ntrap {{ [IO.File]::WriteAllText('{}', $_.Exception.Message); exit 1 }}\n{body}\n}} -RequestFile '{}'",
-        error.to_string_lossy().replace('\'', "''"),
-        request.to_string_lossy().replace('\'', "''")
-    );
     let line = format!(
-        "{} -NoLogo -NoProfile -NonInteractive -Command {}",
+        "{} --prepare-recipe-assets {}",
         quoted(&executable.to_string_lossy()),
-        quoted(&command)
+        quoted(&request.to_string_lossy())
     );
+    run_process(executable, &line, error, stop, enabled)
+}
+fn run_process(
+    executable: &Path,
+    line: &str,
+    error: &Path,
+    stop: &StopSignal,
+    enabled: &std::sync::atomic::AtomicBool,
+) -> Result<()> {
     ensure!(line.len() < 30000, "Setup command length bound");
     let mut line = crate::desktop::wide(line);
     unsafe {
@@ -84,7 +85,7 @@ pub(super) fn run(
         let mut info: PROCESS_INFORMATION = std::mem::zeroed();
         ensure!(
             CreateProcessW(
-                crate::desktop::wide(&executable).as_ptr(),
+                crate::desktop::wide(executable).as_ptr(),
                 line.as_mut_ptr(),
                 std::ptr::null(),
                 std::ptr::null(),
@@ -95,7 +96,7 @@ pub(super) fn run(
                 &startup,
                 &mut info
             ) != 0,
-            "Could not start Windows setup helper: {}",
+            "Could not start bundled asset preparation: {}",
             std::io::Error::last_os_error()
         );
         let process = Handle(info.hProcess);
@@ -160,13 +161,15 @@ pub fn self_test(directory: &Path) -> Result<()> {
         }
     });
     let started = Instant::now();
-    let result = run(
-        r#"param([string]$RequestFile)
-$child=Start-Process -FilePath "$PSHOME\powershell.exe" -ArgumentList @('-NoProfile','-NonInteractive','-Command','"Start-Sleep -Seconds 120"') -WindowStyle Hidden -PassThru
-[IO.File]::WriteAllText($RequestFile,[string]$child.Id)
-Start-Sleep -Seconds 120
-"#,
-        &marker,
+    let exe = std::env::current_exe()?;
+    let line = format!(
+        "{} --self-test-asset-wait {}",
+        quoted(&exe.to_string_lossy()),
+        quoted(&marker.to_string_lossy())
+    );
+    let result = run_process(
+        &exe,
+        &line,
         &directory.join("error.txt"),
         &stop,
         &std::sync::atomic::AtomicBool::new(true),
@@ -191,6 +194,23 @@ Start-Sleep -Seconds 120
             &serde_json::json!({"ownedProcessesOnly":true,"cancelled":true,"childStopped":true,"elapsedMillis":started.elapsed().as_millis()}),
         )?,
     )?;
+    Ok(())
+}
+
+pub fn wait_fixture(marker: &Path, child: bool) -> Result<()> {
+    use std::{os::windows::process::CommandExt, process::Command};
+    ensure!(marker.is_absolute(), "Absolute cancellation marker required");
+    if child {
+        std::fs::write(marker, std::process::id().to_string())?;
+    } else {
+        let mut process = Command::new(std::env::current_exe()?)
+            .arg("--self-test-asset-wait-child")
+            .arg(marker)
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()?;
+        let _ = process.wait()?;
+    }
+    std::thread::sleep(Duration::from_secs(120));
     Ok(())
 }
 

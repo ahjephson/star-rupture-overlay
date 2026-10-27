@@ -1,6 +1,6 @@
 [workspace]
-members = ["crates/wave-overlay", "crates/reader", "crates/wave-core", "crates/observation-model"]
-exclude = ["third-party/jmap", "third-party/gospel", "third-party/patternsleuth", "third-party/ser-hex"]
+members = ["crates/wave-overlay", "crates/reader", "crates/wave-core", "crates/observation-model", "crates/assets"]
+exclude = ["third-party/jmap", "third-party/gospel", "third-party/patternsleuth", "third-party/ser-hex", "third-party/retoc", "third-party/repak"]
 resolver = "3"
 
 [workspace.package]

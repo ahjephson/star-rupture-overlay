@@ -553,7 +553,8 @@ impl Binding {
         id: &str,
         catalogue: &Catalogue,
         generation: u64,
-    ) -> Result<Snapshot> {
+    ) -> Result<Option<Snapshot>> {
+        ensure!(catalogue.recipes.contains_key(id), "Unknown pinned recipe reference");
         let world_s = serial(ctx, world).await?;
         let gs = ctx.read::<u64>(world + 0x1b0).await?;
         let gs_s = serial(ctx, gs).await?;
@@ -594,39 +595,48 @@ impl Binding {
                 }
             }
         }
-        ensure!(matches.len() == 1, "Pinned recipe is no longer in the current research list.");
-        let (i, r) = matches[0];
-        self.recipe_hints.borrow_mut().insert(id.into(), u64at(r, 16));
-        let ip = u64at(r, 24);
-        let ni = u32at(r, 32) as usize;
-        let ic = u32at(r, 36) as usize;
-        ensure!(ni <= 20 && ic >= ni && ic <= 256, "Research ingredient bounds");
-        let items = if ni == 0 {
-            Vec::new()
-        } else {
-            bytes(ctx, ip, ni * 16).await?
-        };
-        let mut submitted = Vec::new();
-        for item in items.as_chunks::<16>().0 {
-            let count = u32at(item, 8);
-            ensure!(count <= i32::MAX as u32, "Research counter out of range");
-            submitted.push((asset(ctx, u64at(item, 0)).await?, count));
-        }
-        let mut ingredients = progress(
-            &catalogue.recipes.get(id).context("Recipe reference")?.requirements,
-            &submitted,
-        )
-        .map_err(anyhow::Error::msg)?;
-        if ingredients.iter().any(|i| i.remaining > 0)
-            && let Ok(counts) = bag::capture(ctx, base).await
-        {
-            for item in &mut ingredients {
-                item.bag_count = Some(counts.get(&item.item_id).copied().unwrap_or(0));
+        ensure!(matches.len() <= 1, "Ambiguous pinned research recipe");
+        let ingredients = if let Some((_, r)) = matches.first().copied() {
+            self.recipe_hints.borrow_mut().insert(id.into(), u64at(r, 16));
+            let ip = u64at(r, 24);
+            let ni = u32at(r, 32) as usize;
+            let ic = u32at(r, 36) as usize;
+            ensure!(ni <= 20 && ic >= ni && ic <= 256, "Research ingredient bounds");
+            let items = if ni == 0 {
+                Vec::new()
+            } else {
+                bytes(ctx, ip, ni * 16).await?
+            };
+            let mut submitted = Vec::new();
+            for item in items.as_chunks::<16>().0 {
+                let count = u32at(item, 8);
+                ensure!(count <= i32::MAX as u32, "Research counter out of range");
+                submitted.push((asset(ctx, u64at(item, 0)).await?, count));
             }
-        }
+            let mut ingredients = progress(
+                &catalogue.recipes.get(id).context("Recipe reference")?.requirements,
+                &submitted,
+            )
+            .map_err(anyhow::Error::msg)?;
+            if ingredients.iter().any(|i| i.remaining > 0)
+                && let Ok(counts) = bag::capture(ctx, base).await
+            {
+                for item in &mut ingredients {
+                    item.bag_count = Some(counts.get(&item.item_id).copied().unwrap_or(0));
+                }
+            }
+            ensure!(
+                ni == 0 || bytes(ctx, ip, items.len()).await? == items,
+                "Research ingredients changed during observation"
+            );
+            Some(ingredients)
+        } else {
+            // A completed recipe can leave the active research list entirely.
+            // Only publish absence after validating the whole list and its owner below.
+            None
+        };
         ensure!(
-            (ni == 0 || bytes(ctx, ip, items.len()).await? == items)
-                && bytes(ctx, p + i as u64 * 40, 40).await? == r
+            (n == 0 || bytes(ctx, p, raw.len()).await? == raw)
                 && bytes(ctx, owner + 864 + 264, 16).await? == h
                 && serial(ctx, owner).await? == owner_s
                 && serial(ctx, level).await? == level_s
@@ -639,13 +649,13 @@ impl Binding {
                 && ctx.read::<u64>(level + 32).await? == world,
             "Research changed during observation"
         );
-        Ok(Snapshot {
+        Ok(ingredients.map(|ingredients| Snapshot {
             recipe_id: id.into(),
             ingredients,
             observed_at_ms: super::now_ms(),
             generation,
             process: base.identity.pid,
-        })
+        }))
     }
 }
 async fn asset(ctx: &Ctx, a: u64) -> Result<String> {
