@@ -1,4 +1,4 @@
-name: Windows quality and package checks
+name: Windows CI
 
 on:
   push:
@@ -25,25 +25,51 @@ jobs:
         with:
           persist-credentials: false
       - name: Install pinned Rust components
-        run: rustup toolchain install 1.99.1 --profile minimal --component clippy --component rustfmt
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal --component clippy --component rustfmt
+          if ($LASTEXITCODE -ne 0) { throw 'Rust installation failed.' }
+      - name: Restore Cargo and development build cache
+        id: cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git/db
+            target/debug
+          key: ci-windows-2022-rust-1.99.1-v1-${{ hashFiles('Cargo.lock', '**/Cargo.toml', 'rust-toolchain.toml', 'scripts/Common.ps1') }}-${{ github.sha }}
+          restore-keys: |
+            ci-windows-2022-rust-1.99.1-v1-${{ hashFiles('Cargo.lock', '**/Cargo.toml', 'rust-toolchain.toml', 'scripts/Common.ps1') }}-
       - name: Check tracked content and font provenance
         run: ./scripts/Test-PublicContent.ps1
       - name: Install pinned dependency checker
         run: ./scripts/Install-QualityTools.ps1
       - name: Audit dependency advisories, licences and sources
         run: ./scripts/Test-Dependencies.ps1
-      - name: Format, lint, test and build
-        run: ./scripts/Build.ps1 -OutputDirectory local/ci-build
-      - name: Package candidate
-        run: ./scripts/Package-Release.ps1 -BuildDirectory local/ci-build -OutputDirectory local/ci-package
-      - name: Verify package, native rendering and reversible deployment
+      - name: Check formatting
+        run: ./scripts/Format.ps1 -Check
+      - name: Verify vendored files
+        run: ./scripts/Verify-Vendor.ps1
+      - name: Lint
         run: |
-          $archive = Get-ChildItem local/ci-package/*.zip
-          ./scripts/Test-Release.ps1 -ArchivePath $archive.FullName
-      - name: Retain tested candidate
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+          . ./scripts/Common.ps1
+          Initialize-Toolchain
+          Invoke-Cargo @('clippy', '--workspace', '--all-targets', '--locked', '--', '-D', 'warnings')
+      - name: Test
+        run: |
+          . ./scripts/Common.ps1
+          Initialize-Toolchain
+          Invoke-Cargo @('test', '--workspace', '--all-targets', '--locked')
+      - name: Build development executable
+        run: |
+          . ./scripts/Common.ps1
+          Initialize-Toolchain
+          Invoke-Cargo @('build', '--workspace', '--locked')
+      - name: Save Cargo and development build cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          name: windows-x64-candidate
-          path: local/ci-package/*
-          if-no-files-found: error
-          retention-days: 7
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git/db
+            target/debug
+          key: ${{ steps.cache.outputs.cache-primary-key }}

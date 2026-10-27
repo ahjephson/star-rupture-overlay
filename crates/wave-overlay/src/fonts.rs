@@ -13,13 +13,15 @@ impl Fonts {
             include_bytes!("../assets/fonts/Oxanium-Bold.ttf").as_slice(),
             include_bytes!("../assets/fonts/Oxanium-ExtraBold.ttf").as_slice(),
         ] {
-            let count = 0;
+            // Win32 writes the installed-face count despite the generated binding's
+            // *const annotation. Use writable raw storage, never a shared reference.
+            let mut count = 0;
             let handle = unsafe {
                 AddFontMemResourceEx(
                     bytes.as_ptr().cast(),
                     bytes.len() as u32,
                     std::ptr::null(),
-                    &count,
+                    &raw mut count,
                 )
             };
             if handle.is_null() || count == 0 {

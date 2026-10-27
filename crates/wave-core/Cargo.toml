@@ -1,14 +1,14 @@
 [package]
 name = "starrupture-wave-core"
+description = "Observation validation, configuration and native wave timing"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 publish = false
 
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
-chrono.workspace = true
-uuid.workspace = true
-ryu-js.workspace = true
+starrupture-observation-model = { path = "../observation-model" }

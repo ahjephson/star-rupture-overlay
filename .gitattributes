@@ -5,3 +5,7 @@
 # Preserve exact upstream notice bytes used by the reviewed SHA256 inventory.
 /licenses/registry/** -text
 /licenses/registry/index.json text eol=lf
+
+# Artwork and generated Windows icons retain exact binary bytes.
+*.png -text
+*.ico -text

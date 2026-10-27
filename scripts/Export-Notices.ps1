@@ -6,7 +6,7 @@ $metadata = & cargo @arguments | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0) { throw 'Dependency metadata failed.' }
 $packages = @{}; foreach ($package in $metadata.packages) { $packages[$package.id] = $package }
 $nodes = @{}; foreach ($node in $metadata.resolve.nodes) { $nodes[$node.id] = $node }
-$root = $metadata.packages | Where-Object name -eq 'starrupture-wave-overlay'
+$root = $metadata.packages | Where-Object name -eq 'starrupture-overlay'
 $pending = [Collections.Generic.Stack[string]]::new(); $pending.Push($root.id)
 $reachable = [Collections.Generic.HashSet[string]]::new()
 while ($pending.Count) {
@@ -49,3 +49,14 @@ New-Item -ItemType Directory -Force -Path $fonts | Out-Null
 Copy-Item -LiteralPath (Join-Path $script:ProjectRoot 'crates/wave-overlay/assets/fonts/OFL.txt') -Destination $fonts
 Copy-Item -LiteralPath (Join-Path $script:ProjectRoot 'licenses/registry/index.json') -Destination (Join-Path $OutputDirectory 'licenses/registry-notice-sources.json')
 Write-JsonFile ([ordered]@{ target = 'x86_64-pc-windows-msvc'; packages = $inventory }) (Join-Path $OutputDirectory 'dependency-inventory.json')
+
+$setupSource = Join-Path $script:ProjectRoot 'licenses/asset-setup'
+$setupDestination = Join-Path $OutputDirectory 'licenses/asset-setup'
+$setupIndex = Get-Content -LiteralPath (Join-Path $setupSource 'index.json') -Raw | ConvertFrom-Json
+New-Item -ItemType Directory -Force -Path $setupDestination | Out-Null
+foreach ($file in $setupIndex.notices) {
+    $path = Join-Path $setupSource $file.file
+    if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $file.sha256) { throw 'Recipe setup notice provenance changed.' }
+    Copy-Item -LiteralPath $path -Destination $setupDestination
+}
+Copy-Item -LiteralPath (Join-Path $setupSource 'index.json') -Destination $setupDestination

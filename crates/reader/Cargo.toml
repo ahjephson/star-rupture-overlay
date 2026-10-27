@@ -1,9 +1,11 @@
 [package]
 name = "starrupture-overlay-reader"
-version = "0.5.0"
-edition = "2024"
+description = "Bounded read-only StarRupture process observations"
+version.workspace = true
+edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 publish = false
 autobins = false
 
@@ -14,12 +16,13 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 smol = "2"
+jmap = { path = "../../third-party/jmap/jmap" }
+usmap = { path = "../../third-party/jmap/usmap" }
 jmap_dumper = { path = "../../third-party/jmap/jmap_dumper" }
 patternsleuth = { path = "../../third-party/patternsleuth/patternsleuth", features = ["image-pe", "process-external"] }
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_Security"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_Security", "Win32_UI_WindowsAndMessaging"] }
 iced-x86 = "1.21.0"
-starrupture-observation-model = {path="../observation-model"}
-
+starrupture-observation-model = { path = "../observation-model" }
 
 [lib]
 path = "src/lib.rs"

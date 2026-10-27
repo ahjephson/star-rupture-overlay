@@ -1,5 +1,13 @@
-//! Overlay-only retained read-only context.
-use super::*;
+//! Persistent read-only context with live allocation and ownership guards.
+use super::{Bindings, RuntimeBindings, finite, read_context, snapshot, world};
+use crate::{ObjectStamp, RuntimeCache, platform, stamp};
+use anyhow::{Context, Result, ensure};
+use jmap_dumper::{
+    mem::{Ctx, Ptr},
+    objects::UObject,
+};
+use starrupture_observation_model::observation::LiveContext;
+use std::path::Path as FilePath;
 
 #[derive(PartialEq)]
 struct StrongStamp {
@@ -23,7 +31,7 @@ async fn strong_stamp(ctx: &Ctx, address: u64) -> Result<StrongStamp> {
     })
 }
 pub(crate) struct Resident {
-    bindings: Bindings,
+    bindings: RuntimeBindings,
     ctx: Ctx,
     anchors: Vec<StrongStamp>,
     level: u64,
@@ -34,16 +42,21 @@ pub(crate) struct Resident {
     last_sim: f64,
 }
 impl Resident {
+    pub(crate) fn world_address(&self) -> u64 {
+        self.bindings.world.address
+    }
     pub(crate) fn context(&self) -> Ctx {
         self.ctx.clone()
     }
     pub(crate) async fn open(
         process: &platform::Process,
-        base: &Cache,
+        base: &RuntimeCache,
         directory: &FilePath,
     ) -> Result<Self> {
         snapshot(process, base, directory).await?;
-        let b: Bindings = crate::cache::read_json(&directory.join("live-context.json"), 65536)?;
+        let record: Bindings =
+            crate::cache::read_json(&directory.join("live-context.json"), 65536)?;
+        let b = RuntimeBindings::new(&record)?;
         b.validate(&process.identity)?;
         let ctx = jmap_dumper::connect_manual(process.clone(), base.config.clone(), None).await?;
         let (world, persistent) = world(&ctx, base, &b).await?;
@@ -54,14 +67,9 @@ impl Resident {
             .await?
             .context("Controller level")?
             .address();
-        let settings = b.ptr(&ctx, persistent, "Engine.Level", "WorldSettings").await?;
-        let state = b.ptr(&ctx, world, "Engine.World", "GameState").await?;
-        let player: u64 = ctx
-            .read(
-                base.controller.address
-                    + base.offsets[&key("/Script/Engine.PlayerController", "Player")] as u64,
-            )
-            .await?;
+        let settings = ctx.read::<u64>(persistent + b.fields.world_settings).await?;
+        let state = ctx.read::<u64>(world + b.fields.game_state).await?;
+        let player: u64 = ctx.read(base.controller.address + base.fields.player).await?;
         let mut anchors = Vec::new();
         for address in [
             base.controller.address,
@@ -76,7 +84,7 @@ impl Resident {
         ] {
             anchors.push(strong_stamp(&ctx, address).await?);
         }
-        let last_sim = finite(ctx.read::<f64>(world + b.getters["GetTimeSeconds"]).await?)?;
+        let last_sim = finite(ctx.read::<f64>(world + b.clocks.simulation_seconds).await?)?;
         let mut resident = Self {
             bindings: b,
             ctx,
@@ -91,7 +99,7 @@ impl Resident {
         resident.menu(process, base).await?;
         Ok(resident)
     }
-    async fn guard(&self, process: &platform::Process, base: &Cache) -> Result<()> {
+    async fn guard(&self, process: &platform::Process, base: &RuntimeCache) -> Result<()> {
         process.ensure_alive()?;
         for anchor in &self.anchors {
             ensure!(
@@ -106,23 +114,11 @@ impl Resident {
             world == b.world.address
                 && persistent == self.persistent
                 && ctx.read::<u64>(base.controller.address + 32).await? == self.level
-                && b.ptr(ctx, persistent, "Engine.Level", "WorldSettings").await? == self.settings
-                && b.ptr(ctx, world, "Engine.World", "GameState").await? == self.state
-                && ctx
-                    .read::<u64>(
-                        base.controller.address
-                            + base.offsets[&key("/Script/Engine.PlayerController", "Player")]
-                                as u64
-                    )
-                    .await?
+                && ctx.read::<u64>(persistent + b.fields.world_settings).await? == self.settings
+                && ctx.read::<u64>(world + b.fields.game_state).await? == self.state
+                && ctx.read::<u64>(base.controller.address + base.fields.player).await?
                     == self.player
-                && ctx
-                    .read::<u64>(
-                        self.player
-                            + base.offsets[&key("/Script/Engine.Player", "PlayerController")]
-                                as u64
-                    )
-                    .await?
+                && ctx.read::<u64>(self.player + base.fields.player_controller).await?
                     == base.controller.address
                 && ctx.read::<u64>(b.timer_subsystem.address + 32).await? == world
                 && ctx.read::<u64>(b.wave_subsystem.address + 32).await? == world,
@@ -133,31 +129,16 @@ impl Resident {
     pub(crate) async fn menu(
         &mut self,
         process: &platform::Process,
-        base: &Cache,
+        base: &RuntimeCache,
     ) -> Result<Option<bool>> {
         self.guard(process, base).await?;
         let b = &self.bindings;
-        let before = b
-            .boolean(
-                &self.ctx,
-                base.controller.address,
-                "Chimera.CrPlayerControllerBase",
-                "bReplInPauseMenu",
-            )
-            .await?;
+        let before = b.fields.menu_open.read(&self.ctx, base.controller.address).await?;
         let sim =
-            finite(self.ctx.read::<f64>(b.world.address + b.getters["GetTimeSeconds"]).await?)?;
+            finite(self.ctx.read::<f64>(b.world.address + b.clocks.simulation_seconds).await?)?;
         ensure!(sim >= self.last_sim, "Resident simulation clock regressed");
         self.guard(process, base).await?;
-        if b.boolean(
-            &self.ctx,
-            base.controller.address,
-            "Chimera.CrPlayerControllerBase",
-            "bReplInPauseMenu",
-        )
-        .await?
-            != before
-        {
+        if b.fields.menu_open.read(&self.ctx, base.controller.address).await? != before {
             return Ok(None);
         }
         self.last_sim = sim;
@@ -166,8 +147,8 @@ impl Resident {
     pub(crate) async fn snapshot(
         &mut self,
         process: &platform::Process,
-        base: &Cache,
-    ) -> Result<Value> {
+        base: &RuntimeCache,
+    ) -> Result<LiveContext> {
         self.menu(process, base).await?;
         let value = read_context(process, base, &self.bindings, self.ctx.clone()).await?;
         self.menu(process, base).await?;
