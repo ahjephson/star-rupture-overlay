@@ -2,7 +2,7 @@
 
 ## Portable installation
 
-Compare the ZIP's SHA256 with its matching .sha256 file, extract to a fresh user-writable folder and run starrupture-wave-overlay.exe. Keep LICENSE, THIRD-PARTY-NOTICES.md and licenses/ with it. Deployment uses a user-writable directory and standard user privileges.
+Compare the ZIP's SHA256 with its matching .sha256 file, extract to a fresh user-writable folder and run starrupture-overlay.exe. Keep LICENSE, THIRD-PARTY-NOTICES.md and licenses/ with it. Deployment uses a user-writable directory and standard user privileges.
 
 Before upgrading, disable Start with Windows and remove the desktop shortcut in Settings, then exit through the overlay tray menu. Recreate those entries from the new version after verification. Extract the new version beside the previous version, test it and retain the old folder for rollback. Single-instance protection keeps one normal HUD running. To roll back, exit the new version and run the previous executable. The app validates caches at startup.
 
@@ -15,3 +15,7 @@ The deployer requires the installed app to be closed. It checks archive checksum
 Use `-Rollback` to verify and select the previous version. The deployer retains both versions, so another rollback switches back. To uninstall, disable Start with Windows and remove the desktop shortcut in Settings, then exit the app and delete the deployment directory, including its version folders and installation.json. Remove preferences and private caches separately if desired.
 
 Checksums and manifests verify file integrity. Candidate executables are unsigned. Upgrades use the explicit deployment procedure above.
+
+## Executable naming compatibility
+
+New packages use `starrupture-overlay.exe`. Deployment also recognises older `starrupture-wave-overlay.exe` packages and resolves the executable from each validated manifest, including on rollback. Packages containing both names or a conflicting executable declaration are rejected. Both process names are checked before modifying an installation. Existing preferences, caches and the default installation folder retain their `StarRuptureWaveOverlay` path so the rename does not discard local data.

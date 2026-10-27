@@ -7,17 +7,26 @@ CAPTION "StarRupture Overlay"
 FONT 9, "Segoe UI"
 BEGIN
     LTEXT "Settings", 140, 16, 12, 285, 21
-    LTEXT "Choose how the overlay starts and stops.", -1, 16, 35, 285, 12
-    GROUPBOX "Startup", -1, 16, 56, 288, 52
+    CONTROL "", 155, "SysTabControl32", WS_TABSTOP, 16, 35, 288, 224
+    GROUPBOX "Startup", 160, 16, 56, 288, 52
     CONTROL "Start with &Windows", 110, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 26, 72, 260, 14
-    LTEXT "Wait in the tray until StarRupture starts.", -1, 39, 89, 255, 12
-    GROUPBOX "When the game closes", -1, 16, 119, 288, 63
-    LTEXT "After a StarRupture session ends", -1, 26, 135, 264, 12
+    LTEXT "Wait in the tray until StarRupture starts.", 161, 39, 89, 255, 12
+    GROUPBOX "When the game closes", 162, 16, 119, 288, 63
+    LTEXT "After a StarRupture session ends", 163, 26, 135, 264, 12
     COMBOBOX 111, 26, 152, 264, 65, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    GROUPBOX "Desktop shortcut", -1, 16, 193, 288, 64
+    GROUPBOX "Desktop shortcut", 164, 16, 193, 288, 64
     LTEXT "No shortcut created", 112, 26, 211, 163, 12
     PUSHBUTTON "Create shortcut", 113, 195, 205, 98, 20
-    LTEXT "Starts the overlay and game through Steam. Shortcut changes apply immediately.", -1, 26, 232, 264, 22
+    LTEXT "Starts the overlay and game through Steam. Shortcut changes apply immediately.", 165, 26, 232, 264, 22
+    CONTROL "Enable recipe &tracker", 150, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 26, 72, 260, 14
+    LTEXT "Pin / clear shortcut", 166, 26, 101, 94, 12
+    EDITTEXT 151, 124, 98, 166, 18, ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT "Position", 167, 26, 131, 43, 12
+    COMBOBOX 152, 72, 128, 120, 70, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT "Scale", 168, 202, 131, 30, 12
+    COMBOBOX 153, 234, 128, 56, 70, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT "Hover over an unfinished recipe to pin or switch. Use the shortcut on the same recipe, or outside the station, to clear.", 169, 26, 165, 264, 32
+    LTEXT "", 154, 26, 208, 264, 32
     LTEXT "", 114, 16, 266, 288, 26
     LTEXT "No unsaved changes", 115, 16, 303, 152, 12
     PUSHBUTTON "Cancel", IDCANCEL, 188, 298, 54, 20

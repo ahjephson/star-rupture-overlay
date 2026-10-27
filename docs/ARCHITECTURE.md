@@ -68,6 +68,8 @@ Notification delivery and desktop composition are asynchronous, so visible updat
 
 ## Native diagnostics
 
+The optional [recipe tracker](RECIPE-TRACKER.md) shares the worker but keeps its request generation, local asset cache, counters and window separate from wave observations. The first enabled connection validates an existing cache or generates a bounded native type schema and starts a verified extraction helper on the same worker. A kill-on-close Windows job owns the temporary helper tree. Game archive metadata and prepared-file hashes guard cache reuse; complete generations replace the receipt atomically. The UI loads only the worker-published ready generation and registers its font in-process. Hover capture and research reads remain read-only. Connection setup resolves the UI manager and reflected layouts; shortcut handling follows player-owned layout/menu/widget references and never performs global discovery. Clearing or session reacquisition invalidates pending results. Recipe data does not advance or refresh wave evidence.
+
 `--self-test-stacking` uses four owned off-screen windows. It covers separate/overlapping regions, partial coverage, repeated synchronization, focus return, manual placement, hidden/minimized/destroyed targets and topmost recovery while preserving foreground focus.
 
 `--self-test-window-events` uses two owned off-screen windows and the real callback/posted-message handler. It performs 20 repairs with the reader mutex held and the UI timer disabled, verifies unchanged focus and checks that teardown stops delivery. This diagnostic measures the callback/message path; real game/desktop composition latency requires a live check.

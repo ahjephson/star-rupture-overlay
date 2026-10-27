@@ -42,6 +42,9 @@ pub(crate) struct Resident {
     last_sim: f64,
 }
 impl Resident {
+    pub(crate) fn world_address(&self) -> u64 {
+        self.bindings.world.address
+    }
     pub(crate) fn context(&self) -> Ctx {
         self.ctx.clone()
     }

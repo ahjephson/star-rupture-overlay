@@ -51,6 +51,7 @@ pub(super) fn window_events_self_test() -> Result<()> {
             connection: crate::connection::Connection::default(),
         }));
         let mut state = Box::new(App {
+            recipe: crate::recipe_tracker::Panel::new(),
             dialogs: crate::dialogs::Dialogs::default(),
             dialog_context: crate::dialogs::Context::diagnostic(std::path::PathBuf::new()),
             closed_sessions: 0,
@@ -204,6 +205,7 @@ pub(super) fn window_self_test() -> Result<()> {
         }
         let stop = Arc::new(StopSignal::default());
         let mut state = Box::new(App {
+            recipe: crate::recipe_tracker::Panel::new(),
             dialogs: crate::dialogs::Dialogs::default(),
             dialog_context: crate::dialogs::Context::diagnostic(std::path::PathBuf::new()),
             closed_sessions: 0,

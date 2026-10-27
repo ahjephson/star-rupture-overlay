@@ -1,33 +1,38 @@
-# Release readiness
+# Public release readiness
 
-Version 0.1.0 is a development version. This checklist describes the remaining release work. Automated check results are available in CI; release-specific live checks belong in the release notes.
+Status: 0.2.7 development candidate, prepared for owner review on 2026-10-27. The repository is private and no download has been published. Changing visibility, creating tags and publishing a release remain separate actions.
 
-## Existing release infrastructure
+## Repository presentation
 
-- Pinned Rust toolchain, locked registry dependencies, strict Clippy and first-party formatting checks.
-- Bounded read-only observations, session/allocation guards and stale-data handling.
-- Hash-verified vendor source, fonts and icons, with dependency licence inventories.
-- Portable Windows x64 packaging with a static VC runtime, file manifest and archive checksum.
-- Native window, rendering, stacking, notification and icon diagnostics.
-- Disposable installation, upgrade and rollback tests, including malformed-archive rejection.
-- Read-only pull-request CI and a manually dispatched workflow for unpublished release drafts.
+- [x] README focuses on requirements, starting the app, recipe controls, settings, updates and help.
+- [x] Build and maintenance instructions live in a separate guide.
+- [x] Feedback policy and PR template state that pull requests and code contributions are not accepted.
+- [x] Bug and feature issue forms request useful player-facing information and keep private game data out of reports.
+- [x] Unsigned downloads and SmartScreen are explained without presenting checksums as publisher signatures.
+- [x] Recipe assets are prepared by the app from the installed game; consumers do not need extraction tools or a manually copied pack.
 
-## Distribution work
+## Local verification
 
-- [x] Detect installation paths from the running process while preserving executable-hash and process-identity validation.
-- [ ] Verify the release against the supported game build and document the supported map/display modes. A game update requires a compatibility review.
-- [ ] Verify startup registration, desktop shortcut launch, game-exit preferences and alternate installation locations on the release candidate.
-- [ ] Complete live reader and lifecycle checks for the release candidate. Check phase boundaries, pause layout, focus return and relevant DPI and display configurations in the running game.
-- [ ] Review signing and publisher provenance. Current executables are unsigned; hashes establish byte integrity only.
-- [ ] Configure and verify repository protection, review requirements and private vulnerability reporting.
-- [ ] Review the dependency policy and its named maintenance exception using current advisory data.
-- [ ] Review the source-available licence and all redistribution notices for the release archive.
-- [ ] Review tracked content and Git history before publication, alongside the automated secret-pattern checks.
-- [ ] Verify the final reviewed revision in Windows CI and run the complete build/package checks in [RELEASING.md](RELEASING.md).
-- [ ] Review the draft archive, release notes, compatibility statement and checksums before explicitly authorizing publication and any repository visibility change.
+The candidate is checked with strict Clippy, locked workspace tests, vendor/font/icon checks, dependency policy and portable package/deployment regressions. First-run setup additionally needs an empty cache, validated cache reuse, changed/corrupt cache rejection, disabled-tracker behaviour and complete setup-process cancellation checks. Finite native diagnostics do not replace manual first-launch, focus and shortcut acceptance.
 
-## Check results
+Tracked content and reachable Git history have been scanned for private/generated paths, account paths and common secret patterns. The review excludes ignored caches, captures, settings, game assets and binaries from publication. A pattern scan cannot guarantee the absence of every secret or establish asset rights; keep the final content/provenance review in the release procedure.
 
-PR descriptions summarize checks and limitations and link relevant CI runs. Release notes identify the supported game build and summarize live reader and appearance checks for the release candidate. Distinguish automated results from manual checks and state any conditions that remain untested.
+## Before making the repository public
 
-Private logs, captures, installation records and backups remain outside source control and release archives. Preserve repository history when editing current documentation.
+- [ ] Review the final documentation and source diff, licence and retained artwork/font provenance.
+- [ ] Decide and verify the owner's branch-protection settings and enable a usable private security-reporting route. This project accepts issue reports, not external code contributions.
+- [ ] Recheck tracked content and history on the exact revision selected for publication.
+- [ ] Confirm the README's download status matches the release actually available to users.
+
+## Before publishing an app download
+
+- [ ] Complete manual acceptance of automatic first-run preparation in the actual app, including Settings progress, retry, disable/re-enable and exit during setup.
+- [ ] Verify the exact release on the supported game build, expected display/DPI configurations, phase transitions, pause and focus changes. Existing tests cover their documented scope only.
+- [ ] Verify startup, desktop shortcut, game-exit choices, upgrades and alternate installation locations on the selected release.
+- [ ] Review the pinned helper's managed/native dependency set separately from Cargo's advisory policy, and recheck the documented Rust maintenance exception.
+- [ ] Run Windows CI and package verification on the selected committed revision. Record relevant live results and limitations in release notes.
+- [ ] Review the ZIP, checksums, first-run download sources/notices and compatibility statement, then explicitly authorize the tag/release publication.
+
+Code signing is not part of the current distribution plan. The app remains unsigned, with SmartScreen guidance and integrity checks. An installer is optional; game discovery and asset preparation belong to the app so portable users receive the same setup.
+
+See [releasing](RELEASING.md), [compatibility](COMPATIBILITY.md), [security reporting](../SECURITY.md) and [third-party notices](../THIRD-PARTY-NOTICES.md). Keep raw validation output and activation records local.

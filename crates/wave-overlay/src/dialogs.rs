@@ -33,6 +33,7 @@ pub struct Context {
     pub preferences_path: PathBuf,
     pub config: Option<PathBuf>,
     pub diagnostic: bool,
+    pub recipe_status: Rc<RefCell<String>>,
 }
 impl Context {
     pub fn diagnostic(path: PathBuf) -> Self {
@@ -42,6 +43,7 @@ impl Context {
             preferences_path: path,
             config: None,
             diagnostic: true,
+            recipe_status: Rc::new(RefCell::new(String::new())),
         }
     }
 }
@@ -82,6 +84,12 @@ pub struct Dialogs {
 }
 impl Dialogs {
     pub fn open(&mut self, kind: u16, owner: HWND, context: Context) -> Result<()> {
+        unsafe {
+            InitCommonControlsEx(&INITCOMMONCONTROLSEX {
+                dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
+                dwICC: ICC_TAB_CLASSES,
+            });
+        }
         self.prune();
         if let Some(dialog) = self.windows.iter().find(|dialog| dialog.0.kind == kind) {
             let window = dialog.0.window.get();
@@ -142,6 +150,13 @@ impl Dialogs {
             }
         }
     }
+    pub fn refresh_recipe_status(&self) {
+        for d in &self.windows {
+            if d.0.kind == SETTINGS && !d.0.window.get().is_null() {
+                text(d.0.window.get(), 154, &d.0.context.recipe_status.borrow());
+            }
+        }
+    }
 }
 fn text(window: HWND, id: i32, value: &str) {
     unsafe {
@@ -159,14 +174,44 @@ fn selected(state: &State) -> Preferences {
             2 => GameExit::Exit,
             _ => GameExit::KeepRunning,
         },
+        recipe_tracker: unsafe {
+            let (key, modifiers) = preferences::parse_shortcut(&shortcut_text(state))
+                .unwrap_or_else(|_| {
+                    let previous = state.context.preferences.get().recipe_tracker;
+                    (previous.key, previous.modifiers)
+                });
+            crate::preferences::RecipeSettings {
+                enabled: SendDlgItemMessageW(state.window.get(), 150, BM_GETCHECK, 0, 0) as u32
+                    == BST_CHECKED,
+                key,
+                modifiers,
+                position: SendDlgItemMessageW(state.window.get(), 152, CB_GETCURSEL, 0, 0)
+                    .clamp(0, 2) as u8,
+                scale: [75, 100, 125, 150][SendDlgItemMessageW(
+                    state.window.get(),
+                    153,
+                    CB_GETCURSEL,
+                    0,
+                    0,
+                )
+                .clamp(0, 3) as usize],
+            }
+        },
     }
 }
 fn checked_startup(state: &State) -> bool {
     unsafe { SendDlgItemMessageW(state.window.get(), 110, BM_GETCHECK, 0, 0) as u32 == BST_CHECKED }
 }
+fn shortcut_text(state: &State) -> String {
+    let mut value = [0u16; 64];
+    let n =
+        unsafe { GetDlgItemTextW(state.window.get(), 151, value.as_mut_ptr(), value.len() as i32) };
+    String::from_utf16_lossy(&value[..n as usize])
+}
 fn dirty(state: &State) {
     let changed = checked_startup(state) != state.initial_startup.get()
-        || selected(state) != state.context.preferences.get();
+        || selected(state) != state.context.preferences.get()
+        || shortcut_text(state) != state.context.preferences.get().recipe_tracker.shortcut_label();
     unsafe {
         EnableWindow(
             GetDlgItem(state.window.get(), IDOK),
@@ -185,6 +230,52 @@ fn dirty(state: &State) {
 }
 fn settings_init(state: &State) {
     let window = state.window.get();
+    for (index, label) in ["General", "Recipe tracker"].iter().enumerate() {
+        let mut label = desktop::wide(label);
+        let item = TCITEMW {
+            mask: TCIF_TEXT,
+            pszText: label.as_mut_ptr(),
+            ..Default::default()
+        };
+        unsafe {
+            SendDlgItemMessageW(
+                window,
+                155,
+                TCM_INSERTITEMW,
+                index,
+                (&item as *const TCITEMW) as isize,
+            );
+        }
+    }
+    let recipe = state.context.preferences.get().recipe_tracker;
+    unsafe {
+        SendDlgItemMessageW(window, 150, BM_SETCHECK, usize::from(recipe.enabled), 0);
+        SendDlgItemMessageW(window, 151, EM_SETLIMITTEXT, 48, 0);
+        for (id, labels) in [
+            (152, vec!["Upper right", "Middle right", "Lower right"]),
+            (153, vec!["75%", "100%", "125%", "150%"]),
+        ] {
+            for label in labels {
+                SendDlgItemMessageW(
+                    window,
+                    id,
+                    CB_ADDSTRING,
+                    0,
+                    desktop::wide(label).as_ptr() as isize,
+                );
+            }
+        }
+        SendDlgItemMessageW(window, 152, CB_SETCURSEL, recipe.position as usize, 0);
+        SendDlgItemMessageW(
+            window,
+            153,
+            CB_SETCURSEL,
+            [75, 100, 125, 150].iter().position(|s| *s == recipe.scale).unwrap_or(1),
+            0,
+        );
+    }
+    text(window, 154, &state.context.recipe_status.borrow());
+    text(window, 151, &recipe.shortcut_label());
     for label in
         ["Keep running in the tray", "Ask before exiting", "Exit the overlay automatically"]
     {
@@ -249,7 +340,35 @@ fn settings_init(state: &State) {
         }
     }
     shortcut_labels(state);
+    settings_tab(state);
     dirty(state);
+}
+fn settings_tab(state: &State) {
+    let recipe = unsafe { SendDlgItemMessageW(state.window.get(), 155, TCM_GETCURSEL, 0, 0) } == 1;
+    for id in [110, 111, 112, 113, 160, 161, 162, 163, 164, 165] {
+        unsafe {
+            ShowWindow(
+                GetDlgItem(state.window.get(), id),
+                if recipe {
+                    SW_HIDE
+                } else {
+                    SW_SHOW
+                },
+            );
+        }
+    }
+    for id in [150, 151, 152, 153, 154, 166, 167, 168, 169] {
+        unsafe {
+            ShowWindow(
+                GetDlgItem(state.window.get(), id),
+                if recipe {
+                    SW_SHOW
+                } else {
+                    SW_HIDE
+                },
+            );
+        }
+    }
 }
 fn shortcut_labels(state: &State) {
     text(
@@ -277,6 +396,8 @@ fn save_settings(state: &State) -> Result<()> {
         "Startup registration could not be read; reopen Settings to retry"
     );
     let preferences = selected(state);
+    preferences::parse_shortcut(&shortcut_text(state))?;
+    preferences.recipe_tracker.validate()?;
     let desired = checked_startup(state);
     let previous = if state.context.diagnostic {
         None
@@ -479,6 +600,14 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
     }
     let state = unsafe { &*pointer };
     match message {
+        WM_NOTIFY if state.kind == SETTINGS && l != 0 => {
+            let notice = unsafe { &*(l as *const NMHDR) };
+            if notice.idFrom == 155 && notice.code == TCN_SELCHANGE {
+                settings_tab(state);
+                return 1;
+            }
+            0
+        }
         WM_DRAWITEM if w == 142 && l != 0 => {
             let item = unsafe { &*(l as *const DRAWITEMSTRUCT) };
             let font = unsafe { SendDlgItemMessageW(window, 121, WM_GETFONT, 0, 0) };
@@ -531,8 +660,10 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
                 return 1;
             }
             match (state.kind, id) {
-                (SETTINGS, 110 | 111)
-                    if notification == BN_CLICKED || notification == CBN_SELCHANGE =>
+                (SETTINGS, 110 | 111 | 150 | 151 | 152 | 153)
+                    if notification == BN_CLICKED
+                        || notification == CBN_SELCHANGE
+                        || notification == EN_CHANGE =>
                 {
                     dirty(state);
                 }

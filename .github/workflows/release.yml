@@ -56,7 +56,7 @@ jobs:
         run: |
           $metadata = cargo metadata --no-deps --locked --format-version 1 | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0) { throw 'Metadata failed.' }
-          $version = ($metadata.packages | Where-Object name -eq 'starrupture-wave-overlay').version
+          $version = ($metadata.packages | Where-Object name -eq 'starrupture-overlay').version
           if ($env:RELEASE_TAG -ne "v$version") { throw 'Tag and app version differ.' }
           ./scripts/Test-PublicContent.ps1
           ./scripts/Test-Dependencies.ps1

@@ -1,6 +1,6 @@
 # StarRupture Overlay
 
-A Windows desktop HUD written in Rust that displays StarRupture's current wave stage and countdown.
+A Windows desktop HUD written in Rust that displays StarRupture's rupture countdown and pinned recipe research progress.
 
 Read README.md, docs/ARCHITECTURE.md and docs/HANDOVER.md before changes.
 
@@ -22,7 +22,7 @@ Read README.md, docs/ARCHITECTURE.md and docs/HANDOVER.md before changes.
 - Write for the document's audience: user documentation covers operation and requirements; architecture documentation covers implementation details needed for maintenance. Include information that supports a practical task or decision.
 - Use the [writing clearly and concisely skill](https://github.com/softaworks/agent-toolkit/blob/main/skills/writing-clearly-and-concisely/SKILL.md) for documentation and help text. Describe current facts in direct, concrete language.
 - Keep each prose paragraph on one source line and let editors/renderers wrap it. Preserve structural line breaks for headings, lists, tables and code blocks.
-- Summarize checks and limitations in PR descriptions, link CI results and record release-specific live checks in release notes. Keep raw logs and diagnostic output local.
+- Summarize checks and limitations in change summaries, link CI results and record release-specific live checks in release notes. Keep raw logs and diagnostic output local.
 
 ## Release preparation
 
@@ -31,3 +31,9 @@ Read README.md, docs/ARCHITECTURE.md and docs/HANDOVER.md before changes.
 - Treat deployment, version tags, release creation, publication and repository visibility changes as separate operations requiring explicit authorization. Keep the repository private until a visibility change is requested.
 - The release workflow is manually dispatched and creates unpublished drafts. Report hosted and live checks only when actually performed.
 - Review tracked content and history before publication. Preserve Git history.
+
+## Public documentation and feedback
+
+- Write README and support pages for players installing and using the app. Keep build, architecture and release procedures in the maintainer guides.
+- The owner does not accept pull requests or code contributions. Use issue reports for bugs and feature requests; do not open a pull request for repository changes.
+- Game discovery and recipe asset preparation are app responsibilities. Keep game assets local and outside the repository and release archives; do not ask consumers to run extraction tools or copy a development asset pack.
