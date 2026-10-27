@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest an improvement to the overlay.
+body:
+  - type: markdown
+    attributes:
+      value: Please describe the change as a player. Pull requests and code contributions are not accepted.
+  - type: textarea
+    id: need
+    attributes:
+      label: What would you like to do?
+      description: Explain what would help while playing and what is awkward today.
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested behaviour
+      description: Describe how you would like the overlay to behave.
+    validations:
+      required: true

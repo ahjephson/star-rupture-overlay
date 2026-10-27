@@ -3,18 +3,16 @@
 //! Buffers remain owned across each synchronous Win32 call. Handles close via
 //! RAII on the reader thread; no process write, code execution or privilege APIs.
 use crate::{Identity, Mem};
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 use sha2::{Digest, Sha256};
+use starrupture_observation_model::shutdown::StopSignal;
 use std::{
     ffi::c_void,
     fs::File,
     io::Read,
     mem::{size_of, zeroed},
     rc::Rc,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 use windows_sys::Win32::{
@@ -26,7 +24,20 @@ use windows_sys::Win32::{
     },
 };
 const GAME: &str = "StarRuptureGameSteam-Win64-Shipping.exe";
-const EXPECTED: &str = "C:\\Program Files (x86)\\Steam\\steamapps\\common\\StarRupture\\StarRupture\\Binaries\\Win64\\StarRuptureGameSteam-Win64-Shipping.exe";
+fn supported_filename(path: &str) -> bool {
+    std::path::Path::new(path)
+        .file_name()
+        .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(GAME))
+}
+
+#[derive(Debug)]
+pub(crate) struct GameNotRunning;
+impl std::fmt::Display for GameNotRunning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Game is not running")
+    }
+}
+impl std::error::Error for GameNotRunning {}
 struct OwnedHandle(HANDLE);
 impl Drop for OwnedHandle {
     fn drop(&mut self) {
@@ -49,11 +60,11 @@ fn checked(ok: i32) -> Result<()> {
     }
 }
 pub(crate) struct ReadBudget {
-    stop: Arc<AtomicBool>,
+    stop: Arc<StopSignal>,
     deadline: Mutex<Instant>,
 }
 impl ReadBudget {
-    pub(crate) fn new(stop: Arc<AtomicBool>) -> Arc<Self> {
+    pub(crate) fn new(stop: Arc<StopSignal>) -> Arc<Self> {
         Arc::new(Self {
             stop,
             deadline: Mutex::new(Instant::now() + Duration::from_secs(60)),
@@ -64,7 +75,7 @@ impl ReadBudget {
             Instant::now() + Duration::from_millis(millis);
     }
     fn check(&self) -> Result<()> {
-        ensure!(!self.stop.load(Ordering::Relaxed), "Reader cancelled");
+        ensure!(!self.stop.is_requested(), "Reader cancelled");
         ensure!(
             Instant::now() <= *self.deadline.lock().unwrap_or_else(|p| p.into_inner()),
             "Reader budget expired"
@@ -83,7 +94,7 @@ fn open(pid: u32, budget: Arc<ReadBudget>) -> Result<Process> {
     let mut count = chars.len() as u32;
     checked(unsafe { QueryFullProcessImageNameW(raw, 0, chars.as_mut_ptr(), &mut count) })?;
     let executable = String::from_utf16(&chars[..count as usize])?;
-    ensure!(executable.eq_ignore_ascii_case(EXPECTED), "Unexpected game executable path");
+    ensure!(supported_filename(&executable), "Unexpected game executable filename");
     let mut created = unsafe { zeroed() };
     let mut exited = unsafe { zeroed() };
     let mut kernel = unsafe { zeroed() };
@@ -115,6 +126,12 @@ fn open(pid: u32, budget: Arc<ReadBudget>) -> Result<Process> {
     Ok(p)
 }
 impl Process {
+    pub(crate) fn has_exited(&self) -> Result<bool> {
+        self.budget.check()?;
+        let mut code = 0;
+        checked(unsafe { GetExitCodeProcess(self.handle.0, &mut code) })?;
+        Ok(code != 259)
+    }
     pub fn ensure_alive(&self) -> Result<()> {
         self.budget.check()?;
         let mut code = 0;
@@ -141,7 +158,7 @@ pub fn find_game(budget: Arc<ReadBudget>) -> Result<Process> {
         ok = unsafe { Process32NextW(snapshot.0, &mut entry) };
     }
     if ids.is_empty() {
-        bail!("Game is not running")
+        return Err(GameNotRunning.into());
     }
     ensure!(ids.len() == 1, "Multiple game processes; refusing ambiguous session");
     open(ids[0], budget).context("Opening installed StarRupture")
@@ -192,13 +209,26 @@ pub fn is_elevated() -> Result<bool> {
 mod tests {
     use super::*;
     #[test]
+    fn executable_filename_is_independent_of_install_directory() {
+        for path in [
+            r"C:\Program Files (x86)\Steam\steamapps\common\StarRupture\StarRupture\Binaries\Win64\StarRuptureGameSteam-Win64-Shipping.exe",
+            r"D:\Games\SteamLibrary\StarRuptureGameSteam-Win64-Shipping.exe",
+            r"E:\Other program files\STARRUPTUREGAMESTEAM-WIN64-SHIPPING.EXE",
+        ] {
+            assert!(supported_filename(path));
+        }
+        assert!(!supported_filename(r"D:\Games\Other.exe"));
+        assert!(!supported_filename(r"D:\Games\StarRuptureGameSteam-Win64-Shipping.exe.bak"));
+    }
+    #[test]
     fn cancelled_or_expired_budget_rejects_reads_before_os_access() {
-        let stop = Arc::new(AtomicBool::new(false));
+        let stop = Arc::new(StopSignal::default());
         let b = ReadBudget::new(stop.clone());
         assert!(b.check().is_ok());
-        stop.store(true, Ordering::Relaxed);
+        stop.request();
         assert!(b.check().is_err());
-        stop.store(false, Ordering::Relaxed);
+        let stop = Arc::new(StopSignal::default());
+        let b = ReadBudget::new(stop);
         *b.deadline.lock().unwrap() = Instant::now() - Duration::from_secs(1);
         assert!(b.check().is_err());
         b.renew(1000);

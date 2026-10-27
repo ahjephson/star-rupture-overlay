@@ -18,7 +18,8 @@ function Initialize-Toolchain {
     $env:CARGO_INCREMENTAL = '0'
     # Encode arguments independently so paths containing spaces remain single arguments.
     $flags = @('-D', 'warnings', '-C', 'target-feature=+crt-static', "--remap-path-prefix=$script:ProjectRoot=.")
-    if ($env:CARGO_HOME) { $flags += "--remap-path-prefix=$($env:CARGO_HOME)=cargo-home" }
+    $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.cargo' }
+    $flags += "--remap-path-prefix=$cargoHome=cargo-home"
     $env:CARGO_ENCODED_RUSTFLAGS = $flags -join [char]31
 }
 

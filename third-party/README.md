@@ -1,7 +1,9 @@
-# Retained helper dependencies
+# Vendored dependencies
 
-These are selected source libraries from the read-only reference helper's retained jmap 0.2.0 source and locked gospel, patternsleuth and ser-hex revisions. `VENDOR.json` records origin, revisions, licenses, adaptations and file hashes. The pre-adaptation selected hashes are under `docs/reference/helper-vendor-original-hashes.json`; the original helper lock is retained separately. No extracted game data or upstream game-derived usmap test fixtures are included.
+This directory contains the jmap, gospel, patternsleuth and ser-hex libraries used by the reader. [VENDOR.json](VENDOR.json) records their upstream revisions, licences, adaptations and verification hashes. [Source provenance](../docs/EXTRACTION.md) links the baseline inventories.
 
-Workspace manifests select only the libraries needed by the helper and replace Git dependencies with local paths. One unused patternsleuth import was removed for warnings-denied builds. Available upstream license notices, Cargo license declarations and readmes are retained; the standard Apache-2.0 text is also supplied centrally. Registry dependency versions/checksums are pinned by the root Cargo.lock. Code licenses do not establish game/community data redistribution rights.
+The vendored workspaces select the required libraries and resolve their shared dependencies through local paths. The root Cargo.lock pins registry versions and checksums. Available upstream licence notices, Cargo licence declarations and READMEs are retained; the standard Apache-2.0 text is supplied centrally. See [third-party notices](../THIRD-PARTY-NOTICES.md) for licence details.
 
-Run `scripts/Verify-Vendor.ps1` before building. Do not run a formatter or dependency updater over this tree. Format the three owned workspace packages explicitly. The production helper uses its own query/read-only Windows backend; it does not invoke the full dumper, upstream HTTP backends, internal process writes or remote game functions.
+Run `scripts/Verify-Vendor.ps1` from the repository root before building. Preserve vendored files during routine formatting and dependency updates. Deliberate patches require a reason and before/after hashes in VENDOR.json. Use `scripts/Format.ps1` to format the four application crates.
+
+The reader accesses game memory through its query/read-only Windows backend. The upstream READMEs describe the libraries and their own tools; use the repository's [README](../README.md) and [contributing guide](../CONTRIBUTING.md) for overlay build and operation instructions.

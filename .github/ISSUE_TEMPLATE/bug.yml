@@ -1,21 +1,29 @@
 name: Bug report
-description: Report an overlay problem without uploading private game data.
+description: Report a problem with the overlay.
 body:
+  - type: markdown
+    attributes:
+      value: Check the troubleshooting guide and existing issues first. Keep saves, settings, caches, extracted assets and memory dumps private.
   - type: input
     id: overlay
     attributes:
       label: Overlay version
+      description: Find this in About from the tray menu.
     validations:
       required: true
   - type: input
     id: game
     attributes:
-      label: Game version and Steam installation location
-      description: Say default C drive or another location; do not include your account path.
+      label: StarRupture version
   - type: textarea
     id: behavior
     attributes:
-      label: What happened and how to reproduce it
-      description: Include expected behavior. Do not attach memory dumps, saves, caches or personal settings.
+      label: What happened?
+      description: Include what you expected and the steps to reproduce it.
     validations:
       required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Support details
+      description: Paste About > Copy support details. Check screenshots for personal information before attaching them.

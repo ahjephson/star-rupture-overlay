@@ -1,21 +1,39 @@
-# StarRupture Wave Overlay
+# StarRupture Overlay
 
-This is an independent Windows Rust desktop overlay, not an MCP server or a gameplay planning workspace.
-Read README.md and docs/HANDOVER.md before changes. Keep all build/runtime paths inside this project or an explicitly selected external toolchain. No Node, Codex or MCP dependency at runtime.
+A Windows desktop HUD written in Rust that displays StarRupture's rupture countdown and pinned recipe research progress.
 
-- Read-only process access only. Never write game memory, inject code, hook DirectX, alter saves or request debug privileges/elevation for the application.
-- User approved single-process integration on2026-10-24: keep memory reads on the embedded worker thread. Preserve bounded observation envelopes, sequence/process/build/generation/freshness guards, per-read cancellation/time budgets and joined shutdown. No helper executable or arbitrary external process launch.
-- Fast menu readings change position only. They must never refresh timer evidence or establish simulation pause. Preserve unavailable states, native timing limits and no wall-time extrapolation.
-- Preserve the approved Oxanium design, stage colors, INCINERATING label, slightly transparent background, natural digit proportions and responsive play/pause layout.
-- The MCP/planning repositories are references only. Do not change their servers, registrations, helpers, configuration, datasets or journals.
-- Keep local caches, captured memory, personal paths/settings, saves, generated configuration and binaries out of Git. Synthetic tests only in source control. Preserve third-party source and license notices.
-- Run warnings-denied locked workspace tests and a release build. Test worker cancellation/cleanup and live observations before replacing the running overlay. Avoid duplicate visible overlays.
-- Update docs/HANDOVER.md and validation records with actual evidence and limitations. Record intentional forks from the source project; no implicit shared paths or synchronized edits.
+Read README.md, docs/ARCHITECTURE.md and docs/HANDOVER.md before changes.
 
-## Public release preparation
+## Implementation
 
-- Keep the repository private until the owner explicitly requests a visibility change. Never create a tag, publish a release or deploy a candidate as a side effect of maintenance.
-- Read docs/RELEASING.md and docs/PUBLIC-READINESS.md. Build into a fresh ignored output directory; never overwrite a running installation.
-- Use the pinned toolchain, scripts/Format.ps1 for first-party formatting, strict Clippy/tests, dependency policy, vendor/font checks and package/deployment tests. Do not reformat vendor code.
-- The release workflow is manually dispatched and creates unpublished drafts only. Live game validation is separate from hosted CI. Do not assert hosted or live checks passed without actual evidence.
-- Keep personal development notes and capture details in ignored local backups; public validation records contain aggregate results only. Review history before publication and never silently rewrite it.
+- Use query/read process permissions exclusively and run with standard user privileges. Keep game memory and save files unchanged.
+- Keep memory reads on the embedded worker thread and rendering in the application's own native window. Preserve bounded observation envelopes, sequence/process/build/generation/freshness guards, per-read cancellation/time budgets and joined shutdown.
+- Fast menu observations control position only. Timer observations independently establish simulation time and pause evidence. Advance countdowns only from validated simulation observations.
+- Preserve unavailable states, native timing limits, the Oxanium design, stage colours and labels, background transparency, digit proportions and responsive play/menu layout.
+- Preserve configuration acceptance, serialized fields, numeric behaviour, read ordering and resource lifetimes during maintenance. Scope functional changes explicitly.
+- Confine project changes and build/runtime output to this repository or an explicitly selected external toolchain.
+- Use synthetic test data in source control. Keep caches, captures, settings, saves, generated configuration and binaries in ignored local storage.
+- Preserve vendored source, licence notices and asset hashes. Format first-party Rust with scripts/Format.ps1.
+
+## Checks and documentation
+
+- Run warnings-denied locked workspace tests and a release build, dependency policy, vendor/font/icon checks and package/deployment tests.
+- Verify worker cancellation, cleanup and live observations before replacing an installed overlay. Run one normal overlay instance at a time.
+- Write for the document's audience: user documentation covers operation and requirements; architecture documentation covers implementation details needed for maintenance. Include information that supports a practical task or decision.
+- Use the [writing clearly and concisely skill](https://github.com/softaworks/agent-toolkit/blob/main/skills/writing-clearly-and-concisely/SKILL.md) for documentation and help text. Describe current facts in direct, concrete language.
+- Keep each prose paragraph on one source line and let editors/renderers wrap it. Preserve structural line breaks for headings, lists, tables and code blocks.
+- Summarize checks and limitations in change summaries, link CI results and record release-specific live checks in release notes. Keep raw logs and diagnostic output local.
+
+## Release preparation
+
+- Read docs/RELEASING.md and docs/PUBLIC-READINESS.md.
+- Build into a fresh ignored output directory and preserve the installed application and rollback copies during preparation.
+- Treat deployment, version tags, release creation, publication and repository visibility changes as separate operations requiring explicit authorization. Keep the repository private until a visibility change is requested.
+- The release workflow is manually dispatched and creates unpublished drafts. Report hosted and live checks only when actually performed.
+- Review tracked content and history before publication. Preserve Git history.
+
+## Public documentation and feedback
+
+- Write README and support pages for players installing and using the app. Keep build, architecture and release procedures in the maintainer guides.
+- The owner does not accept pull requests or code contributions. Use issue reports for bugs and feature requests; do not open a pull request for repository changes.
+- Game discovery and recipe asset preparation are app responsibilities. Keep game assets local and outside the repository and release archives; do not ask consumers to run extraction tools or copy a development asset pack.

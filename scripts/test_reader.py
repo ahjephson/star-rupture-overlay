@@ -4,7 +4,7 @@ from ctypes import wintypes as w
 import datetime, json, os, pathlib, shutil, subprocess, time
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-EXE = ROOT / 'dist/starrupture-wave-overlay.exe'
+EXE = ROOT / 'dist/starrupture-overlay.exe'
 RUN = ROOT / 'local' / ('single-app-' + datetime.datetime.now().strftime('%Y%m%dT%H%M%S%f'))
 RUN.mkdir(parents=True)
 user = c.WinDLL('user32', use_last_error=True)

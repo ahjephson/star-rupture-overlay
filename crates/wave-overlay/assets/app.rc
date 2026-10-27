@@ -1,0 +1,4 @@
+#include <windows.h>
+#include "icon/app.rc"
+#include "dialogs.rc"
+1 RT_MANIFEST "assets/app.manifest"

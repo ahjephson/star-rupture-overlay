@@ -1,22 +1,33 @@
 //! Embedded, bounded read-only wave reader; never writes or invokes game code.
+mod bindings;
 mod cache;
+mod cadence;
+mod discovery;
+mod error;
 mod live_context;
 mod live_phase;
 mod live_timer_config;
+pub mod overlay_stream;
 mod platform;
+pub mod recipe;
+
 use anyhow::{Context, Result, ensure};
+use bindings::RuntimeCache;
+use discovery::discover;
 use jmap_dumper::{
-    Config, ConfigOverrides,
-    mem::{BlockCache, Ctx, Mem, Ptr},
-    objects::{FUObjectArray, UObject, UStruct},
+    Config,
+    mem::{Ctx, Mem, Ptr},
+    objects::{FUObjectArray, UObject},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use starrupture_observation_model::{
+    observation::{PlayerSample, Position},
+    overlay_stream::GAME_HASH as BUILD_HASH,
+};
 use std::{
     collections::{BTreeMap, HashSet},
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
-const BUILD_HASH: &str = "95f95eee0b1913b8716de7fa5bf19877a91abe86e63bf2b6f0a29bd48d1d76f1";
 const FIELDS: &[(&str, &str, usize)] = &[
     ("/Script/Engine.PlayerController", "Player", 8),
     ("/Script/Engine.PlayerController", "AcknowledgedPawn", 8),
@@ -49,12 +60,6 @@ struct Cache {
     controller: ObjectStamp,
     offsets: BTreeMap<String, usize>,
 }
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-struct Position {
-    x: f64,
-    y: f64,
-    z: f64,
-}
 fn key(class: &str, field: &str) -> String {
     format!("{class}:{field}")
 }
@@ -70,7 +75,7 @@ fn cache_matches(cache: &Cache, id: &Identity) -> bool {
 }
 fn decode_position(bytes: &[u8]) -> Result<Position> {
     ensure!(bytes.len() == 24, "Position read has wrong length");
-    let v: Vec<f64> = bytes.as_chunks::<8>().0.iter().map(|b| f64::from_le_bytes(*b)).collect();
+    let v: [f64; 3] = std::array::from_fn(|i| f64::from_le_bytes(bytes.as_chunks::<8>().0[i]));
     ensure!(v.iter().all(|x| x.is_finite() && x.abs() < 1e9), "Invalid coordinate values");
     Ok(Position {
         x: v[0],
@@ -129,138 +134,45 @@ async fn path(ctx: &Ctx, address: u64) -> Result<String> {
     }
     Ok(out)
 }
-async fn discover(process: &platform::Process) -> Result<Cache> {
-    eprintln!("Discovering current Unreal runtime references...");
-    let image = patternsleuth::process::external::read_image_from_pid(process.identity.pid as i32)?;
-    let memory = BlockCache::wrap(process.clone());
-    let config = jmap_dumper::resolve_config(&memory, &image, &ConfigOverrides::default()).await?;
-    ensure!(
-        config.engine_version == (5, 6)
-            && config.build_change_list.as_deref() == Some("++Earth20+Neon-CL-127004"),
-        "Unsupported engine/build"
-    );
-    let ctx = jmap_dumper::connect_manual(memory, config.clone(), None).await?;
-    let array = Ptr::<FUObjectArray>::new(ctx.uobjectarray, ctx.clone())?;
-    let count = array.num_elements().await?;
-    ensure!((1..=2_000_000).contains(&count), "Invalid Unreal registry size");
-    let wanted: HashSet<&str> =
-        FIELDS.iter().map(|(c, _, _)| c.rsplit('.').next().unwrap()).collect();
-    let mut offsets = BTreeMap::new();
-    let mut candidates = vec![];
-    for index in 0..count as usize {
-        let Some(obj) = array
-            .read_item_ptr(index)
-            .await
-            .with_context(|| format!("Registry slot {index}/{count}"))?
-        else {
-            continue;
-        };
-        // Unreal's global array can contain stale entries while objects are collected.
-        if obj.internal_index().read().await.ok() != Some(index as i32) {
-            continue;
-        }
-        let name = obj
-            .name_private()
-            .read()
-            .await
-            .with_context(|| format!("Registry object name at {index}"))?;
-        if wanted.contains(name.as_str()) {
-            let p = path(&ctx, obj.address()).await?;
-            if FIELDS.iter().any(|(c, _, _)| *c == p) {
-                let mut props = obj.cast::<UStruct>().properties(false);
-                let mut visits = 0;
-                while let Some(prop) = props.next().await {
-                    visits += 1;
-                    ensure!(visits <= 4096, "Invalid reflected property chain");
-                    let prop = prop.with_context(|| format!("Reflected property chain for {p}"))?;
-                    let n = prop.zfield().name_private().read().await?;
-                    if let Some((_, _, size)) = FIELDS.iter().find(|(c, f, _)| *c == p && *f == n) {
-                        ensure!(
-                            prop.element_size().read().await? as usize == *size
-                                && prop.array_dim().read().await? == 1,
-                            "Unexpected field layout"
-                        );
-                        offsets.insert(key(&p, &n), prop.offset_internal().read().await? as usize);
-                    }
-                }
-            }
-        }
-        if name.starts_with("PC_PlayerControllerBase_C_") {
-            candidates.push(obj.address());
-        }
-    }
-    validate_offsets(&offsets).context("Resolving required native fields")?;
-    let mut locals = vec![];
-    for address in candidates {
-        let player: u64 = ctx
-            .read(address + offsets[&key("/Script/Engine.PlayerController", "Player")] as u64)
-            .await?;
-        if player != 0 {
-            let reverse: u64 = ctx
-                .read(player + offsets[&key("/Script/Engine.Player", "PlayerController")] as u64)
-                .await?;
-            if reverse == address {
-                locals.push(address);
-            }
-        }
-    }
-    ensure!(
-        locals.len() == 1,
-        "Expected exactly one local controller; world not loaded or ambiguous"
-    );
-    Ok(Cache {
-        version: 1,
-        identity: process.identity.clone(),
-        config,
-        controller: stamp(&ctx, locals[0]).await.context("Validating discovered controller")?,
-        offsets,
-    })
-}
-async fn sample(process: &platform::Process, cache: &Cache) -> Result<serde_json::Value> {
-    ensure!(cache_matches(cache, &process.identity), "Stale session cache");
+async fn sample(process: &platform::Process, cache: &RuntimeCache) -> Result<PlayerSample> {
+    ensure!(cache.matches(&process.identity), "Stale session cache");
     let ctx = jmap_dumper::connect_manual(process.clone(), cache.config.clone(), None).await?;
     sample_context(process, cache, ctx).await
 }
 async fn sample_context(
     process: &platform::Process,
-    cache: &Cache,
+    cache: &RuntimeCache,
     ctx: Ctx,
-) -> Result<serde_json::Value> {
-    ensure!(cache_matches(cache, &process.identity), "Stale session cache");
+) -> Result<PlayerSample> {
+    ensure!(cache.matches(&process.identity), "Stale session cache");
     ensure!(
         stamp(&ctx, cache.controller.address).await? == cache.controller,
         "Controller identity changed"
     );
-    let off = |c: &str, f: &str| cache.offsets[&key(c, f)] as u64;
     let controller = cache.controller.address;
-    let player: u64 =
-        ctx.read(controller + off("/Script/Engine.PlayerController", "Player")).await?;
+    let player: u64 = ctx.read(controller + cache.fields.player).await?;
     stamp(&ctx, player).await?;
     ensure!(
-        ctx.read::<u64>(player + off("/Script/Engine.Player", "PlayerController")).await?
-            == controller,
+        ctx.read::<u64>(player + cache.fields.player_controller).await? == controller,
         "Local player roundtrip failed"
     );
-    let pawn: u64 = ctx.read(controller + off("/Script/Engine.Controller", "Pawn")).await?;
-    let character: u64 =
-        ctx.read(controller + off("/Script/Engine.Controller", "Character")).await?;
-    let ack: u64 =
-        ctx.read(controller + off("/Script/Engine.PlayerController", "AcknowledgedPawn")).await?;
+    let pawn: u64 = ctx.read(controller + cache.fields.pawn).await?;
+    let character: u64 = ctx.read(controller + cache.fields.character).await?;
+    let ack: u64 = ctx.read(controller + cache.fields.acknowledged_pawn).await?;
     ensure!(
         pawn != 0 && pawn == character && ack == pawn,
         "Possession unsupported/changing; character not established"
     );
     let char_stamp = stamp(&ctx, character).await?;
     ensure!(char_stamp.name.starts_with("BP_PlayerCharacter_C_"), "Unsupported character type");
-    let root: u64 = ctx.read(character + off("/Script/Engine.Actor", "RootComponent")).await?;
+    let root: u64 = ctx.read(character + cache.fields.root_component).await?;
     let root_stamp = stamp(&ctx, root).await?;
     ensure!(
-        ctx.read::<u64>(root + off("/Script/Engine.SceneComponent", "AttachParent")).await? == 0,
+        ctx.read::<u64>(root + cache.fields.attach_parent).await? == 0,
         "Attached root: world coordinates not established"
     );
     let mut bytes = [0; 24];
-    ctx.read_buf(root + off("/Script/Engine.SceneComponent", "RelativeLocation"), &mut bytes)
-        .await?;
+    ctx.read_buf(root + cache.fields.relative_location, &mut bytes).await?;
     let first = decode_position(&bytes)?;
     let char_path = path(&ctx, character).await?;
     let package = char_path.split('.').next().context("Missing world package")?;
@@ -268,8 +180,7 @@ async fn sample_context(
         package == "/Game/Chimera/Maps/ChimeraMain/ChimeraMain",
         "Unsupported current world frame; refusing map coordinates"
     );
-    ctx.read_buf(root + off("/Script/Engine.SceneComponent", "RelativeLocation"), &mut bytes)
-        .await?;
+    ctx.read_buf(root + cache.fields.relative_location, &mut bytes).await?;
     let position = decode_position(&bytes)?;
     ensure!(
         ((first.x - position.x).powi(2)
@@ -280,17 +191,18 @@ async fn sample_context(
         "Position changed too quickly; retry"
     );
     ensure!(
-        ctx.read::<u64>(controller + off("/Script/Engine.Controller", "Pawn")).await? == pawn
-            && ctx.read::<u64>(character + off("/Script/Engine.Actor", "RootComponent")).await?
-                == root
+        ctx.read::<u64>(controller + cache.fields.pawn).await? == pawn
+            && ctx.read::<u64>(character + cache.fields.root_component).await? == root
             && stamp(&ctx, character).await? == char_stamp
             && stamp(&ctx, root).await? == root_stamp,
         "References changed during sample"
     );
     process.ensure_alive()?;
-    Ok(
-        json!({"status":"ok","schemaVersion":1,"helperVersion":env!("CARGO_PKG_VERSION"),"observedAtUnixMilliseconds":SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis(),"source":"live_read_only_process_memory","position":position,"process":process.identity,"readerIsElevated":platform::is_elevated()?,"frame":{"worldPackage":package,"characterPath":char_path,"map":"ChimeraMain","worldUnitsPerMetre":100,"originShiftVerified":false},"validation":{"localPlayerRoundtrip":true,"registeredObjects":true,"unattachedRoot":true,"stableWithinSample":first==position},"limitations":["Main-map frame only; world-origin shifting independently unverified","Character position, not camera/drone position","No save snapshot or factory facts are refreshed"],"gameMemoryWrites":false}),
-    )
+    Ok(PlayerSample {
+        position,
+        observed_at_ms: SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64,
+        reader_is_elevated: platform::is_elevated()?,
+    })
 }
 #[cfg(test)]
 mod tests {
@@ -366,7 +278,13 @@ mod tests {
         ] {
             assert!(!cache_matches(&c, &changed));
         }
+        let bytes = serde_json::to_vec(&c).unwrap();
+        let runtime = RuntimeCache::new(c).unwrap();
+        assert!(runtime.matches(&id));
+        assert_eq!(serde_json::to_vec(&runtime.record).unwrap(), bytes);
+        assert!(!runtime.matches(&Identity {
+            pid: 13,
+            ..id
+        }));
     }
 }
-
-pub mod overlay_stream;

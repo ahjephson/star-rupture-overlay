@@ -1,19 +1,26 @@
-# Maintainer handover
+# Maintenance guide
 
-Status: public-release preparation in progress; repository remains private. No release or visibility change is authorized by this preparation.
+## Behaviour contract
 
-Read README.md, docs/ARCHITECTURE.md, docs/COMPATIBILITY.md and docs/RELEASING.md before changes. docs/validation.json records the latest completed checks. Historic session-specific development notes and the pre-preparation Git bundle are retained only in ignored local backups. Existing Git history is preserved; a targeted historical secret/account-path review found no matching formats, with limitations recorded in docs/PUBLIC-READINESS.md.
+- Game access is limited to query/read permissions for the executable and main map in [compatibility](COMPATIBILITY.md). Unknown builds, ambiguous processes and changed object identities produce unavailable data.
+- The UI thread owns the native HUD, tray icon, on-demand dialogs, fonts and GDI resources. Preferences and process-presence notifications remain separate from observation validation. The reader runs on one worker thread. Shutdown cancels and joins that worker before shared state is released.
+- Menu observations affect layout only. Timer observations independently establish simulation time and pause evidence. Countdowns advance with validated simulation observations, and evidence older than five seconds becomes unavailable.
+- Native Waiting displays STABLE; Moving displays APPROACHING. Fadeout displays INCINERATING for its first 8.5 simulation seconds, then COOLING. Both labels share the native Fadeout phase duration.
+- Preserve the Oxanium typography, stage colours, frame geometry, background transparency, countdown formatting and play/menu positions. Window ordering places the HUD immediately above the game in the ordinary window stack.
+- Preserve configuration keys, cache and diagnostic file formats, typed observation validation and the reader's observation compatibility version.
 
-## Preserve
+See [architecture](ARCHITECTURE.md) for timing limits, observation guards and native resource ownership.
 
-One Windows GUI app owns the native HUD and embedded read-only worker. Never add memory writes, injection, game hooks, save access, debug privileges or an arbitrary helper executable. Preserve exact game-build/path pins, object/world/allocation guards, bounded observations and cooperative cancellation. Fast menu evidence controls layout only; timer evidence and simulation pause remain independent.
+## Development and validation
 
-Keep the approved Oxanium frame, stage colors, INCINERATING label, slight background transparency and play/pause positioning. Do not deploy a candidate over a running app. Build into a fresh ignored output folder; Deploy.ps1 is a separate explicit operation.
+Use the pinned Rust toolchain and the first-party formatter described in [contributing](../CONTRIBUTING.md). Preserve vendored source, licence texts and asset hashes. Keep caches, captures, account-specific paths and generated output out of Git.
 
-## Current decisions
+Build candidates into fresh ignored directories. Native diagnostics use the application's own hidden or off-screen windows; package/deployment tests use disposable fixtures. Live reader checks require the supported running game. Summarize check results and limitations in PR descriptions, use CI for automated results, and include release-specific live checks in release notes. Keep raw diagnostic output local.
 
-Rust1.99.1, locked registry dependencies and immutable action pins are used for reviewed Windows builds. Source is formatted separately from vendor code. Vendor manifest-only safety/publish patches are documented and hash-verified. The source-include shim was replaced with a normal reader library; process handles stay on its worker thread. Local caches are bounded before parsing. The release executable statically links the VC runtime and uses thin LTO/stripped symbols.
+Application deployment is a separate operation from building and testing. Exit the installed app before an explicitly requested upgrade and retain a verified rollback. Confine maintenance changes to this repository.
 
-No signing identity, public visibility change, version tag or release publication has been configured or performed. The release workflow creates drafts only after manual dispatch and confirmed live verification. Signing/provenance and repository protection settings must be reviewed before the first public launch.
+## Release status
 
-This project is independent. Do not modify any planning workspace, MCP server, registrations, controller journals, datasets or old server copies while maintaining it. Local caches, builds, captures and private notes stay outside Git.
+Version 0.2.7 is in development. The [recipe tracker](RECIPE-TRACKER.md) prepares local assets automatically from a supported loaded game and uses Alt+X to pin or switch to a hovered unfinished station row, or clear that same row, with settings for position, scale and shortcut. Recipe hover and in-game appearance require manual candidate acceptance. Public distribution remains subject to the work in [release readiness](PUBLIC-READINESS.md) and the checks in [releasing](RELEASING.md). Publication, tags, repository visibility and installation changes require explicit authorization.
+
+Source provenance is documented in [EXTRACTION.md](EXTRACTION.md). Keep runtime records and backups in ignored local storage.

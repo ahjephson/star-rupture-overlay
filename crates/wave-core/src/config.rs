@@ -5,55 +5,36 @@ use std::{
     io::Read,
     path::{Path, PathBuf},
 };
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+/// Settings used by the running application.
+#[derive(Debug, Clone)]
 pub struct Config {
     pub cache_directory: Option<PathBuf>,
-    pub live: Option<Live>,
-    // Accepted only as false for compatibility with the initial overlay configuration.
-    pub auto_discover: bool,
+    pub live_enabled: bool,
 }
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct Live {
-    pub enabled: bool,
-    pub helper_file: PathBuf,
-    pub helper_sha256: String,
-}
-impl Config {
-    pub fn load(path: Option<&Path>) -> Result<Self, AppError> {
-        let Some(path) = path else {
-            return Ok(Self::default());
-        };
-        if !path.exists() {
-            return Err(AppError::new("CONFIG_NOT_FOUND", "Explicit configuration does not exist"));
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            cache_directory: None,
+            live_enabled: true,
         }
-        let invalid = |e| AppError::new("CONFIG_INVALID", e);
-        let file = File::open(path).map_err(|e| invalid(e.to_string()))?;
-        let mut bytes = Vec::new();
-        file.take(65537).read_to_end(&mut bytes).map_err(|e| invalid(e.to_string()))?;
-        if bytes.len() > 65536 {
-            return Err(invalid("Configuration exceeds read bound".into()));
-        }
-        let mut value: Self = serde_json::from_slice(&bytes).map_err(|e| invalid(e.to_string()))?;
-        value.validate()?;
-        let base = std::env::current_dir()
-            .map_err(|e| invalid(e.to_string()))?
-            .join(path)
-            .parent()
-            .unwrap()
-            .to_path_buf();
-        for p in value
-            .cache_directory
-            .iter_mut()
-            .chain(value.live.iter_mut().map(|v| &mut v.helper_file))
-        {
-            if p.is_relative() {
-                *p = base.join(&*p);
-            }
-        }
-        Ok(value)
     }
+}
+/// File acceptance is kept separate from the operational settings.
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+struct FileConfig {
+    cache_directory: Option<PathBuf>,
+    live: Option<CompatibleLiveConfig>,
+    auto_discover: bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct CompatibleLiveConfig {
+    enabled: bool,
+    helper_file: PathBuf,
+    helper_sha256: String,
+}
+impl FileConfig {
     fn validate(&self) -> Result<(), AppError> {
         let paths = self.cache_directory.iter().chain(self.live.iter().map(|v| &v.helper_file));
         if self.auto_discover
@@ -77,20 +58,57 @@ impl Config {
         }
         Ok(())
     }
+    fn into_runtime(self) -> Result<Config, AppError> {
+        self.validate()?;
+        Ok(Config {
+            cache_directory: self.cache_directory,
+            live_enabled: self.live.is_none_or(|v| v.enabled),
+        })
+    }
+}
+impl Config {
+    pub fn load(path: Option<&Path>) -> Result<Self, AppError> {
+        let Some(path) = path else {
+            return Ok(Self::default());
+        };
+        if !path.exists() {
+            return Err(AppError::new("CONFIG_NOT_FOUND", "Explicit configuration does not exist"));
+        }
+        let invalid = |e| AppError::new("CONFIG_INVALID", e);
+        let file = File::open(path).map_err(|e| invalid(e.to_string()))?;
+        let mut bytes = Vec::new();
+        file.take(65537).read_to_end(&mut bytes).map_err(|e| invalid(e.to_string()))?;
+        if bytes.len() > 65536 {
+            return Err(invalid("Configuration exceeds read bound".into()));
+        }
+        let mut value = serde_json::from_slice::<FileConfig>(&bytes)
+            .map_err(|e| invalid(e.to_string()))?
+            .into_runtime()?;
+        let absolute = std::env::current_dir().map_err(|e| invalid(e.to_string()))?.join(path);
+        let base = absolute
+            .parent()
+            .ok_or_else(|| invalid("Configuration has no parent directory".into()))?;
+        if let Some(p) = &mut value.cache_directory
+            && p.is_relative()
+        {
+            *p = base.join(&*p);
+        }
+        Ok(value)
+    }
 }
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn independent_configuration_rejects_mcp_settings_and_unsafe_pins() {
-        assert!(serde_json::from_str::<Config>(r#"{"saveControl":{}}"#).is_err());
-        let mut c = Config {
-            live: Some(Live {
+    fn configuration_acceptance_preserves_existing_keys_and_helper_validation() {
+        assert!(serde_json::from_str::<FileConfig>(r#"{"saveControl":{}}"#).is_err());
+        let mut c = FileConfig {
+            live: Some(CompatibleLiveConfig {
                 enabled: true,
                 helper_file: "reader.exe".into(),
                 helper_sha256: "a".repeat(64),
             }),
-            ..Default::default()
+            ..FileConfig::default()
         };
         assert!(c.validate().is_ok());
         c.live.as_mut().unwrap().helper_sha256 = "A".repeat(64);
@@ -98,5 +116,30 @@ mod tests {
         c.live = None;
         c.auto_discover = true;
         assert!(c.validate().is_err());
+    }
+    #[test]
+    fn compatibility_fields_are_validated_and_only_operational_settings_are_retained() {
+        let enabled = FileConfig::default().into_runtime().unwrap();
+        assert!(enabled.live_enabled);
+        let compatible = FileConfig {
+            cache_directory: Some("cache".into()),
+            live: Some(CompatibleLiveConfig {
+                enabled: false,
+                helper_file: "reader.exe".into(),
+                helper_sha256: "a".repeat(64),
+            }),
+            auto_discover: false,
+        }
+        .into_runtime()
+        .unwrap();
+        assert!(!compatible.live_enabled);
+        assert_eq!(compatible.cache_directory, Some("cache".into()));
+        for path in ["", "invalid\0path"] {
+            let input = FileConfig {
+                cache_directory: Some(path.into()),
+                ..FileConfig::default()
+            };
+            assert!(input.into_runtime().is_err());
+        }
     }
 }

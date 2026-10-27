@@ -1,84 +1,68 @@
-//! Private bounded overlay IPC; not an MCP contract.
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::io::{self, BufRead};
-pub const MAX_LINE: usize = 65536;
+//! Bounded observation envelopes, process identities and sequence validation.
+use serde::Serialize;
+pub const MAX_OBSERVATION_BYTES: usize = 65536;
 pub const GAME_HASH: &str = "95f95eee0b1913b8716de7fa5bf19877a91abe86e63bf2b6f0a29bd48d1d76f1";
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
-pub enum Command {
-    Start {
-        version: u32,
-        pause_interval_ms: u32,
-        world_interval_ms: u32,
-    },
-    Stop,
-}
-impl Command {
-    pub fn intervals(&self) -> Result<(u64, u64), &'static str> {
-        match self {
-            Self::Start {
-                version: 1,
-                pause_interval_ms,
-                world_interval_ms,
-            } if (25..=100).contains(pause_interval_ms)
-                && (250..=1000).contains(world_interval_ms) =>
-            {
-                Ok((u64::from(*pause_interval_ms), u64::from(*world_interval_ms)))
-            }
-            _ => Err("Invalid stream start or cadence bounds"),
-        }
-    }
-}
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GameIdentity {
     pub pid: u32,
-    pub creation_ticks: String,
-    pub executable_sha256: String,
+    pub creation_ticks: u64,
+    pub executable_sha256: &'static str,
 }
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum Kind {
+#[derive(Clone, Copy, Debug)]
+pub struct MenuSample {
+    pub menu_open: bool,
+    pub started_ms: u64,
+    pub finished_ms: u64,
+    pub guards_validated: bool,
+}
+#[derive(Clone, Copy, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Statistics {
+    pub menu_reads: u64,
+    pub world_reads: u64,
+    pub sessions: u64,
+    pub world_read_millis: u64,
+    pub menu_max_micros: u64,
+}
+#[derive(Debug)]
+pub struct WorldSample {
+    pub read_started_unix_ms: i64,
+    pub raw: crate::observation::RawObservation,
+    pub statistics: Statistics,
+}
+#[derive(Debug)]
+pub enum Payload {
     Ready,
-    Pause,
-    World,
-    Unavailable,
+    Menu(MenuSample),
+    World(Box<WorldSample>),
+    Unavailable(String),
 }
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug)]
 pub struct Message {
     pub version: u32,
     pub reader_pid: u32,
     pub sequence: u64,
     pub generation: u64,
-    pub kind: Kind,
     pub sampled_at_unix_ms: u64,
     pub process: Option<GameIdentity>,
     pub read_only: bool,
     pub game_code_invoked: bool,
-    pub data: Value,
+    pub payload: Payload,
 }
-pub fn read_line(reader: &mut impl BufRead, max: usize) -> io::Result<Option<Vec<u8>>> {
-    let mut line = Vec::new();
-    loop {
-        let chunk = reader.fill_buf()?;
-        if chunk.is_empty() {
-            return if line.is_empty() {
-                Ok(None)
-            } else {
-                Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Truncated IPC line"))
-            };
-        }
-        let n = chunk.iter().position(|b| *b == b'\n').map_or(chunk.len(), |n| n + 1);
-        if line.len() + n > max {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "IPC line exceeds bound"));
-        }
-        line.extend_from_slice(&chunk[..n]);
-        reader.consume(n);
-        if line.last() == Some(&b'\n') {
-            return Ok(Some(line));
-        }
+impl Message {
+    /// Bounds retained payload storage without serializing observations.
+    pub fn within_bound(&self) -> bool {
+        let heap = match &self.payload {
+            Payload::World(sample) => sample
+                .raw
+                .live
+                .heap_bytes()
+                .and_then(|n| n.checked_add(std::mem::size_of::<WorldSample>())),
+            Payload::Unavailable(reason) => Some(reason.capacity()),
+            _ => Some(0),
+        };
+        heap.and_then(|n| n.checked_add(std::mem::size_of::<Self>()))
+            .is_some_and(|n| n < MAX_OBSERVATION_BYTES)
     }
 }
 pub struct Validator {
@@ -99,31 +83,30 @@ impl Validator {
         }
     }
     pub fn accept(&mut self, m: &Message, now: u64) -> Result<(), &'static str> {
-        if m.version != 1
+        if !m.within_bound()
+            || m.version != 1
             || m.reader_pid != self.pid
             || !m.read_only
             || m.game_code_invoked
             || self.sequence.checked_add(1) != Some(m.sequence)
             || m.sampled_at_unix_ms < self.since.saturating_sub(1000)
-            || m.sampled_at_unix_ms > now + 1000
+            || m.sampled_at_unix_ms > now.saturating_add(1000)
             || now.saturating_sub(m.sampled_at_unix_ms) > 2000
         {
             return Err("Invalid/stale stream envelope");
         }
-        if m.kind == Kind::Ready {
+        if matches!(m.payload, Payload::Ready) {
             let p = m.process.as_ref().ok_or("Missing process identity")?;
             if p.pid == 0
                 || p.executable_sha256 != GAME_HASH
-                || p.creation_ticks.is_empty()
-                || p.creation_ticks.len() > 20
-                || !p.creation_ticks.bytes().all(|b| b.is_ascii_digit())
+                || p.creation_ticks == 0
                 || m.generation <= self.generation
             {
                 return Err("Invalid process/generation");
             }
             self.generation = m.generation;
-            self.process = Some(p.clone());
-        } else if m.kind == Kind::Unavailable {
+            self.process = Some(*p);
+        } else if matches!(m.payload, Payload::Unavailable(_)) {
             if m.generation != self.generation {
                 return Err("Invalid invalidation generation");
             }
@@ -141,67 +124,66 @@ impl Validator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-    fn message(kind: Kind, sequence: u64, generation: u64) -> Message {
+    fn message(kind: bool, sequence: u64, generation: u64) -> Message {
         Message {
             version: 1,
             reader_pid: 4,
             sequence,
             generation,
-            kind,
             sampled_at_unix_ms: 1000,
             process: Some(GameIdentity {
                 pid: 7,
-                creation_ticks: "123".into(),
-                executable_sha256: GAME_HASH.into(),
+                creation_ticks: 123,
+                executable_sha256: GAME_HASH,
             }),
             read_only: true,
             game_code_invoked: false,
-            data: json!({}),
+            payload: if kind {
+                Payload::Ready
+            } else {
+                Payload::Menu(MenuSample {
+                    menu_open: true,
+                    started_ms: 1000,
+                    finished_ms: 1000,
+                    guards_validated: true,
+                })
+            },
         }
     }
     #[test]
     fn stream_bounds_and_commands_reject_unsafe_input() {
-        assert!(
-            Command::Start {
-                version: 1,
-                pause_interval_ms: 50,
-                world_interval_ms: 250
-            }
-            .intervals()
-            .is_ok()
-        );
-        assert!(
-            Command::Start {
-                version: 1,
-                pause_interval_ms: 1,
-                world_interval_ms: 250
-            }
-            .intervals()
-            .is_err()
-        );
-        assert!(serde_json::from_str::<Command>(r#"{"command":"start","version":1,"pause_interval_ms":50,"world_interval_ms":250,"address":1}"#).is_err());
-        assert!(read_line(&mut io::Cursor::new(b"12345\n"), 4).is_err());
-        assert!(read_line(&mut io::Cursor::new(b"123"), 4).is_err());
-        assert!(read_line(&mut io::Cursor::new(b""), 4).unwrap().is_none());
+        let oversized = Message {
+            payload: Payload::Unavailable("x".repeat(MAX_OBSERVATION_BYTES)),
+            ..message(false, 1, 1)
+        };
+        assert!(!oversized.within_bound());
     }
     #[test]
     fn generations_sequence_identity_and_invalidation_are_enforced() {
         let mut v = Validator::new(4, 1000);
-        assert!(v.accept(&message(Kind::Pause, 1, 1), 1000).is_err());
-        assert!(v.accept(&message(Kind::Ready, 1, 1), 1000).is_ok());
-        assert!(v.accept(&message(Kind::Pause, 2, 1), 1000).is_ok());
-        assert!(v.accept(&message(Kind::Pause, 2, 1), 1000).is_err());
-        assert!(v.accept(&message(Kind::Unavailable, 3, 1), 1000).is_ok());
-        assert!(v.accept(&message(Kind::World, 4, 1), 1000).is_err());
-        assert!(v.accept(&message(Kind::Ready, 4, 2), 1000).is_ok());
-        let mut bad = message(Kind::Pause, 5, 2);
-        bad.process.as_mut().unwrap().creation_ticks = "124".into();
+        assert!(v.accept(&message(false, 1, 1), 1000).is_err());
+        assert!(v.accept(&message(true, 1, 1), 1000).is_ok());
+        assert!(v.accept(&message(false, 2, 1), 1000).is_ok());
+        assert!(v.accept(&message(false, 2, 1), 1000).is_err());
+        assert!(
+            v.accept(
+                &Message {
+                    payload: Payload::Unavailable(String::new()),
+                    ..message(false, 3, 1)
+                },
+                1000
+            )
+            .is_ok()
+        );
+        assert!(v.accept(&message(false, 4, 1), 1000).is_err());
+        assert!(v.accept(&message(true, 4, 2), 1000).is_ok());
+        let mut bad = message(false, 5, 2);
+        bad.process.as_mut().unwrap().creation_ticks = 124;
         assert!(v.accept(&bad, 1000).is_err());
-        bad = message(Kind::Pause, 5, 2);
+        bad = message(false, 5, 2);
         bad.game_code_invoked = true;
         assert!(v.accept(&bad, 1000).is_err());
-        assert!(v.accept(&message(Kind::Pause, 5, 2), 5000).is_err());
-        assert!(v.accept(&message(Kind::Pause, 5, 2), 1000).is_ok());
+        assert!(v.accept(&message(false, 5, 2), 5000).is_err());
+        assert!(v.accept(&message(false, 5, 2), 1000).is_ok());
     }
 }
