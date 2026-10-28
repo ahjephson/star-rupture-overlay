@@ -1,25 +1,17 @@
-# Supported environment
+# Game compatibility
 
-The overlay supports the environment below.
+The overlay supports the Steam release of **Update 2: Quality of Life with Hotfix 0.3.5**. These are the names used in the game's [official Steam announcements](https://store.steampowered.com/app/1631270/StarRupture/).
 
-| Requirement | Supported scope |
+| Requirement | Supported |
 | --- | --- |
-| Operating system | Windows 10/11 x64 |
-| Display mode | Borderless/windowed; Fullscreen verified on the supported game build |
-| Game distribution | Steam build 25646882, one exact executable hash |
-| Installation | Location detected from the running game process |
-| Game/map state | Supported main-map running session |
+| Game update | Update 2: Quality of Life |
+| Game hotfix | 0.3.5 |
+| Game distribution | Steam |
+| Operating system | Windows 10 or 11, 64-bit |
+| Display mode | Windowed, Borderless and the game's Fullscreen setting |
 
-Both overlays support the game's Fullscreen setting on the supported system, including Alt-Tab and switching to Borderless. Topmost fullscreen windows require the game to have focus; the overlays hide while another application is foreground. Support does not extend to unverified exclusive-fullscreen configurations.
+Both overlays work with Alt-Tab and switching between Fullscreen and Borderless. They hide while another application has focus. Other exclusive-fullscreen configurations have not been verified.
 
-Executable filename: `StarRuptureGameSteam-Win64-Shipping.exe`. Windows supplies its full path; the reader checks the executable hash and process creation identity before reading game memory. Multiple matching processes are rejected as ambiguous.
+Start the game and load your world to use the overlays. Recipe setup completes automatically after a world is loaded; later launches reuse the prepared resources. No extra tools need to be installed.
 
-Supported executable SHA256:
-
-```text
-95f95eee0b1913b8716de7fa5bf19877a91abe86e63bf2b6f0a29bd48d1d76f1
-```
-
-A game update can invalidate support. Unsupported builds and runtime states produce unavailable data. Compatibility updates require reflection, allocation and timing verification plus live tests.
-
-The overlay executable statically links the Visual C++ runtime. Recipe setup uses built-in Rust code and works offline, with no additional runtime or extraction tool to install. Native type preparation requires a supported loaded world; later launches reuse a validated asset cache. Game files remain read-only.
+Earlier updates and hotfixes have not been verified. A newer game update or hotfix may require an overlay update. If readings become unavailable after a game update, check for a compatible overlay release.
