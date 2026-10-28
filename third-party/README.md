@@ -1,6 +1,6 @@
 # Vendored dependencies
 
-This directory contains the jmap, gospel, patternsleuth and ser-hex libraries used by the reader, plus retoc and repak for offline recipe extraction. [VENDOR.json](VENDOR.json) records their upstream revisions, licences, adaptations and verification hashes. [Source provenance](../docs/EXTRACTION.md) links the baseline inventories.
+This directory contains the jmap, gospel, patternsleuth and ser-hex libraries used by the reader, plus retoc and repak for offline recipe extraction. [VENDOR.json](VENDOR.json) records their upstream revisions, licences, adaptations and verification hashes. [Source provenance](../docs/PROVENANCE.md) describes the source and licence inventories.
 
 The vendored workspaces select the required libraries and resolve their shared dependencies through local paths. The root Cargo.lock pins registry versions and checksums. Available upstream licence notices, Cargo licence declarations and READMEs are retained; the standard Apache-2.0 text is supplied centrally. See [third-party notices](../THIRD-PARTY-NOTICES.md) for licence details.
 

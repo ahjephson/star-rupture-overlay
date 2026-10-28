@@ -15,9 +15,21 @@ Routine Windows CI checks development builds. Run **Windows package verification
 
 The build uses locked dependencies, static Visual C++ runtime linkage, thin LTO, one code-generation unit and stripped symbols. It remaps source and cache paths. ZIP entry ordering and timestamps are stable; compiler output can vary across SDK and toolchain environments.
 
+## Public-repository checks
+
+Review the current tracked files and every reachable branch and tag before making the repository public. Keep account paths, credentials, settings, captures, saves, extracted game assets and raw verification output in ignored local storage. Check Git author/committer email addresses as well as file contents. Preserve history; any necessary history rewrite needs separate review and authorization.
+
+Check the retained-source inventory, licence declarations, notice export, bundled font hashes and artwork permission. Keep source and asset provenance in [PROVENANCE.md](PROVENANCE.md). The app ZIP contains the executable, its player README, licence notices and dependency/file inventories; maintenance guides and local audit reports do not belong in it.
+
+The public README must describe the download that actually exists. Check the final committed source through both Windows CI and Windows package verification, and include their results with the release-specific live checks. Keep raw test logs and acceptance notes out of the public documentation.
+
+Check main-branch protection and private vulnerability reporting through the authenticated repository settings. Protect against unintended force pushes and deletion; select any required status checks to fit the owner's maintenance workflow. Do not require external pull requests as a release prerequisite. Protection availability depends on the repository plan and visibility; see [GitHub protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches).
+
+GitHub private vulnerability reporting is available for public repositories; see [GitHub's configuration guide](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/configure-vulnerability-reporting/configure-for-a-repository). Where the current plan prevents protection of a private repository, apply and verify protection and private reporting immediately after an explicitly authorized visibility change, before announcing the repository or publishing an app download. Until private reporting is enabled, SECURITY.md describes the fallback contact process. Repository visibility and settings changes remain separate authorized actions.
+
 ## Draft preparation
 
-After reviewing and committing the candidate, create an annotated vMAJOR.MINOR.PATCH tag on that reviewed commit and push it. Tags are created explicitly before dispatch. Configure repository branch protection and private vulnerability reporting before a public launch.
+After reviewing and committing the candidate, create an annotated vMAJOR.MINOR.PATCH tag on that reviewed commit and push it. Tags are created explicitly before dispatch. Verify repository branch protection and private vulnerability reporting as described in the public-repository checks before announcing a public launch.
 
 Manually dispatch **Prepare draft release** from main with the existing tag and the live-verification checkbox. It refuses a missing/non-main tag or mismatched app version, builds and tests the tagged source, uploads the candidate and creates an **unpublished draft**. Repeated creation fails when release assets already exist. The ordinary CI workflow has read-only repository permissions; only the final draft job gets contents:write.
 

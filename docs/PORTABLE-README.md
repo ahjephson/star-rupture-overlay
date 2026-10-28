@@ -22,7 +22,7 @@ The app is unsigned. Windows may show a SmartScreen warning on the first launch 
 
 ## Updates and removal
 
-Exit the overlay before starting a new version. Extract updates into a new folder and keep the previous version for rollback. If enabled, disable Start with Windows and remove the desktop shortcut in the old copy's Settings, then recreate them from the new copy.
+Exit the overlay before starting a new version. Extract updates into a new folder and keep the previous version for rollback. Open the new copy's Settings and choose Update shortcut to point an existing desktop shortcut to this copy, or Create shortcut if it is missing. If Start with Windows is enabled, disable it in the old copy's Settings and enable it in the new copy.
 
 To uninstall, disable startup and remove the shortcut in Settings, exit the app and delete its extracted folder. Preferences and caches are stored separately under `%LOCALAPPDATA%/StarRuptureWaveOverlay`; delete that folder too if you want to remove local data. The app reads game memory and installed archives without changing the game or its saves.
 

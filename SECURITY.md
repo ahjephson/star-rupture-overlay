@@ -6,7 +6,7 @@ The overlay reads the supported game process with standard user permissions. It 
 
 Use **Security > Report a vulnerability** on this repository when private vulnerability reporting is available. If that option is missing, open an issue asking for a private security contact without including the vulnerability details. Keep reproduction details, credentials, saves, memory dumps and local data out of public issues.
 
-Security maintenance targets the latest published version. The current 0.2.7 candidate is in development; no public release has been published yet. The project makes no guaranteed response-time commitment.
+Security maintenance targets the latest published version. The project makes no guaranteed response-time commitment.
 
 ## Downloads and first-run setup
 

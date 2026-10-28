@@ -5,7 +5,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Cannot inventory tracked files.' }
     $patterns = @('[A-Za-z]:[\/]+Users[\/]', 'gh[pousr]_[A-Za-z0-9]{20,}', 'github_pat_[A-Za-z0-9_]{20,}', '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----', 'AKIA[0-9A-Z]{16}')
     foreach ($relative in $files) {
-        if ($relative -match '(^|/)(local|dist|target|\.tools|\.codex)/|\.(sav|met|dmp|exe|dll|usmap)$') { throw "Private/generated file is tracked: $relative" }
+        if ($relative -match '(^|/)(local|dist|target|\.tools|\.codex|captures|backups|saves)/|\.(sav|met|dmp|exe|dll|pdb|usmap|bgra|pak|ucas|utoc|lnk)$|(^|/)\.env($|\.)|^config/(?!example\.json$).*\.json$') { throw "Private/generated file is tracked: $relative" }
         if ([IO.Path]::GetExtension($relative) -in @('.ttf', '.png', '.ico')) { continue }
         if (-not (Test-Path -LiteralPath $relative)) { continue } # staged deletion
         $text = Get-Content -LiteralPath $relative -Raw -Encoding utf8

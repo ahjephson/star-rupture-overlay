@@ -4,7 +4,7 @@
 
 Compare the ZIP's SHA256 with its matching .sha256 file, extract to a fresh user-writable folder and run starrupture-overlay.exe. Keep LICENSE, THIRD-PARTY-NOTICES.md and licenses/ with it. Deployment uses a user-writable directory and standard user privileges.
 
-Before upgrading, disable Start with Windows and remove the desktop shortcut in Settings, then exit through the overlay tray menu. Recreate those entries from the new version after verification. Extract the new version beside the previous version, test it and retain the old folder for rollback. Single-instance protection keeps one normal HUD running. To roll back, exit the new version and run the previous executable. The app validates caches at startup.
+Before upgrading, disable Start with Windows if enabled, then exit through the overlay tray menu. Enable startup from the new version after verification. In its Settings, choose Update shortcut to redirect an existing desktop shortcut to the new copy, or Create shortcut if it is missing. Extract the new version beside the previous version, test it and retain the old folder for rollback. Single-instance protection keeps one normal HUD running. To roll back, exit the new version and run the previous executable. The app validates caches at startup.
 
 ## Scripted per-user deployment
 

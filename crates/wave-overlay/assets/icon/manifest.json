@@ -18,5 +18,12 @@
   "files": {
     "source.png": "ff79227df8870c7395a23e5ccfc42589f273f0d4ca231f47efe940e20064dc01",
     "app.ico": "7eb4a86e9813a1ce3ef6e392c510e5856238e56c22a5a38d3ce9b9f4558c4f82"
+  },
+  "provenance": {
+    "creator": "Alex Jephson",
+    "source": "Original artwork created by the project owner",
+    "license": "LicenseRef-PolyForm-Strict-1.0.0",
+    "copyright": "Copyright (c) 2026 Alex Jephson",
+    "confirmed": "2026-10-28"
   }
 }

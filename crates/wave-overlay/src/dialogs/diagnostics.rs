@@ -20,6 +20,28 @@ pub fn self_test(directory: &Path) -> Result<()> {
         unsafe { SendDlgItemMessageW(window, 111, CB_GETCURSEL, 0, 0) } == 0,
         "Default exit preference changed"
     );
+    for (state, expected_label, expected_action) in [
+        (desktop::ShortcutState::OtherCopy, "Shortcut points to another copy", "Update shortcut"),
+        (desktop::ShortcutState::Current, "Desktop shortcut created", "Remove shortcut"),
+        (desktop::ShortcutState::Other, "A different shortcut uses this name", "Create shortcut"),
+        (desktop::ShortcutState::Missing, "No shortcut created", "Create shortcut"),
+    ] {
+        dialogs.windows[0].0.shortcut.set(state);
+        shortcut_labels(&dialogs.windows[0].0);
+        for (control, expected) in [(112, expected_label), (113, expected_action)] {
+            let mut buffer = [0u16; 128];
+            let length = unsafe {
+                GetDlgItemTextW(window, control, buffer.as_mut_ptr(), buffer.len() as i32)
+            };
+            ensure!(
+                String::from_utf16_lossy(&buffer[..length as usize]) == expected,
+                "Shortcut state label/action mismatch"
+            );
+        }
+        if state == desktop::ShortcutState::OtherCopy {
+            capture(window, &directory.join("settings-shortcut-update.bmp"))?;
+        }
+    }
     capture(window, &directory.join("settings.bmp"))?;
     unsafe {
         SendDlgItemMessageW(window, 155, TCM_SETCURSEL, 1, 0);

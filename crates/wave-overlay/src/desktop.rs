@@ -197,9 +197,59 @@ pub fn shortcut_path() -> Result<PathBuf> {
         Ok(path.join("Play StarRupture with Overlay.lnk"))
     }
 }
-pub fn shortcut_owned(path: &Path, config: Option<&Path>) -> Result<bool> {
+const SHORTCUT_DESCRIPTION: &str = "Start StarRupture with StarRupture Overlay";
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ShortcutState {
+    #[default]
+    Missing,
+    Current,
+    OtherCopy,
+    Other,
+}
+impl ShortcutState {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Missing => "No shortcut created",
+            Self::Current => "Desktop shortcut created",
+            Self::OtherCopy => "Shortcut points to another copy",
+            Self::Other => "A different shortcut uses this name",
+        }
+    }
+    pub fn action(self) -> &'static str {
+        match self {
+            Self::Current => "Remove shortcut",
+            Self::OtherCopy => "Update shortcut",
+            _ => "Create shortcut",
+        }
+    }
+}
+fn shortcut_identity(
+    target: &OsStr,
+    args: &OsStr,
+    description: &OsStr,
+    executable: &Path,
+    config: Option<&Path>,
+) -> ShortcutState {
+    if args != arguments(config, true) {
+        return ShortcutState::Other;
+    }
+    if target.to_string_lossy().eq_ignore_ascii_case(&executable.to_string_lossy()) {
+        return ShortcutState::Current;
+    }
+    let known_name = Path::new(target).file_name().is_some_and(|name| {
+        ["starrupture-overlay.exe", "starrupture-wave-overlay.exe"]
+            .iter()
+            .any(|known| name.to_string_lossy().eq_ignore_ascii_case(known))
+    });
+    if known_name && description == OsStr::new(SHORTCUT_DESCRIPTION) {
+        ShortcutState::OtherCopy
+    } else {
+        ShortcutState::Other
+    }
+}
+pub fn shortcut_state(path: &Path, config: Option<&Path>) -> Result<ShortcutState> {
     if !path.try_exists()? {
-        return Ok(false);
+        return Ok(ShortcutState::Missing);
     }
     let _com = Com::initialize()?;
     unsafe {
@@ -208,55 +258,67 @@ pub fn shortcut_owned(path: &Path, config: Option<&Path>) -> Result<bool> {
         persist.Load(PCWSTR(wide(path).as_ptr()), STGM_READ)?;
         let mut target = vec![0; 32768];
         let mut args = vec![0; 32768];
+        let mut description = vec![0; 32768];
         link.GetPath(&mut target, std::ptr::null_mut(), 0)?;
         link.GetArguments(&mut args)?;
-        let target = &target[..target.iter().position(|u| *u == 0).unwrap_or(target.len())];
-        let args = &args[..args.iter().position(|u| *u == 0).unwrap_or(args.len())];
-        Ok(OsString::from_wide(target) == std::env::current_exe()?.as_os_str()
-            && OsString::from_wide(args) == arguments(config, true))
+        link.GetDescription(&mut description)?;
+        let string = |buffer: &[u16]| {
+            OsString::from_wide(
+                &buffer[..buffer.iter().position(|u| *u == 0).unwrap_or(buffer.len())],
+            )
+        };
+        Ok(shortcut_identity(
+            &string(&target),
+            &string(&args),
+            &string(&description),
+            &std::env::current_exe()?,
+            config,
+        ))
     }
 }
 pub fn toggle_shortcut(config: Option<&Path>) -> Result<bool> {
-    let path = shortcut_path()?;
-    toggle_shortcut_at(&path, config)
+    toggle_shortcut_at(&shortcut_path()?, config)
 }
 fn toggle_shortcut_at(path: &Path, config: Option<&Path>) -> Result<bool> {
-    if path.try_exists()? {
-        ensure!(
-            shortcut_owned(path, config)?,
-            "A different shortcut already uses this name. Rename it before creating this shortcut."
-        );
+    let state = shortcut_state(path, config)?;
+    if state == ShortcutState::Current {
         std::fs::remove_file(path)?;
         return Ok(false);
     }
-    let _com = Com::initialize()?;
+    ensure!(
+        state != ShortcutState::Other,
+        "A different shortcut already uses this name. Rename it before creating this shortcut."
+    );
+    let previous = if state == ShortcutState::OtherCopy {
+        Some(std::fs::read(path)?)
+    } else {
+        None
+    };
     let executable = std::env::current_exe()?;
     let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
     ensure!(!temporary.try_exists()?, "A temporary shortcut already exists");
     let result = (|| -> Result<()> {
-        unsafe {
-            let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
-            link.SetPath(PCWSTR(wide(&executable).as_ptr()))?;
-            link.SetArguments(PCWSTR(wide(arguments(config, true)).as_ptr()))?;
-            link.SetWorkingDirectory(PCWSTR(
-                wide(executable.parent().context("Application directory unavailable")?).as_ptr(),
-            ))?;
-            link.SetIconLocation(PCWSTR(wide(&executable).as_ptr()), 0)?;
-            link.SetDescription(PCWSTR(
-                wide("Start StarRupture with StarRupture Overlay").as_ptr(),
-            ))?;
-            let persist: IPersistFile = link.cast()?;
-            persist.Save(PCWSTR(wide(&temporary).as_ptr()), true)?;
+        save_shortcut(&temporary, &executable, config)?;
+        let flags = if let Some(previous) = previous {
             ensure!(
+                std::fs::read(path)? == previous,
+                "Desktop shortcut changed; reopen Settings and try again."
+            );
+            windows_sys::Win32::Storage::FileSystem::MOVEFILE_REPLACE_EXISTING
+        } else {
+            0
+        };
+        ensure!(
+            unsafe {
                 windows_sys::Win32::Storage::FileSystem::MoveFileExW(
                     wide(&temporary).as_ptr(),
                     wide(path).as_ptr(),
-                    0
-                ) != 0,
-                "Could not create shortcut: {}",
-                std::io::Error::last_os_error()
-            );
-        }
+                    flags,
+                )
+            } != 0,
+            "Could not update shortcut: {}",
+            std::io::Error::last_os_error()
+        );
         Ok(())
     })();
     if result.is_err() {
@@ -264,6 +326,22 @@ fn toggle_shortcut_at(path: &Path, config: Option<&Path>) -> Result<bool> {
     }
     result?;
     Ok(true)
+}
+fn save_shortcut(path: &Path, executable: &Path, config: Option<&Path>) -> Result<()> {
+    let _com = Com::initialize()?;
+    unsafe {
+        let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
+        link.SetPath(PCWSTR(wide(executable).as_ptr()))?;
+        link.SetArguments(PCWSTR(wide(arguments(config, true)).as_ptr()))?;
+        link.SetWorkingDirectory(PCWSTR(
+            wide(executable.parent().context("Application directory unavailable")?).as_ptr(),
+        ))?;
+        link.SetIconLocation(PCWSTR(wide(executable).as_ptr()), 0)?;
+        link.SetDescription(PCWSTR(wide(SHORTCUT_DESCRIPTION).as_ptr()))?;
+        let persist: IPersistFile = link.cast()?;
+        persist.Save(PCWSTR(wide(path).as_ptr()), true)?;
+    }
+    Ok(())
 }
 pub fn open(owner: HWND, target: &str) -> Result<()> {
     let _com = Com::initialize()?;
@@ -300,13 +378,78 @@ mod tests {
         let path = root.join("Play StarRupture with Overlay.lnk");
         let config = root.join("Config with spaces.json");
         assert!(toggle_shortcut_at(&path, Some(&config)).unwrap());
-        assert!(shortcut_owned(&path, Some(&config)).unwrap());
-        assert!(!shortcut_owned(&path, None).unwrap());
+        assert_eq!(shortcut_state(&path, Some(&config)).unwrap(), ShortcutState::Current);
+        assert_eq!(shortcut_state(&path, None).unwrap(), ShortcutState::Other);
         assert!(!toggle_shortcut_at(&path, Some(&config)).unwrap());
         assert!(!path.exists());
         std::fs::write(&path, b"Unrelated file").unwrap();
         assert!(toggle_shortcut_at(&path, Some(&config)).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), b"Unrelated file");
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
+    #[test]
+    fn older_and_missing_version_targets_can_be_updated_then_removed() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../local/shortcut-tests")
+            .join(format!("upgrade-{}", std::process::id()));
+        let old = root.join("old version");
+        std::fs::create_dir_all(&old).unwrap();
+        let path = root.join("Play StarRupture with Overlay.lnk");
+        let config = root.join("Settings with spaces.json");
+        for name in
+            ["starrupture-wave-overlay.exe", "starrupture-overlay.exe", "STARRUPTURE-OVERLAY.EXE"]
+        {
+            let target = old.join(name);
+            assert!(!target.exists());
+            save_shortcut(&path, &target, Some(&config)).unwrap();
+            assert_eq!(shortcut_state(&path, Some(&config)).unwrap(), ShortcutState::OtherCopy);
+            let before = std::fs::read(&path).unwrap();
+            // A failed replacement leaves the previous shortcut intact.
+            let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
+            std::fs::write(&temporary, b"already in use").unwrap();
+            assert!(toggle_shortcut_at(&path, Some(&config)).is_err());
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+            assert_eq!(std::fs::read(&temporary).unwrap(), b"already in use");
+            std::fs::remove_file(temporary).unwrap();
+            // First click updates; it must not remove the link as a toggle would.
+            assert!(toggle_shortcut_at(&path, Some(&config)).unwrap());
+            assert!(path.exists());
+            assert_eq!(shortcut_state(&path, Some(&config)).unwrap(), ShortcutState::Current);
+            assert!(!toggle_shortcut_at(&path, Some(&config)).unwrap());
+            assert_eq!(shortcut_state(&path, Some(&config)).unwrap(), ShortcutState::Missing);
+        }
+        std::fs::remove_dir(old).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
+    #[test]
+    fn unrelated_links_and_other_configuration_profiles_are_preserved() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../local/shortcut-tests")
+            .join(format!("foreign-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("Play StarRupture with Overlay.lnk");
+        let target = root.join("starrupture-overlay.exe");
+        let config = root.join("different.json");
+        save_shortcut(&path, &target, Some(&config)).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        assert_eq!(shortcut_state(&path, None).unwrap(), ShortcutState::Other);
+        assert!(toggle_shortcut_at(&path, None).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        save_shortcut(&path, &target, None).unwrap();
+        let _com = Com::initialize().unwrap();
+        unsafe {
+            let link: IShellLinkW =
+                CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).unwrap();
+            let persist: IPersistFile = link.cast().unwrap();
+            persist.Load(PCWSTR(wide(&path).as_ptr()), STGM_READ).unwrap();
+            link.SetDescription(PCWSTR(wide("Unrelated shortcut").as_ptr())).unwrap();
+            persist.Save(PCWSTR(wide(&path).as_ptr()), true).unwrap();
+        }
+        let before = std::fs::read(&path).unwrap();
+        assert_eq!(shortcut_state(&path, None).unwrap(), ShortcutState::Other);
+        assert!(toggle_shortcut_at(&path, None).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
         std::fs::remove_file(path).unwrap();
         std::fs::remove_dir(root).unwrap();
     }

@@ -1,6 +1,6 @@
 # Dependencies
 
-Cargo.lock pins registry versions. The policy in deny.toml checks the application's Windows x64 dependency graph for advisories, permitted licences and approved registries. Release archives contain a dependency-inventory.json and the reachable dependencies' licence notices.
+[Cargo.lock](../Cargo.lock) pins registry versions. The policy in deny.toml checks the application's Windows x64 dependency graph for advisories, permitted licences and approved registries. Release archives contain a dependency-inventory.json and the reachable dependencies' licence notices.
 
 ## Components
 
@@ -9,9 +9,9 @@ Cargo.lock pins registry versions. The policy in deny.toml checks the applicatio
 | jmap and jmap_dumper | Native reflection types and schema generation through the reader's process boundary |
 | usmap | Native property-schema serialization |
 | gospel and patternsleuth | Runtime layout and reference discovery |
-| retoc 0.1.5 | IoStore/Zen archive access and cooked-package conversion |
-| repak 0.2.3 | PAK archive access for the recipe font |
-| bcdec_rs 0.2.1 | BC3 texture decoding |
+| retoc | IoStore/Zen archive access and cooked-package conversion |
+| repak | PAK archive access for the recipe font |
+| bcdec_rs | BC3 texture decoding |
 | Windows bindings | Native windows, rendering, tray controls and process access |
 
 The five first-party crates define the UI, live reader, asset extraction, timing/configuration and shared observation model. Their responsibilities are described in [architecture](ARCHITECTURE.md).
@@ -26,15 +26,15 @@ The retained retoc and repak libraries contain no standalone tools, game fixture
 
 ## Process access
 
-The overlay's query/read-only Windows backend enforces build, session, allocation and read-budget checks. The reflection libraries also depend on read-process-memory 0.3.0; its Windows handle requests PROCESS_VM_READ and uses reference-counted cleanup. A first-party test reads a known buffer in its own process and rejects an invalid address. Game writes are outside the reader's interface.
+The overlay's query/read-only Windows backend enforces build, session, allocation and read-budget checks. The reflection libraries also depend on read-process-memory; its Windows handle requests PROCESS_VM_READ and uses reference-counted cleanup. A first-party test reads a known buffer in its own process and rejects an invalid address. Game writes are outside the reader's interface.
 
 ## Maintenance exception
 
-[RUSTSEC-2024-0436](https://rustsec.org/advisories/RUSTSEC-2024-0436.html) marks paste 1.0.15 unmaintained. Vendored dependencies use it as a compile-time macro. This is the advisory exception in deny.toml and requires review before each release. Transitive duplicate versions appear as audit warnings.
+[RUSTSEC-2024-0436](https://rustsec.org/advisories/RUSTSEC-2024-0436.html) marks paste unmaintained. Vendored dependencies use it as a compile-time macro. This is the advisory exception in deny.toml and requires review before each release. Transitive duplicate versions appear as audit warnings.
 
 ## Source and licence provenance
 
-[third-party/VENDOR.json](../third-party/VENDOR.json) records upstream revisions, verification hashes and deliberate local adaptations. The [vendor guide](../third-party/README.md) describes source verification. Vendor verification covers retained file bytes; registry versions and checksums are pinned in Cargo.lock.
+[third-party/VENDOR.json](../third-party/VENDOR.json) records upstream revisions, verification hashes and deliberate local adaptations. The [vendor guide](../third-party/README.md) describes source verification, and [source provenance](PROVENANCE.md) covers dependency, font and artwork records. Vendor verification covers retained file bytes; registry versions and checksums are pinned in Cargo.lock.
 
 Export-Notices.ps1 copies reachable licence and attribution files into each release. Crate archives without separate notice files use the reviewed declarations and texts recorded in licenses/registry/index.json. Oxanium fonts retain SIL OFL 1.1 and their original hashes. Dependencies retain their upstream licences; see [third-party notices](../THIRD-PARTY-NOTICES.md).
 

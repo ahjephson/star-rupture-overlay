@@ -20,7 +20,7 @@ Outside the station, Alt+X clears an existing pin. Inside the station, a complet
 
 The tracker prepares its icons, font and recipe information automatically from the supported installed game. Setup works offline using the built-in Rust asset reader. Derived game assets are cached locally; no components are downloaded and no game assets are uploaded.
 
-Check that Steam has finished installing or updating the game, load a supported world, and check your internet connection. Save Settings with Recipe tracker turned off, then enable it and save again to retry, or restart the overlay. Game updates that change the supported build need an overlay compatibility update; retrying cannot add support for an unknown build.
+Check that Steam has finished installing or updating the game, and load a supported world. Save Settings with Recipe tracker turned off, then enable it and save again to retry, or restart the overlay. Game updates that change the supported build need an overlay compatibility update; retrying cannot add support for an unknown build.
 
 Cached assets are checked before reuse. Missing or changed assets trigger preparation again. The wave countdown can continue if recipe setup fails. A long first setup can temporarily leave its timing reading unavailable while the shared worker finishes preparation.
 

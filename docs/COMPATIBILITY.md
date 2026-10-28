@@ -1,6 +1,6 @@
 # Supported environment
 
-The 0.2.7 development candidate supports the environment below.
+The overlay supports the environment below.
 
 | Requirement | Supported scope |
 | --- | --- |

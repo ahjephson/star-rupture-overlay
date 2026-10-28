@@ -17,7 +17,7 @@ This unofficial Windows companion adds a rupture countdown and an optional recip
 
 ## Download and start
 
-A public release is being prepared; there is no published download yet. Release ZIPs will appear on the [Releases page](https://github.com/ahjephson/star-rupture-overlay/releases).
+Use the [Releases page](https://github.com/ahjephson/star-rupture-overlay/releases) for downloadable builds.
 
 1. Download the **Windows x64 ZIP** from Releases. The GitHub **Source code** downloads are not the app.
 2. Extract the complete ZIP to a folder you want to keep. Keep the included files together.
@@ -29,41 +29,24 @@ The app finds the running game automatically. Run it normally, without administr
 ### Requirements
 
 - Windows 10 or 11, 64-bit.
-- The supported Steam version of StarRupture in borderless, windowed or fullscreen mode. See [supported versions](docs/COMPATIBILITY.md) for the fullscreen compatibility scope.
+- The supported Steam version of StarRupture in borderless, windowed or fullscreen mode. See [supported environment](docs/COMPATIBILITY.md) for the fullscreen compatibility scope.
 - A supported installed game for recipe setup. The app prepares icons, names and the font locally using its built-in Rust reader. Setup works offline and later launches reuse the local cache.
 
-Game updates can temporarily break compatibility. Check [supported versions](docs/COMPATIBILITY.md) if the overlay cannot connect.
+Game updates can temporarily break compatibility. Check [supported environment](docs/COMPATIBILITY.md) if the overlay cannot connect.
 
 ### Windows SmartScreen
 
 The app is unsigned, so Windows may show **Windows protected your PC** when you first open a downloaded build. If you have checked the download source and trust the app, choose **More info**, then **Run anyway**. A new download or update may prompt again. Release ZIPs include a matching SHA256 checksum so you can check the download; see [download verification](docs/SUPPORT.md#checking-a-download).
 
-## Using the recipe tracker
+## Using the overlay
 
-Open the recipe station and move your mouse over an unfinished recipe row, then press **Alt+X**. The sidebar shows the recipe name, materials and submitted/required amounts. It stays visible when you leave the station.
+Right-click the notification-area icon for controls, or double-click it to open Settings. To pin research progress, hover over an unfinished recipe in the station and press **Alt+X**. The sidebar closes when the recipe is completed.
 
-| Action | Result |
-| --- | --- |
-| Alt+X over a different unfinished recipe | Switch the sidebar to that recipe |
-| Alt+X over the pinned unfinished recipe | Clear the sidebar |
-| Alt+X outside the recipe station | Clear the sidebar if something is pinned |
-| Alt+X over a completed recipe, or empty space inside the station | Keep the current selection |
-
-The sidebar closes automatically when the pinned recipe is completed.
-
-A white counter means you have some of that material in your bag; the orange number shows your bag quantity. A red counter means you have none. A tick marks a completed requirement. These counters show recipe research submissions; use the game's **INSERT** buttons to submit materials.
-
-The first setup runs when the tracker is enabled and a supported world is loaded. Progress appears in **Settings > Recipe tracker**. The sidebar appears after it has read a selected recipe. You do not need to extract or copy game assets yourself.
-
-## Settings
-
-Double-click the tray icon to open Settings. You can enable the recipe tracker, choose its shortcut, change its right-side position and scale, create a **Play StarRupture with Overlay** desktop shortcut, and choose what happens when the game closes. **Start with Windows** is optional and off by default.
-
-The countdown moves below the pause-menu border. The overlay hides when the game is minimized or closed. Windows covering the game also cover the overlay.
+The [features guide](docs/FEATURES.md) covers the rupture countdown, recipe counters and shortcuts, positioning, automatic setup and app controls.
 
 ## Updating or removing the app
 
-For an update, exit the overlay from its tray menu and extract the new ZIP to a new folder. Keep the old folder until you have checked the new version. If you use Start with Windows or the desktop shortcut, disable/remove those entries in the old copy's Settings and recreate them from the new copy.
+For an update, exit the overlay from its tray menu and extract the new ZIP to a new folder. Keep the old folder until you have checked the new version. Open the new copy's Settings and choose **Update shortcut** if the desktop shortcut points to another copy, or **Create shortcut** if it is missing. If you use Start with Windows, disable it in the old copy's Settings and enable it in the new copy.
 
 To remove the app, disable Start with Windows and remove its desktop shortcut in Settings, exit it, then delete its extracted folder. Preferences and caches are stored separately under `%LOCALAPPDATA%/StarRuptureWaveOverlay`; you can delete that folder too if you want to remove its local data.
 
@@ -75,6 +58,6 @@ See [troubleshooting](docs/SUPPORT.md) if the overlay is missing, the countdown 
 
 ## Licence
 
-Licensed under [PolyForm Strict 1.0.0](LICENSE), copyright (c) 2026 Alex Jephson. Source availability does not grant permission to modify or redistribute the app; consult the licence for its terms. Dependencies and fonts retain their own licences; see [third-party notices](THIRD-PARTY-NOTICES.md).
+First-party code and app/tray icon artwork are licensed under [PolyForm Strict 1.0.0](LICENSE), copyright (c) 2026 Alex Jephson. Source availability does not grant permission to modify or redistribute the app; consult the licence for its terms. Dependencies and fonts retain their own licences; see [third-party notices](THIRD-PARTY-NOTICES.md).
 
 An unofficial community utility, unaffiliated with the developers or publisher of StarRupture.

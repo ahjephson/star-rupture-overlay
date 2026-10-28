@@ -4,7 +4,7 @@ This guide documents the owner's build and maintenance workflow. Pull requests a
 
 ## Build a local candidate
 
-Use Windows with Rust 1.99.1, Visual Studio C++ Build Tools and the Windows SDK, PowerShell 7 and Git. Run commands from the repository root:
+Use Windows with the Rust toolchain pinned in [rust-toolchain.toml](../rust-toolchain.toml), Visual Studio C++ Build Tools and the Windows SDK, PowerShell 7 and Git. Run commands from the repository root:
 
 ```powershell
 ./scripts/Install-QualityTools.ps1
@@ -16,7 +16,7 @@ Use Windows with Rust 1.99.1, Visual Studio C++ Build Tools and the Windows SDK,
 
 Build.ps1 checks formatting, strict Clippy, workspace tests and vendor hashes. It requires a fresh output directory and leaves the running app unchanged. Use `-Offline` with cached dependencies, or `-ToolchainDirectory PATH` for the pinned local toolchain. Packaging requires a clean checkout by default; `-AllowUncommitted` marks development archives. [Release preparation](RELEASING.md) and [deployment](DEPLOYMENT.md) describe the separate packaging and activation steps.
 
-Recipe setup uses built-in Rust code to prepare assets offline from the supported installed game. A loaded world supplies the native type schema; the app discovers the archives and maintains its local asset cache. The [recipe tracker guide](RECIPE-TRACKER.md) documents finite setup, cancellation, rendering and live reader diagnostics. All generated data belongs in ignored local storage.
+Recipe setup uses built-in Rust code to prepare assets offline from the supported installed game. A loaded world supplies the native type schema; the app discovers the archives and maintains its local asset cache. The recipe diagnostics below cover finite setup, cancellation, rendering and live reader checks. All generated data belongs in ignored local storage.
 
 ## Rust conventions
 
@@ -59,3 +59,17 @@ Application and tray artwork, the raster source, generated ICO and hash inventor
 Preserve read-only access, exact build/path pins, object allocation/session checks, observation bounds and stale-data behavior. Fast menu data changes layout only. Keep game access within the query/read-only boundary and run with standard user privileges.
 
 Report bugs using version numbers, reproduction steps and redacted diagnostics. Keep local settings, account paths, process addresses, memory dumps, save files, game assets and extracted datasets outside source control. Review tracked content and history alongside the automated secret-pattern checks before publication.
+
+## Recipe tracker diagnostics
+
+- `--self-test-asset-setup ABSOLUTE-DIRECTORY` exercises the production first-run path in an isolated cache, then checks recipe renders, font selection and 24 world observations. Repeating it checks cache reuse.
+- `--self-test-asset-disabled ABSOLUTE-DIRECTORY` checks 24 world observations with setup disabled and verifies that no recipe cache is created.
+- `--self-test-asset-cancel ABSOLUTE-DIRECTORY` starts only owned fixture processes and verifies that cancellation stops the entire process tree.
+- Run the usual formatting, strict Clippy, workspace tests, dependency/vendor checks and release/package regressions.
+- `--self-test-recipes ABSOLUTE-DIRECTORY` checks native shortcut conflict/release handling, actual Nippo font selection, partial/completed/stale renders and premultiplied alpha, using synthetic counters and owned offscreen windows. It does not read the game or start a normal overlay.
+- `--self-test-recipe-warmup ABSOLUTE-DIRECTORY` runs the production worker for 24 world observations with connection preparation enabled and no shortcut requests. It verifies unchanged selection and joined shutdown; local logs record connection setup timing.
+- `--self-test-dialogs ABSOLUTE-DIRECTORY` checks native settings defaults, Save, Cancel, invalid/file-failure paths and recipe control persistence using isolated preferences.
+- `--self-test-recipe-reader ABSOLUTE-DIRECTORY [NATIVE-RECIPE-ID]` measures a bounded hover scan and makes three finite, guarded research observations plus bag inventory against a supported running game. It defaults to Biofilament; an explicit catalogue recipe ID also permits checking validated absence after completion. It records any visible hovered candidate without pinning it, submitting items, opening windows or changing the running overlay. An unavailable candidate outside the station is expected and does not verify hover capture.
+- Manually verify Alt+X over the recipe icon, material tiles and row space; scrolling and closing/reopening the station; tracking after walking away; partial submissions, completion and clearing; shortcut changes/conflicts; focus changes; scale and placement. Automated counter reads do not establish those manual results.
+
+The optional `scripts/Import-RecipeAssets.ps1` prepares local exported test fixtures. Keep them outside Git and release archives.

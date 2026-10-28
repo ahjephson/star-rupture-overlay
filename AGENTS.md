@@ -2,7 +2,7 @@
 
 A Windows desktop HUD written in Rust that displays StarRupture's rupture countdown and pinned recipe research progress.
 
-Read README.md, docs/ARCHITECTURE.md and docs/HANDOVER.md before changes.
+Read README.md, docs/ARCHITECTURE.md and docs/BUILDING.md before changes.
 
 ## Implementation
 
@@ -21,12 +21,14 @@ Read README.md, docs/ARCHITECTURE.md and docs/HANDOVER.md before changes.
 - Verify worker cancellation, cleanup and live observations before replacing an installed overlay. Run one normal overlay instance at a time.
 - Write for the document's audience: user documentation covers operation and requirements; architecture documentation covers implementation details needed for maintenance. Include information that supports a practical task or decision.
 - Use the [writing clearly and concisely skill](https://github.com/softaworks/agent-toolkit/blob/main/skills/writing-clearly-and-concisely/SKILL.md) for documentation and help text. Describe current facts in direct, concrete language.
+- Describe current behaviour without app-release labels or dated development status. Keep release history in CHANGELOG.md and dependency/toolchain versions in their authoritative manifests; retain licence identifiers and supported-game compatibility details where needed.
+- Write changelog entries for players: describe features, improvements and fixes they receive. Keep implementation tasks, internal refactors and verification notes out of the changelog.
 - Keep each prose paragraph on one source line and let editors/renderers wrap it. Preserve structural line breaks for headings, lists, tables and code blocks.
 - Summarize checks and limitations in change summaries, link CI results and record release-specific live checks in release notes. Keep raw logs and diagnostic output local.
 
 ## Release preparation
 
-- Read docs/RELEASING.md and docs/PUBLIC-READINESS.md.
+- Read docs/RELEASING.md for release and public-repository checks.
 - Build into a fresh ignored output directory and preserve the installed application and rollback copies during preparation.
 - Treat deployment, version tags, release creation, publication and repository visibility changes as separate operations requiring explicit authorization. Keep the repository private until a visibility change is requested.
 - The release workflow is manually dispatched and creates unpublished drafts. Report hosted and live checks only when actually performed.

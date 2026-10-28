@@ -55,7 +55,7 @@ struct State {
     context: Context,
     initial_startup: Cell<bool>,
     startup_read: Cell<bool>,
-    shortcut: Cell<bool>,
+    shortcut: Cell<desktop::ShortcutState>,
 }
 impl Drop for State {
     fn drop(&mut self) {
@@ -109,7 +109,7 @@ impl Dialogs {
             context,
             initial_startup: Cell::new(false),
             startup_read: Cell::new(false),
-            shortcut: Cell::new(false),
+            shortcut: Cell::new(desktop::ShortcutState::Missing),
         });
         let window = unsafe {
             CreateDialogParamW(
@@ -338,7 +338,7 @@ fn settings_init(state: &State) {
         }
     } else {
         match desktop::shortcut_path()
-            .and_then(|path| desktop::shortcut_owned(&path, state.context.config.as_deref()))
+            .and_then(|path| desktop::shortcut_state(&path, state.context.config.as_deref()))
         {
             Ok(value) => state.shortcut.set(value),
             Err(value) => error(state, value),
@@ -376,24 +376,8 @@ fn settings_tab(state: &State) {
     }
 }
 fn shortcut_labels(state: &State) {
-    text(
-        state.window.get(),
-        112,
-        if state.shortcut.get() {
-            "Desktop shortcut created"
-        } else {
-            "No shortcut created"
-        },
-    );
-    text(
-        state.window.get(),
-        113,
-        if state.shortcut.get() {
-            "Remove shortcut"
-        } else {
-            "Create shortcut"
-        },
-    );
+    text(state.window.get(), 112, state.shortcut.get().label());
+    text(state.window.get(), 113, state.shortcut.get().action());
 }
 fn save_settings(state: &State) -> Result<()> {
     ensure!(
@@ -681,7 +665,11 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
                 (SETTINGS, 113) if !state.context.diagnostic => {
                     match desktop::toggle_shortcut(state.context.config.as_deref()) {
                         Ok(value) => {
-                            state.shortcut.set(value);
+                            state.shortcut.set(if value {
+                                desktop::ShortcutState::Current
+                            } else {
+                                desktop::ShortcutState::Missing
+                            });
                             shortcut_labels(state);
                             text(
                                 window,
