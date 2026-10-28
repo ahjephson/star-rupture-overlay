@@ -17,7 +17,7 @@ This unofficial Windows companion adds a rupture countdown and an optional recip
 
 ## Download and start
 
-Use the [Releases page](https://github.com/ahjephson/star-rupture-overlay/releases) for downloadable builds.
+The first packaged release is being prepared. No public app download is available yet. When a build is published, it will appear on the [Releases page](https://github.com/ahjephson/star-rupture-overlay/releases).
 
 1. Download the **Windows x64 ZIP** from Releases. The GitHub **Source code** downloads are not the app.
 2. Extract the complete ZIP to a folder you want to keep. Keep the included files together.

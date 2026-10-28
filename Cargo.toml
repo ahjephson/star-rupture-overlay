@@ -4,7 +4,7 @@ exclude = ["third-party/jmap", "third-party/gospel", "third-party/patternsleuth"
 resolver = "3"
 
 [workspace.package]
-version = "0.2.7"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.99"
 license = "LicenseRef-PolyForm-Strict-1.0.0"
