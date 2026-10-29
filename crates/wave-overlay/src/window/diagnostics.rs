@@ -45,6 +45,7 @@ pub(super) fn window_events_self_test() -> Result<()> {
             }
         }
         let shared = Arc::new(Mutex::new(Reading {
+            no_world: false,
             value: None,
             menu: None,
             process: 0,
@@ -212,6 +213,7 @@ pub(super) fn window_self_test() -> Result<()> {
             launch: crate::connection::Launch::default(),
             tray_status: String::new(),
             shared: Arc::new(Mutex::new(Reading {
+                no_world: false,
                 value: None,
                 menu: None,
                 process: 0,
@@ -336,6 +338,7 @@ pub(super) fn self_test(dir: &std::path::Path) -> Result<()> {
         let mut checks = Vec::new();
         for phase in [
             "waiting",
+            "waiting-hours",
             "PreWave",
             "Moving",
             "FadeoutEarly",

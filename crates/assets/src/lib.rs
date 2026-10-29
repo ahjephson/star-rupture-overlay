@@ -1,3 +1,4 @@
+mod archives;
 mod properties;
 use anyhow::{Context, Result, ensure};
 use retoc::{
@@ -86,8 +87,8 @@ pub struct Request {
 impl Request {
     fn validate(&self, request_file: &Path) -> Result<()> {
         ensure!(
-            self.game_hash == starrupture_observation_model::overlay_stream::GAME_HASH,
-            "Unsupported game asset build"
+            starrupture_observation_model::overlay_stream::valid_executable_hash(&self.game_hash),
+            "Invalid game asset hash"
         );
         ensure!(
             self.output.is_absolute() && self.paks.is_absolute(),
@@ -142,19 +143,7 @@ fn extract(request: &Request) -> Result<()> {
     ensure!(schema_bytes.get(3) == Some(&0), "Uncompressed native schema required");
     let mappings = usmap::Usmap::read(&mut Cursor::new(&schema_bytes))?;
     let paks = &request.paks;
-    // Only use the exact uncompressed TOCs verified by the separate POC preflight.
-    for (file, hash) in [
-        ("global.utoc", "1606b953a319e60133ab8f4395cc9e17a4fa11eb2be7ae7b50d091ffe71584b0"),
-        (
-            "pakchunk0-Windows.utoc",
-            "b15f7a1494ab29c20dd787e688c5d45e0253d5aa3c562b6b030e23c83dea32f0",
-        ),
-    ] {
-        ensure!(
-            format!("{:x}", Sha256::digest(bounded(&paks.join(file), 32 * 1024 * 1024)?)) == hash,
-            "Archive identity changed; rerun preflight investigation"
-        );
-    }
+    let archives = archives::preflight(paks)?;
     let store = iostore::open(paks, Arc::new(retoc::Config::default()))?;
     let paths: BTreeMap<_, _> =
         store.chunks().filter_map(|c| c.path().map(|p| (p, c.id().get_package_id()))).collect();
@@ -433,7 +422,7 @@ fn extract(request: &Request) -> Result<()> {
     fs::write(
         output.join("extraction.json"),
         serde_json::to_vec_pretty(
-            &json!({"schema":1,"recipeCandidates":candidates.len(),"excludedRecipes":excluded.len(),"stringTables":table_candidates.len(),"recipes":recipes.len(),"items":items.len(),"graphics":texture_results.len(),"schemaSha256":format!("{:x}",Sha256::digest(&schema_bytes)),"elapsedMs":started.elapsed().as_millis(),"recipeHeadingDifferences":name_differences,"failures":failures}),
+            &json!({"schema":1,"archives":archives,"recipeCandidates":candidates.len(),"excludedRecipes":excluded.len(),"stringTables":table_candidates.len(),"recipes":recipes.len(),"items":items.len(),"graphics":texture_results.len(),"schemaSha256":format!("{:x}",Sha256::digest(&schema_bytes)),"elapsedMs":started.elapsed().as_millis(),"recipeHeadingDifferences":name_differences,"failures":failures}),
         )?,
     )?;
     ensure!(
@@ -441,7 +430,13 @@ fn extract(request: &Request) -> Result<()> {
         "Game assets could not be read completely: {}",
         failures.first().unwrap_or(&Value::Null)
     );
-    ensure!(recipes.len() == 122 && items.len() == 177 && icons.len() == 179, "Coverage mismatch");
+    ensure!(
+        !discovered.is_empty()
+            && recipes.len() == discovered.len()
+            && items.len() == wanted.len()
+            && texture_results.len() == icons.len(),
+        "Discovered asset coverage mismatch"
+    );
     Ok(())
 }
 
@@ -496,11 +491,23 @@ mod dependency_tests {
 mod request_tests {
     use super::*;
     #[test]
-    fn request_rejects_unrecognised_fields_and_foreign_builds_before_io() {
+    fn request_rejects_unrecognised_fields_and_invalid_hashes_before_io() {
         assert!(serde_json::from_str::<Request>(r#"{"paks":"x","mappings":"x","output":"x","progress":"x","error":"x","gameHash":"x","download":true}"#).is_err());
-        let request:Request=serde_json::from_str(r#"{"paks":"x","mappings":"x","output":"x","progress":"x","error":"x","gameHash":"unsupported"}"#).unwrap();
+        let mut request:Request=serde_json::from_str(r#"{"paks":"x","mappings":"x","output":"x","progress":"x","error":"x","gameHash":"unsupported"}"#).unwrap();
         assert!(
-            request.validate(Path::new("unused")).unwrap_err().to_string().contains("Unsupported")
+            request
+                .validate(Path::new("unused"))
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid game asset hash")
+        );
+        request.game_hash = "a".repeat(64);
+        assert!(
+            request
+                .validate(Path::new("unused"))
+                .unwrap_err()
+                .to_string()
+                .contains("Absolute asset paths required")
         );
     }
 }

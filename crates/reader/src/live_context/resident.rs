@@ -56,9 +56,10 @@ impl Resident {
         snapshot(process, base, directory).await?;
         let record: Bindings =
             crate::cache::read_json(&directory.join("live-context.json"), 65536)?;
-        let b = RuntimeBindings::new(&record)?;
+        let mut b = RuntimeBindings::new(&record)?;
         b.validate(&process.identity)?;
         let ctx = jmap_dumper::connect_manual(process.clone(), base.config.clone(), None).await?;
+        b.bind_timer(&ctx, base.config.image_base).await?;
         let (world, persistent) = world(&ctx, base, &b).await?;
         ensure!(stamp(&ctx, world).await? == b.world, "Resident world changed");
         let level = Ptr::<UObject>::new(base.controller.address, ctx.clone())?

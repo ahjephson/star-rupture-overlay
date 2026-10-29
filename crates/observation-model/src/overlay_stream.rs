@@ -2,11 +2,14 @@
 use serde::Serialize;
 pub const MAX_OBSERVATION_BYTES: usize = 65536;
 pub const GAME_HASH: &str = "95f95eee0b1913b8716de7fa5bf19877a91abe86e63bf2b6f0a29bd48d1d76f1";
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub fn valid_executable_hash(hash: &str) -> bool {
+    hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit())
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GameIdentity {
     pub pid: u32,
     pub creation_ticks: u64,
-    pub executable_sha256: &'static str,
+    pub executable_sha256: std::sync::Arc<str>,
 }
 #[derive(Clone, Copy, Debug)]
 pub struct MenuSample {
@@ -35,6 +38,7 @@ pub enum Payload {
     Ready,
     Menu(MenuSample),
     World(Box<WorldSample>),
+    NoWorld,
     Unavailable(String),
 }
 #[derive(Debug)]
@@ -61,8 +65,23 @@ impl Message {
             Payload::Unavailable(reason) => Some(reason.capacity()),
             _ => Some(0),
         };
-        heap.and_then(|n| n.checked_add(std::mem::size_of::<Self>()))
-            .is_some_and(|n| n < MAX_OBSERVATION_BYTES)
+        heap.and_then(|n| {
+            n.checked_add(
+                self.process
+                    .as_ref()
+                    .map_or(0, |p| p.executable_sha256.len() + 2 * std::mem::size_of::<usize>()),
+            )
+        })
+        .and_then(|n| {
+            n.checked_add(match &self.payload {
+                Payload::World(s) => {
+                    s.raw.process.executable_sha256.len() + 2 * std::mem::size_of::<usize>()
+                }
+                _ => 0,
+            })
+        })
+        .and_then(|n| n.checked_add(std::mem::size_of::<Self>()))
+        .is_some_and(|n| n < MAX_OBSERVATION_BYTES)
     }
 }
 pub struct Validator {
@@ -98,15 +117,15 @@ impl Validator {
         if matches!(m.payload, Payload::Ready) {
             let p = m.process.as_ref().ok_or("Missing process identity")?;
             if p.pid == 0
-                || p.executable_sha256 != GAME_HASH
+                || !valid_executable_hash(&p.executable_sha256)
                 || p.creation_ticks == 0
                 || m.generation <= self.generation
             {
                 return Err("Invalid process/generation");
             }
             self.generation = m.generation;
-            self.process = Some(*p);
-        } else if matches!(m.payload, Payload::Unavailable(_)) {
+            self.process = Some(p.clone());
+        } else if matches!(m.payload, Payload::Unavailable(_) | Payload::NoWorld) {
             if m.generation != self.generation {
                 return Err("Invalid invalidation generation");
             }
@@ -134,7 +153,7 @@ mod tests {
             process: Some(GameIdentity {
                 pid: 7,
                 creation_ticks: 123,
-                executable_sha256: GAME_HASH,
+                executable_sha256: GAME_HASH.into(),
             }),
             read_only: true,
             game_code_invoked: false,
@@ -185,5 +204,22 @@ mod tests {
         assert!(v.accept(&bad, 1000).is_err());
         assert!(v.accept(&message(false, 5, 2), 5000).is_err());
         assert!(v.accept(&message(false, 5, 2), 1000).is_ok());
+    }
+    #[test]
+    fn new_build_hash_is_accepted_but_session_hash_changes_are_rejected() {
+        let hash = "a".repeat(64);
+        let mut ready = message(true, 1, 1);
+        ready.process.as_mut().unwrap().executable_sha256 = hash.clone().into();
+        let mut v = Validator::new(4, 1000);
+        assert!(v.accept(&ready, 1000).is_ok());
+        let mut next = message(false, 2, 1);
+        next.process = ready.process.clone();
+        assert!(v.accept(&next, 1000).is_ok());
+        next.sequence = 3;
+        next.process.as_mut().unwrap().executable_sha256 = "b".repeat(64).into();
+        assert!(v.accept(&next, 1000).is_err());
+        let mut malformed = message(true, 1, 1);
+        malformed.process.as_mut().unwrap().executable_sha256 = "invalid".into();
+        assert!(Validator::new(4, 1000).accept(&malformed, 1000).is_err());
     }
 }

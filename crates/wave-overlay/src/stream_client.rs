@@ -23,6 +23,7 @@ pub struct RunStatistics {
 pub enum Update {
     Status(starrupture_overlay_reader::overlay_stream::GameStatus),
     Reset(u32),
+    NoWorld,
     Menu(bool, u64),
     World(Box<Observation>),
     Unavailable(String),
@@ -120,7 +121,7 @@ impl<F: FnMut(Update)> ObservationSink<F> {
                 (self.publish)(Update::Menu(data.menu_open, data.finished_ms));
             }
             Payload::World(sample) => {
-                if Some(sample.raw.process) != message.process {
+                if Some(sample.raw.process.clone()) != message.process {
                     return Err("World message identity mismatch".into());
                 }
                 let mut value =
@@ -139,6 +140,7 @@ impl<F: FnMut(Update)> ObservationSink<F> {
                 }
                 (self.publish)(Update::World(Box::new(value)));
             }
+            Payload::NoWorld => (self.publish)(Update::NoWorld),
             Payload::Unavailable(reason) => {
                 (self.publish)(Update::Unavailable(reason.chars().take(240).collect()))
             }
@@ -170,7 +172,16 @@ pub fn self_test(dir: &std::path::Path) -> Result<(), Box<dyn std::error::Error>
     };
     let mut worlds = 0;
     let result = run(config, stop.clone(), |event| {
-        if matches!(event, Update::World(_)) {
+        if let Update::Unavailable(reason) = &event {
+            eprintln!("Reader diagnostic unavailable: {reason}");
+        }
+        if let Update::World(value) = &event {
+            if worlds == 0 {
+                eprintln!(
+                    "Validated wave state: {:?}, count {}, reason {}",
+                    value.wave.phase, value.wave.wave_count, value.wave.timing_reason
+                );
+            }
             worlds += 1;
             if worlds >= 24 {
                 stop.request();
@@ -199,7 +210,7 @@ mod tests {
         GameIdentity {
             pid: 123,
             creation_ticks: 134000000000000000,
-            executable_sha256: GAME_HASH,
+            executable_sha256: GAME_HASH.into(),
         }
     }
     fn message(payload: Payload, sequence: u64, now: u64) -> Message {
@@ -293,6 +304,31 @@ mod tests {
         assert_eq!(value.overlay_session.generation, 1);
         assert!(matches!(events[2], Update::Menu(true, at) if at == now));
         assert!(matches!(&events[3], Update::Unavailable(reason) if reason == "Unavailable"));
+    }
+    #[test]
+    fn no_world_invalidates_evidence_until_a_new_ready_generation() {
+        let now = now_ms().max(0) as u64;
+        let mut events = Vec::new();
+        let mut sink = ObservationSink {
+            validator: Validator::new(std::process::id(), now),
+            world_reads: 0,
+            menu_updates: 0,
+            statistics: None,
+            publish: |event| events.push(event),
+        };
+        sink.accept(message(Payload::Ready, 1, now)).unwrap();
+        sink.accept(message(Payload::World(Box::new(world(now))), 2, now)).unwrap();
+        sink.accept(message(Payload::NoWorld, 3, now)).unwrap();
+        assert!(sink.accept(message(Payload::World(Box::new(world(now))), 4, now)).is_err());
+        let mut ready = message(Payload::Ready, 4, now);
+        ready.generation = 2;
+        sink.accept(ready).unwrap();
+        let mut loaded = message(Payload::World(Box::new(world(now))), 5, now);
+        loaded.generation = 2;
+        sink.accept(loaded).unwrap();
+        assert_eq!(sink.world_reads, 2);
+        assert!(matches!(events[2], Update::NoWorld));
+        assert!(matches!(events[4], Update::World(_)));
     }
     #[test]
     fn invalid_menu_guards_windows_and_world_identity_are_rejected() {

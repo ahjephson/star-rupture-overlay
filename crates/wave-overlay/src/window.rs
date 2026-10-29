@@ -15,7 +15,7 @@ mod render;
 use diagnostics::{self_test, window_events_self_test, window_self_test};
 use render::{LayerRenderer, STAGE_TOP_PADDING, panel_points};
 use starrupture_observation_model::observation::{Observation, PauseState};
-use starrupture_observation_model::wave::{HudFrame, HudPresenter, style};
+use starrupture_observation_model::wave::{HudFrame, HudPresenter, style, waves_stopped};
 use starrupture_wave_core::{config::Config, formatting::now_ms};
 use std::{
     cell::{Cell, RefCell},
@@ -49,6 +49,7 @@ fn rgb(c: [u8; 3]) -> u32 {
     u32::from(c[0]) | (u32::from(c[1]) << 8) | (u32::from(c[2]) << 16)
 }
 struct Reading {
+    no_world: bool,
     value: Option<Box<Observation>>,
     menu: Option<(bool, u64)>,
     process: u32,
@@ -102,6 +103,7 @@ unsafe extern "system" fn find_game(window: HWND, param: isize) -> i32 {
 }
 fn preview(phase: &str) -> HudFrame {
     let (stage, colour) = match phase {
+        "waiting-hours" => style("waiting"),
         "FadeoutEarly" => ("INCINERATING", [0xff, 0x71, 0x69]),
         "FadeoutCooling" => ("COOLING", [0xff, 0xaa, 0x66]),
         _ => style(phase),
@@ -109,12 +111,14 @@ fn preview(phase: &str) -> HudFrame {
     HudFrame {
         stage,
         colour,
-        next_label: if phase == "waiting" || phase == "PreWave" {
+        next_label: if phase == "waiting" || phase == "waiting-hours" || phase == "PreWave" {
             "Rupture in"
         } else {
             "Next stage in"
         },
-        countdown: if stage == "UNAVAILABLE" {
+        countdown: if phase == "waiting-hours" {
+            "1:20:00".into()
+        } else if stage == "UNAVAILABLE" {
             "--:--".into()
         } else {
             "12:34".into()
@@ -127,8 +131,8 @@ unsafe fn tick(window: HWND) {
     let Some(a) = (unsafe { app(window) }) else {
         return;
     };
-    let (frame, pid) = if let Some(phase) = &a.preview {
-        (preview(phase), 0)
+    let (frame, pid, stopped, no_world) = if let Some(phase) = &a.preview {
+        (preview(phase), 0, false, false)
     } else {
         let r = a.shared.lock().unwrap_or_else(|e| e.into_inner());
         let paused = match r.menu {
@@ -147,7 +151,17 @@ unsafe fn tick(window: HWND) {
                 }
             );
         }
-        (a.presenter.update(r.value.as_deref(), now_ms().max(0) as u64, 5000), r.process)
+        (
+            a.presenter.update_with_format(
+                r.value.as_deref(),
+                now_ms().max(0) as u64,
+                5000,
+                a.dialog_context.preferences.get().countdown_format,
+            ),
+            r.process,
+            waves_stopped(r.value.as_deref(), now_ms().max(0) as u64, 5000),
+            r.no_world,
+        )
     };
     if a.frame != frame {
         a.frame = frame;
@@ -164,11 +178,11 @@ unsafe fn tick(window: HWND) {
         unsafe { EnumWindows(Some(find_game), (&mut found as *mut (u32, HWND)) as isize) };
     }
     a.game = found.1;
-    let visible = !a.hidden && !a.game.is_null() && unsafe { IsIconic(a.game) } == 0;
+    let visible = !no_world && !a.hidden && !a.game.is_null() && unsafe { IsIconic(a.game) } == 0;
     a.recipe.tick(window, a.game, visible, a.dialog_context.preferences.get().recipe_tracker, pid);
     *a.dialog_context.recipe_status.borrow_mut() = a.recipe.status.clone();
     a.dialogs.refresh_recipe_status();
-    if !visible {
+    if !visible || stopped {
         unsafe { ShowWindow(window, SW_HIDE) };
         return;
     }
@@ -643,6 +657,12 @@ pub fn run() -> Result<()> {
                 &dir,
             ))?);
         }
+        if first == "--self-test-wave-layout" {
+            let dir = args.next().ok_or("Missing wave diagnostic directory")?;
+            return Ok(starrupture_overlay_reader::self_test_wave_layout(std::path::Path::new(
+                &dir,
+            ))?);
+        }
         if first == "--self-test-asset-cancel" {
             let dir = args.next().ok_or("Missing asset cancellation directory")?;
             return Ok(crate::recipe_tracker::self_test_asset_cancel(std::path::Path::new(&dir))?);
@@ -811,6 +831,7 @@ pub fn run() -> Result<()> {
 
     let stop = Arc::new(StopSignal::default());
     let shared = Arc::new(Mutex::new(Reading {
+        no_world: false,
         value: None,
         menu: None,
         process: 0,
@@ -966,14 +987,26 @@ fn reader(
             match event {
                 Update::Status(status) => r.connection.update(status),
                 Update::Reset(pid) => {
+                    r.no_world = false;
                     r.connection.ready(pid);
                     r.process = pid;
                     r.menu = None;
                     r.value = None;
                 }
                 Update::Menu(menu, at) => r.menu = Some((menu, at)),
-                Update::World(value) => r.value = Some(value),
+                Update::World(value) => {
+                    r.no_world = false;
+                    r.value = Some(value);
+                }
+                Update::NoWorld => {
+                    r.no_world = true;
+                    r.connection.unavailable();
+                    r.menu = None;
+                    r.value = None;
+                    eprintln!("No local gameplay world loaded; overlay hidden.");
+                }
                 Update::Unavailable(reason) => {
+                    r.no_world = false;
                     r.connection.unavailable();
                     eprintln!("Live observation unavailable: {reason}");
                     r.menu = None;

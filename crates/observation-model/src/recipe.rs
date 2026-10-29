@@ -31,7 +31,7 @@ pub struct Catalogue {
 }
 impl Catalogue {
     pub fn validate(&self) -> Result<(), &'static str> {
-        if self.game_hash != crate::overlay_stream::GAME_HASH
+        if !crate::overlay_stream::valid_executable_hash(&self.game_hash)
             || self.recipes.is_empty()
             || self.recipes.len() > 512
             || self.items.len() > 1024

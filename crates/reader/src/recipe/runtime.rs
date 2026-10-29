@@ -502,6 +502,10 @@ impl Binding {
         base: &RuntimeCache,
         catalogue: &Catalogue,
     ) -> Result<String> {
+        ensure!(
+            catalogue.game_hash == base.identity.executable_sha256,
+            "Recipe catalogue belongs to another game build"
+        );
         let mut hovered = Vec::new();
         for row in self.current_rows(ctx, base).await? {
             if self.hovered(ctx, row.0.address, base).await? {
@@ -554,6 +558,10 @@ impl Binding {
         catalogue: &Catalogue,
         generation: u64,
     ) -> Result<Option<Snapshot>> {
+        ensure!(
+            catalogue.game_hash == base.identity.executable_sha256,
+            "Recipe catalogue belongs to another game build"
+        );
         ensure!(catalogue.recipes.contains_key(id), "Unknown pinned recipe reference");
         let world_s = serial(ctx, world).await?;
         let gs = ctx.read::<u64>(world + 0x1b0).await?;

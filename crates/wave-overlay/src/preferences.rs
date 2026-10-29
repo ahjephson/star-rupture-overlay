@@ -22,6 +22,7 @@ pub enum GameExit {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields, default)]
 pub struct Preferences {
+    pub countdown_format: starrupture_observation_model::wave::CountdownFormat,
     pub game_exit: GameExit,
     pub recipe_tracker: RecipeSettings,
 }
@@ -180,6 +181,10 @@ mod tests {
         }
         let old: Preferences = serde_json::from_str(r#"{"gameExit":"ask"}"#).unwrap();
         assert_eq!(old.recipe_tracker, RecipeSettings::default());
+        assert_eq!(
+            old.countdown_format,
+            starrupture_observation_model::wave::CountdownFormat::Hours
+        );
         assert!(
             RecipeSettings {
                 key: 0x7b,

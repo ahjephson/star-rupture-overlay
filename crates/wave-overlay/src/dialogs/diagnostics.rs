@@ -77,9 +77,14 @@ pub fn self_test(directory: &Path) -> Result<()> {
             == "Keep running in the tray",
         "Selected exit preference is not visible to Windows controls"
     );
+    ensure!(
+        unsafe { SendDlgItemMessageW(window, 156, CB_GETCURSEL, 0, 0) } == 0,
+        "Default countdown format should show hours when needed"
+    );
     // Diagnostic windows remain hidden when reused too.
     unsafe {
         SendDlgItemMessageW(window, 111, CB_SETCURSEL, 1, 0);
+        SendDlgItemMessageW(window, 156, CB_SETCURSEL, 1, 0);
         SendDlgItemMessageW(window, 150, BM_SETCHECK, BST_UNCHECKED as usize, 0);
         SendMessageW(window, WM_COMMAND, 111 | ((CBN_SELCHANGE as usize) << 16), 0);
     }
@@ -95,6 +100,7 @@ pub fn self_test(directory: &Path) -> Result<()> {
     let window = dialogs.windows[0].0.window.get();
     unsafe {
         SendDlgItemMessageW(window, 111, CB_SETCURSEL, 2, 0);
+        SendDlgItemMessageW(window, 156, CB_SETCURSEL, 1, 0);
         text(window, 151, "Ctrl+Alt+J");
         SendDlgItemMessageW(window, 152, CB_SETCURSEL, 2, 0);
         SendDlgItemMessageW(window, 153, CB_SETCURSEL, 2, 0);
@@ -107,6 +113,16 @@ pub fn self_test(directory: &Path) -> Result<()> {
     ensure!(
         context.preferences.get().game_exit == GameExit::Exit,
         "Save did not update running preferences"
+    );
+    ensure!(
+        preferences::load(&context.preferences_path)?.countdown_format
+            == starrupture_observation_model::wave::CountdownFormat::Minutes,
+        "Save did not persist countdown format"
+    );
+    ensure!(
+        context.preferences.get().countdown_format
+            == starrupture_observation_model::wave::CountdownFormat::Minutes,
+        "Save did not update countdown format"
     );
     let recipe = preferences::load(&context.preferences_path)?.recipe_tracker;
     ensure!(
@@ -121,6 +137,7 @@ pub fn self_test(directory: &Path) -> Result<()> {
     let window = dialogs.windows[0].0.window.get();
     unsafe {
         SendDlgItemMessageW(window, 111, CB_SETCURSEL, 1, 0);
+        SendDlgItemMessageW(window, 156, CB_SETCURSEL, 1, 0);
         SendMessageW(window, WM_COMMAND, IDOK as usize, 0);
     }
     ensure!(unsafe { IsWindow(window) } != 0, "Save failure closed Settings");

@@ -32,7 +32,7 @@ pub fn probe(directory: &Path) -> Result<()> {
     let stop = Arc::new(StopSignal::default());
     let budget = platform::ReadBudget::new(stop);
     let process = platform::find_game(budget.clone())?;
-    ensure!(process.identity.executable_sha256 == crate::BUILD_HASH, "Unsupported game");
+
     let cache = std::path::PathBuf::from(std::env::var_os("LOCALAPPDATA").context("App data")?)
         .join("StarRuptureWaveOverlay/cache/session.json");
     let cached = crate::cache::read_json::<Cache>(&cache, 100000)

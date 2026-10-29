@@ -169,6 +169,14 @@ fn error(state: &State, error: impl std::fmt::Display) {
 fn selected(state: &State) -> Preferences {
     let choice = unsafe { SendDlgItemMessageW(state.window.get(), 111, CB_GETCURSEL, 0, 0) };
     Preferences {
+        countdown_format: if unsafe {
+            SendDlgItemMessageW(state.window.get(), 156, CB_GETCURSEL, 0, 0)
+        } == 1
+        {
+            starrupture_observation_model::wave::CountdownFormat::Minutes
+        } else {
+            starrupture_observation_model::wave::CountdownFormat::Hours
+        },
         game_exit: match choice {
             1 => GameExit::Ask,
             2 => GameExit::Exit,
@@ -251,6 +259,29 @@ fn settings_init(state: &State) {
                 (&item as *const TCITEMW) as isize,
             );
         }
+    }
+    for label in ["Hours when needed (1:20:00)", "Total minutes (80:00)"] {
+        unsafe {
+            SendDlgItemMessageW(
+                window,
+                156,
+                CB_ADDSTRING,
+                0,
+                desktop::wide(label).as_ptr() as isize,
+            );
+        }
+    }
+    unsafe {
+        SendDlgItemMessageW(
+            window,
+            156,
+            CB_SETCURSEL,
+            usize::from(
+                state.context.preferences.get().countdown_format
+                    == starrupture_observation_model::wave::CountdownFormat::Minutes,
+            ),
+            0,
+        );
     }
     let recipe = state.context.preferences.get().recipe_tracker;
     unsafe {
@@ -350,7 +381,7 @@ fn settings_init(state: &State) {
 }
 fn settings_tab(state: &State) {
     let recipe = unsafe { SendDlgItemMessageW(state.window.get(), 155, TCM_GETCURSEL, 0, 0) } == 1;
-    for id in [110, 111, 112, 113, 160, 161, 162, 163, 164, 165] {
+    for id in [110, 111, 112, 113, 156, 160, 161, 162, 163, 164, 165, 170] {
         unsafe {
             ShowWindow(
                 GetDlgItem(state.window.get(), id),
@@ -649,7 +680,7 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
                 return 1;
             }
             match (state.kind, id) {
-                (SETTINGS, 110 | 111 | 150 | 151 | 152 | 153)
+                (SETTINGS, 110 | 111 | 150 | 151 | 152 | 153 | 156)
                     if notification == BN_CLICKED
                         || notification == CBN_SELCHANGE
                         || notification == EN_CHANGE =>

@@ -97,10 +97,8 @@ pub fn live_wave_timing(w: &WaveObservation, clock: f64) -> WaveTiming {
     if !(0.0..=1.0).contains(&p.progress) {
         return unknown(w, "invalid_phase_progress");
     }
-    if p.stage != NativeStage::PreWave
-        && (!p.wave_start_seconds.is_finite()
-            || p.wave_start_seconds < 0.0
-            || p.wave_start_seconds > clock)
+    if !p.stage.accepts_wave_start(p.wave_start_seconds)
+        || p.stage != NativeStage::PreWave && p.wave_start_seconds > clock
     {
         return unknown(w, "invalid_wave_start");
     }

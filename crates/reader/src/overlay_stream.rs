@@ -1,7 +1,6 @@
 //! Embedded read-only engine on the overlay worker thread.
 use crate::{
-    BUILD_HASH, Cache, RuntimeCache, cache_matches, discover, live_context, platform, sample,
-    sample_context,
+    Cache, RuntimeCache, cache_matches, discover, live_context, platform, sample, sample_context,
 };
 use anyhow::{Context, Result, ensure};
 use starrupture_observation_model::overlay_stream::{
@@ -52,7 +51,7 @@ impl Output<'_> {
             sequence: self.sequence,
             generation: self.generation,
             sampled_at_unix_ms: now(),
-            process: self.process,
+            process: self.process.clone(),
             read_only: true,
             game_code_invoked: false,
             payload,
@@ -103,9 +102,9 @@ async fn attach(
         pid: process.identity.pid,
         creation_ticks: process.identity.creation_ticks,
         executable: process.identity.executable.clone(),
-        supported: process.identity.executable_sha256 == BUILD_HASH,
+        supported: true,
     });
-    ensure!(process.identity.executable_sha256 == BUILD_HASH, "Unsupported game executable");
+
     let path = directory.join("session.json");
     let cached = crate::cache::read_json::<Cache>(&path, 100000)
         .ok()
@@ -231,7 +230,7 @@ pub fn run_with_assets(
                         output.process = Some(GameIdentity {
                             pid: s.process.identity.pid,
                             creation_ticks: s.process.identity.creation_ticks,
-                            executable_sha256: BUILD_HASH,
+                            executable_sha256: s.process.identity.executable_sha256.clone().into(),
                         });
                         asset_setup_attempted = false;
                         sessions += 1;
@@ -272,9 +271,13 @@ pub fn run_with_assets(
                         world_due = Instant::now();
                     }
                     Err(e) => {
-                        output.send(Payload::Unavailable(
-                            format!("{e:#}").chars().take(240).collect(),
-                        ))?;
+                        if e.is::<crate::error::WorldNotLoaded>() {
+                            output.send(Payload::NoWorld)?;
+                        } else {
+                            output.send(Payload::Unavailable(
+                                format!("{e:#}").chars().take(240).collect(),
+                            ))?;
+                        }
                         failures = (failures + 1).min(3);
                         retry = Instant::now() + Duration::from_secs(1 << failures);
                         continue;
@@ -312,7 +315,8 @@ pub fn run_with_assets(
                     let live = s.live.snapshot(&s.process, &s.base).await?;
                     let mut sample = sample_context(&s.process, &s.base, s.live.context()).await?;
                     sample.observed_at_ms = now();
-                    let process = output.process.context("Missing active process identity")?;
+                    let process =
+                        output.process.clone().context("Missing active process identity")?;
                     output.send(Payload::World(Box::new(WorldSample {
                         read_started_unix_ms: started as i64,
                         raw: RawObservation {
@@ -360,7 +364,9 @@ pub fn run_with_assets(
                 asset_setup_attempted = true;
                 let prepared: Result<_> = async {
                     let executable = Path::new(&s.process.identity.executable);
-                    if let Some(cached) = preparation.cached(executable)? {
+                    if let Some(cached) =
+                        preparation.cached(executable, &s.process.identity.executable_sha256)?
+                    {
                         return Ok(cached);
                     }
                     preparation.preparing();
@@ -371,7 +377,12 @@ pub fn run_with_assets(
                         "Recipe asset schema prepared in {} ms.",
                         started.elapsed().as_millis()
                     );
-                    preparation.complete(executable, &mappings, &stop)
+                    preparation.complete(
+                        executable,
+                        &s.process.identity.executable_sha256,
+                        &mappings,
+                        &stop,
+                    )
                 }
                 .await;
                 match prepared {

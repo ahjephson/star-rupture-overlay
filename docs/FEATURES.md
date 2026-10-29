@@ -6,9 +6,13 @@ StarRupture Overlay shows rupture timing and pinned recipe research progress whi
 
 The countdown shows the current rupture stage: STABLE, PRE-WAVE, APPROACHING, INCINERATING, COOLING or GROWBACK. It follows the game's simulation and pauses with verified game pause. Unavailable or stale readings show `--:--`.
 
+In **Settings > General > Countdown format**, choose hours when needed (`1:20:00`) or total minutes (`80:00`). Both choices keep the panel width fixed. Below an hour, the display uses `MM:SS`.
+
+The wave panel hides while the game reports waves stopped, including the observed tutorial state. INCINERATING lasts seven seconds before the display changes to COOLING.
+
 The display moves below the pause-menu border. To position it yourself, choose **Unlock to move** from the tray menu, drag it, then **Lock position**. **Reset position** restores automatic placement. You can also hide and show the overlays from the tray menu.
 
-Borderless, windowed and the supported fullscreen mode are covered in [compatibility](COMPATIBILITY.md). The overlays hide when the game is minimized or closed. Other windows can cover the game and overlays; fullscreen overlays hide when the game loses focus.
+Borderless, windowed and the supported fullscreen mode are covered in [compatibility](COMPATIBILITY.md). The overlays hide at the main menu and when the game is minimized or closed. Other windows can cover the game and overlays; fullscreen overlays hide when the game loses focus.
 
 ## Recipe research sidebar
 

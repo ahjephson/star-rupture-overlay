@@ -1,13 +1,13 @@
 #pragma code_page(65001)
 
-101 DIALOGEX 0, 0, 320, 325
+101 DIALOGEX 0, 0, 320, 383
 STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
 EXSTYLE WS_EX_APPWINDOW
 CAPTION "StarRupture Overlay"
 FONT 9, "Segoe UI"
 BEGIN
     LTEXT "Settings", 140, 16, 12, 285, 21
-    CONTROL "", 155, "SysTabControl32", WS_TABSTOP, 16, 35, 288, 224
+    CONTROL "", 155, "SysTabControl32", WS_TABSTOP, 16, 35, 288, 282
     GROUPBOX "Startup", 160, 16, 56, 288, 52
     CONTROL "Start with &Windows", 110, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 26, 72, 260, 14
     LTEXT "Wait in the tray until StarRupture starts.", 161, 39, 89, 255, 12
@@ -18,6 +18,8 @@ BEGIN
     LTEXT "No shortcut created", 112, 26, 211, 163, 12
     PUSHBUTTON "Create shortcut", 113, 195, 205, 98, 20
     LTEXT "Starts the overlay and game through Steam. Shortcut changes apply immediately.", 165, 26, 232, 264, 22
+    GROUPBOX "Countdown format", 170, 16, 268, 288, 47
+    COMBOBOX 156, 26, 285, 264, 65, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     CONTROL "Enable recipe &tracker", 150, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 26, 72, 260, 14
     LTEXT "Pin / clear shortcut", 166, 26, 101, 94, 12
     EDITTEXT 151, 124, 98, 166, 18, ES_AUTOHSCROLL | WS_TABSTOP
@@ -27,10 +29,10 @@ BEGIN
     COMBOBOX 153, 234, 128, 56, 70, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     LTEXT "Hover over an unfinished recipe to pin or switch. Use the shortcut on the same recipe, or outside the station, to clear.", 169, 26, 165, 264, 32
     LTEXT "", 154, 26, 208, 264, 32
-    LTEXT "", 114, 16, 266, 288, 26
-    LTEXT "No unsaved changes", 115, 16, 303, 152, 12
-    PUSHBUTTON "Cancel", IDCANCEL, 188, 298, 54, 20
-    DEFPUSHBUTTON "Save", IDOK, 250, 298, 54, 20
+    LTEXT "", 114, 16, 324, 288, 26
+    LTEXT "No unsaved changes", 115, 16, 361, 152, 12
+    PUSHBUTTON "Cancel", IDCANCEL, 188, 356, 54, 20
+    DEFPUSHBUTTON "Save", IDOK, 250, 356, 54, 20
 END
 
 102 DIALOGEX 0, 0, 320, 335

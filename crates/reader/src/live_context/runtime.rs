@@ -22,6 +22,8 @@ pub(super) struct RuntimeBindings {
     pub wave_subsystem: ObjectStamp,
     pub fields: ContextFields,
     pub clocks: ClockFields,
+    pub timer: Option<crate::timer_layout::Layout>,
+    pub phase_clock: crate::phase_clock::Cache,
 }
 pub(super) struct ContextFields {
     pub owning_world: u64,
@@ -126,7 +128,21 @@ impl RuntimeBindings {
             wave_subsystem: record.wave_subsystem.clone(),
             fields,
             clocks,
+            timer: None,
+            phase_clock: crate::phase_clock::Cache::default(),
         })
+    }
+    pub async fn bind_timer(&mut self, ctx: &Ctx, image: u64) -> Result<()> {
+        self.timer = Some(
+            crate::timer_layout::Layout::resolve(
+                ctx,
+                self.timer_subsystem.address,
+                image,
+                self.fields.timer_actor,
+            )
+            .await?,
+        );
+        Ok(())
     }
     pub fn validate(&self, identity: &Identity) -> Result<()> {
         ensure!(self.version == 2 && self.identity == *identity, "Stale live-context cache");

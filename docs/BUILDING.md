@@ -2,6 +2,8 @@
 
 This guide documents the owner's build and maintenance workflow. Pull requests and code contributions are not accepted. First-party code uses [PolyForm Strict 1.0.0](../LICENSE). Read [architecture](ARCHITECTURE.md) and [compatibility](COMPATIBILITY.md) before maintenance.
 
+PTB compatibility work stays on `update3` while Update 3 is in PTB.
+
 ## Build a local candidate
 
 Use Windows with the Rust toolchain pinned in [rust-toolchain.toml](../rust-toolchain.toml), Visual Studio C++ Build Tools and the Windows SDK, PowerShell 7 and Git. Run commands from the repository root:
@@ -44,7 +46,7 @@ Use the toolchain in rust-toolchain.toml and PowerShell 7:
 
 The formatter visits first-party Rust files only. Do not run a formatter over vendored dependencies. Vendor bytes and font hashes are checked separately; intentional patches require a reason and before/after hashes in third-party/VENDOR.json. Dependency changes must update Cargo.lock and pass the dependency policy in deny.toml.
 
-Windows CI checks formatting, Clippy, workspace tests, a development build, dependency policy and vendor/font/icon hashes on pushes to main. It caches Cargo downloads and development build output. Successful main builds save caches for later runs.
+Windows CI checks formatting, Clippy, workspace tests, a development build, dependency policy and vendor/font/icon hashes on pushes to main and update3. It caches Cargo downloads and development build output. Successful main builds save caches for later runs.
 
 For full verification, build and package in a fresh ignored output folder, then run Test-Release.ps1 against the ZIP. The **Windows package verification** workflow runs these checks manually and when dependency, build, packaging, workflow, asset or licence files change. It tests the app's own hidden native window, renderer, archive rejection, installation, upgrade and rollback without a game or elevated privileges. Its candidate ZIP and checksum are retained for two days. Run this workflow before release preparation and for source changes that need native package diagnostics.
 

@@ -425,6 +425,7 @@ mod tests {
             let mut handles = None;
             for phase in [
                 "waiting",
+                "waiting-hours",
                 "PreWave",
                 "Moving",
                 "FadeoutEarly",

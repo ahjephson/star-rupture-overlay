@@ -166,7 +166,7 @@ impl AssetSetup for Preparation {
     fn enabled(&self) -> bool {
         self.enabled.load(std::sync::atomic::Ordering::Relaxed)
     }
-    fn cached(&mut self, executable: &Path) -> Result<Option<Tracker>> {
+    fn cached(&mut self, executable: &Path, game_hash: &str) -> Result<Option<Tracker>> {
         self.update(None, "Checking recipe tracker cache...", None);
         let (current, _) = source(executable)?;
         let cached: Result<_> = (|| {
@@ -183,6 +183,7 @@ impl AssetSetup for Preparation {
             );
             let directory = self.root.join(receipt.directory);
             let cat = catalogue(&directory)?;
+            ensure!(cat.game_hash == game_hash, "Recipe cache belongs to another game build");
             ensure!(
                 inventory(&directory, &cat)? == receipt.files,
                 "Recipe cache integrity mismatch"
@@ -213,6 +214,7 @@ impl AssetSetup for Preparation {
     fn complete(
         &mut self,
         executable: &Path,
+        game_hash: &str,
         mappings: &[u8],
         stop: &StopSignal,
     ) -> Result<Tracker> {
@@ -232,7 +234,7 @@ impl AssetSetup for Preparation {
             serde_json::to_vec(&serde_json::json!({
                 "paks":paks, "mappings":mapping_path, "output":output, "progress":progress,
                 "error":output.join("setup-error.txt"),
-                "gameHash":starrupture_observation_model::overlay_stream::GAME_HASH,
+                "gameHash":game_hash,
             }))?,
         )?;
         self.update(None, "Preparing recipe tracker...", Some(progress));
@@ -247,6 +249,7 @@ impl AssetSetup for Preparation {
         let (after, _) = source(executable)?;
         ensure!(before == after, "Game files changed during recipe setup");
         let cat = catalogue(&output)?;
+        ensure!(cat.game_hash == game_hash, "Prepared recipe cache belongs to another game build");
         let files = inventory(&output, &cat)?;
         let receipt = Receipt {
             schema: 3,
@@ -385,7 +388,8 @@ mod tests {
         fs::create_dir_all(&directory)?;
         fs::write(directory.join("pixel.bgra"), [1, 0, 0, 0, 1, 0, 0, 0, 128, 64, 32, 255])?;
         fs::write(directory.join("font.otf"), b"OTTO-fixture")?;
-        let data = serde_json::json!({"gameHash": starrupture_observation_model::overlay_stream::GAME_HASH,
+        let game_hash = "a".repeat(64);
+        let data = serde_json::json!({"gameHash": game_hash,
             "recipes":{"/Game/TestRecipe":{"name":"Fixture","itemId":"/Game/TestItem","requirements":{"/Game/TestItem":10}}},
             "items":{"/Game/TestItem":{"name":"Fixture","image":"pixel.bgra"}},
             "tick":"pixel.bgra","frame":"pixel.bgra","background":"pixel.bgra","font":"font.otf"});
@@ -404,21 +408,22 @@ mod tests {
             enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             pending_directory: None,
         };
-        assert!(preparation.cached(&executable)?.is_some());
+        assert!(preparation.cached(&executable, &"b".repeat(64))?.is_none());
+        assert!(preparation.cached(&executable, &game_hash)?.is_some());
         assert!(preparation.state.lock().unwrap().ready.is_none());
         preparation.ready();
         assert!(preparation.state.lock().unwrap().ready.is_some());
         fs::write(paks.join("fixture.utoc"), b"changed archive")?;
-        assert!(preparation.cached(&executable)?.is_none());
+        assert!(preparation.cached(&executable, &game_hash)?.is_none());
         fs::write(paks.join("fixture.utoc"), b"utoc")?;
         let mut receipt = receipt;
         receipt.source = source(&executable)?.0;
         fs::write(root.join("current.json"), serde_json::to_vec(&receipt)?)?;
         fs::write(directory.join("pixel.bgra"), b"corrupt")?;
-        assert!(preparation.cached(&executable)?.is_none());
+        assert!(preparation.cached(&executable, &game_hash)?.is_none());
         receipt.directory = "../assets-fixture".into();
         fs::write(root.join("current.json"), serde_json::to_vec(&receipt)?)?;
-        assert!(preparation.cached(&executable)?.is_none());
+        assert!(preparation.cached(&executable, &game_hash)?.is_none());
         Ok(())
     }
 }

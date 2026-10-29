@@ -256,9 +256,10 @@ async fn read(
     base: &RuntimeCache,
     b: &Bindings,
 ) -> Result<LiveContext> {
-    let runtime = RuntimeBindings::new(b)?;
+    let mut runtime = RuntimeBindings::new(b)?;
     runtime.validate(&process.identity)?;
     let ctx = jmap_dumper::connect_manual(process.clone(), base.config.clone(), None).await?;
+    runtime.bind_timer(&ctx, base.config.image_base).await?;
     read_context(process, base, &runtime, ctx).await
 }
 async fn read_context(
@@ -336,30 +337,39 @@ async fn read_context(
         ViewMode::Unknown
     };
     let sub = b.timer_subsystem.address;
+    let timer_layout = b.timer.as_ref().context("Missing verified timer layout")?;
+    timer_layout.verify(&ctx).await?;
+    let fields = timer_layout.fields;
     let timing_configuration =
         crate::live_timer_config::read(&ctx, sub, base.config.image_base).await.ok();
-    // These private fields were mapped through native OnPreSaveStart and exact paused-save joins.
-    let remaining = signed_finite(ctx.read::<f32>(sub + 0x7c).await? as f64)?;
+    // Private offsets are corroborated by the current native save/load methods.
+    let remaining = signed_finite(ctx.read::<f32>(sub + fields.remaining).await? as f64)?;
     ensure!(remaining <= 86400., "Waiting countdown out of supported range");
-    let waiting = ctx.read::<u8>(sub + 0x80).await? != 0;
-    let wave_pause = ctx.read::<u8>(sub + 0x81).await? != 0;
-    let previous = ctx.read::<u8>(sub + 0x82).await?;
-    let stopped = ctx.read::<u8>(sub + 0x83).await? != 0;
-    let waves = ctx.read::<i64>(sub + 0x88).await?;
+    let waiting = ctx.read::<u8>(sub + fields.waiting).await? != 0;
+    let wave_pause = ctx.read::<u8>(sub + fields.paused).await? != 0;
+    let previous = ctx.read::<u8>(sub + fields.previous).await?;
+    let stopped = ctx.read::<u8>(sub + fields.stopped).await? != 0;
+    let waves = ctx.read::<i64>(sub + fields.waves).await?;
     ensure!((0..=10000000).contains(&waves), "Invalid wave counter");
     let actor_next_time = ctx.read::<f32>(timer + b.fields.actor_next_time).await?;
     let actor_next_phase = ctx.read::<i32>(timer + b.fields.actor_next_phase).await?;
     let actor_pause = b.fields.actor_paused.read(&ctx, timer).await?;
     let phase_pointer = ctx.read::<u64>(b.wave_subsystem.address + 0x1f8).await?;
-    let phase_evidence =
-        match crate::live_phase::read(&ctx, b.wave_subsystem.address, base.config.image_base).await
-        {
-            Ok((pointer, value)) => {
-                ensure!(pointer == phase_pointer, ObservationConflict::Phase);
-                value
-            }
-            Err(_) => PhaseEvidence::Unavailable,
-        };
+    let phase_evidence = match crate::live_phase::read_with_clock(
+        &ctx,
+        b.wave_subsystem.address,
+        base.config.image_base,
+        settings,
+        &b.phase_clock,
+    )
+    .await
+    {
+        Ok((pointer, value)) => {
+            ensure!(pointer == phase_pointer, ObservationConflict::Phase);
+            value
+        }
+        Err(_) => PhaseEvidence::Unavailable,
+    };
     let mut substages = [0u8; 3];
     for (index, offset) in
         [b.fields.pre_wave_substage, b.fields.fadeout_substage, b.fields.growback_substage]
@@ -399,8 +409,8 @@ async fn read_context(
     ensure!(
         stamp(&ctx, b.wave_subsystem.address).await? == b.wave_subsystem
             && ctx.read::<u64>(b.wave_subsystem.address + 0x1f8).await? == phase_pointer
-            && (ctx.read::<u8>(sub + 0x80).await? != 0) == waiting
-            && ctx.read::<u8>(sub + 0x82).await? == previous,
+            && (ctx.read::<u8>(sub + fields.waiting).await? != 0) == waiting
+            && ctx.read::<u8>(sub + fields.previous).await? == previous,
         ObservationConflict::Wave
     );
     let paused = if pauser != 0 && pause_delay <= time {
@@ -507,3 +517,5 @@ pub async fn snapshot(
 }
 
 pub(crate) mod resident;
+
+pub(crate) mod probe;

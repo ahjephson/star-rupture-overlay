@@ -8,12 +8,13 @@ mod mappings;
 mod runtime;
 pub trait AssetSetup: Send {
     fn enabled(&self) -> bool;
-    fn cached(&mut self, executable: &Path) -> Result<Option<Tracker>>;
+    fn cached(&mut self, executable: &Path, game_hash: &str) -> Result<Option<Tracker>>;
     fn preparing(&mut self);
     fn ready(&mut self);
     fn complete(
         &mut self,
         executable: &Path,
+        game_hash: &str,
         mappings: &[u8],
         stop: &StopSignal,
     ) -> Result<Tracker>;
@@ -145,11 +146,15 @@ pub fn self_test_recipe(directory: &Path, catalogue_file: &Path, recipe_id: &str
     let stop = Arc::new(StopSignal::default());
     let budget = platform::ReadBudget::new(stop.clone());
     let process = platform::find_game(budget.clone())?;
-    ensure!(process.identity.executable_sha256 == crate::BUILD_HASH, "Unsupported game executable");
+
     let pack = std::fs::read(catalogue_file)?;
     let catalogue: starrupture_observation_model::recipe::Catalogue =
         serde_json::from_slice(&pack)?;
     catalogue.validate().map_err(anyhow::Error::msg)?;
+    ensure!(
+        catalogue.game_hash == process.identity.executable_sha256,
+        "Recipe catalogue belongs to another game build"
+    );
     ensure!(catalogue.recipes.contains_key(recipe_id), "Unknown diagnostic recipe");
     let cache = std::path::PathBuf::from(std::env::var_os("LOCALAPPDATA").context("App data")?)
         .join("StarRuptureWaveOverlay/cache/session.json");
