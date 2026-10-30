@@ -68,6 +68,10 @@ pub fn self_test(directory: &Path) -> Result<()> {
         unsafe { SendDlgItemMessageW(window, 150, BM_GETCHECK, 0, 0) } == BST_CHECKED as isize,
         "Recipe tracker default changed"
     );
+    ensure!(
+        unsafe { SendDlgItemMessageW(window, 157, BM_GETCHECK, 0, 0) } == BST_CHECKED as isize,
+        "Double-click pinning default changed"
+    );
     let mut selected_label = [0u16; 128];
     let selected_length = unsafe {
         GetDlgItemTextW(window, 111, selected_label.as_mut_ptr(), selected_label.len() as i32)
@@ -102,6 +106,7 @@ pub fn self_test(directory: &Path) -> Result<()> {
         SendDlgItemMessageW(window, 111, CB_SETCURSEL, 2, 0);
         SendDlgItemMessageW(window, 156, CB_SETCURSEL, 1, 0);
         text(window, 151, "Ctrl+Alt+J");
+        SendDlgItemMessageW(window, 157, BM_SETCHECK, BST_UNCHECKED as usize, 0);
         SendDlgItemMessageW(window, 152, CB_SETCURSEL, 2, 0);
         SendDlgItemMessageW(window, 153, CB_SETCURSEL, 2, 0);
         SendMessageW(window, WM_COMMAND, IDOK as usize, 0);
@@ -126,7 +131,11 @@ pub fn self_test(directory: &Path) -> Result<()> {
     );
     let recipe = preferences::load(&context.preferences_path)?.recipe_tracker;
     ensure!(
-        recipe.key == 0x4a && recipe.modifiers == 3 && recipe.position == 2 && recipe.scale == 125,
+        recipe.key == 0x4a
+            && recipe.modifiers == 3
+            && recipe.position == 2
+            && recipe.scale == 125
+            && !recipe.double_click_pin,
         "Recipe preferences did not round trip through native controls"
     );
     let blocked = directory.join("blocked");

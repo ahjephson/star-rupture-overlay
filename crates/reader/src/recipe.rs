@@ -203,6 +203,14 @@ pub fn self_test_recipe(directory: &Path, catalogue_file: &Path, recipe_id: &str
             Ok(id) => json!({"recipe":id,"status":"hovered_row_observed"}),
             Err(e) => json!({"status":"unavailable","reason":format!("{e:#}")}),
         };
+        budget.renew(5000);
+        let mouse_started = std::time::Instant::now();
+        let mouse_capture = binding.capture_mouse(&ctx, &base, &catalogue).await;
+        let mouse_capture_probe = match mouse_capture {
+            Ok(id) => json!({"recipe":id,"status":"hovered_recipe_header_observed"}),
+            Err(error) => json!({"status":"unavailable","reason":format!("{error:#}")}),
+        };
+        let mouse_capture_millis = mouse_started.elapsed().as_millis();
         let mut samples = Vec::new();
         for _ in 0..3 {
             budget.renew(5000);
@@ -230,7 +238,7 @@ pub fn self_test_recipe(directory: &Path, catalogue_file: &Path, recipe_id: &str
         #[cfg(not(debug_assertions))]
         let widget_diagnostic = serde_json::Value::Null;
         Ok::<_, anyhow::Error>(
-            json!({"readOnly":true,"gameCodeInvoked":false,"process":process.identity,"samples":samples,"bagInventory":inventory,"bindingDiscoveryMillis":binding_millis,"inRecipeStation":in_station,"repeatedInRecipeStation":station_again,"twoStationChecksMillis":station_check_millis,"captureScanMillis":capture_millis,"captureProbe":capture_probe,"warmCaptureMillis":warm_capture_millis,"warmCaptureProbe":warm_probe,"hotPathRegistryScans":hot_path_registry_scans,"hoverCaptureVerified":false,"widgetDiagnostic":widget_diagnostic}),
+            json!({"readOnly":true,"gameCodeInvoked":false,"process":process.identity,"samples":samples,"bagInventory":inventory,"bindingDiscoveryMillis":binding_millis,"inRecipeStation":in_station,"repeatedInRecipeStation":station_again,"twoStationChecksMillis":station_check_millis,"captureScanMillis":capture_millis,"captureProbe":capture_probe,"warmCaptureMillis":warm_capture_millis,"warmCaptureProbe":warm_probe,"hotPathRegistryScans":hot_path_registry_scans,"hoverCaptureVerified":false,"mouseCaptureProbe":mouse_capture_probe,"mouseCaptureMillis":mouse_capture_millis,"widgetDiagnostic":widget_diagnostic}),
         )
     })?;
     stop.request();

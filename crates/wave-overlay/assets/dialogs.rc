@@ -27,8 +27,9 @@ BEGIN
     COMBOBOX 152, 72, 128, 120, 70, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     LTEXT "Scale", 168, 202, 131, 30, 12
     COMBOBOX 153, 234, 128, 56, 70, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    LTEXT "Hover over an unfinished recipe to pin or switch. Use the shortcut on the same recipe, or outside the station, to clear.", 169, 26, 165, 264, 32
-    LTEXT "", 154, 26, 208, 264, 32
+    CONTROL "Double-click recipe icons to pin or unpin", 157, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 26, 158, 264, 14
+    LTEXT "Pin up to three recipes. The shortcut toggles the hovered recipe; outside the station it clears all. Use a panel's close button to unpin it. Panels shrink beside the pause menu when space permits.", 169, 26, 182, 264, 44
+    LTEXT "", 154, 26, 237, 264, 44
     LTEXT "", 114, 16, 324, 288, 26
     LTEXT "No unsaved changes", 115, 16, 361, 152, 12
     PUSHBUTTON "Cancel", IDCANCEL, 188, 356, 54, 20

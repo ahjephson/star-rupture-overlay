@@ -110,117 +110,185 @@ pub struct View {
     pub message: String,
     pub generation: u64,
 }
+pub const MAX_PINS: usize = 3;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Request {
     pub generation: u64,
     pub active: bool,
     pub cursor: Option<[i32; 2]>,
+    /// Only a keyboard request may clear all pins outside the station.
+    pub clear_outside: bool,
+}
+#[derive(Default)]
+struct State {
+    request: Request,
+    pins: Vec<View>,
+    notice: String,
 }
 #[derive(Default)]
 pub struct Control {
-    request: Mutex<Request>,
-    view: Mutex<View>,
+    state: Mutex<State>,
+}
+impl State {
+    fn advance(&mut self) {
+        self.request.generation = self.request.generation.wrapping_add(1);
+        self.notice.clear();
+        for view in &mut self.pins {
+            view.generation = self.request.generation;
+            if let Some(snapshot) = &mut view.snapshot {
+                snapshot.generation = view.generation;
+            }
+        }
+    }
+    fn settle(&mut self) {
+        self.request.cursor = None;
+        self.request.active = !self.pins.is_empty();
+    }
 }
 impl Control {
     pub fn request(&self) -> Request {
-        *self.request.lock().unwrap_or_else(|e| e.into_inner())
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).request
     }
     pub fn toggle(&self) {
         self.toggle_at(None);
     }
     pub fn toggle_at(&self, cursor: Option<[i32; 2]>) {
-        let mut r = self.request.lock().unwrap_or_else(|e| e.into_inner());
-        r.generation = r.generation.wrapping_add(1);
-        r.active = true;
-        r.cursor = cursor;
-        // Keep the current panel intact until a valid replacement is ready.
+        self.select(cursor, true);
+    }
+    pub fn mouse_at(&self, cursor: [i32; 2]) {
+        self.select(Some(cursor), false);
+    }
+    fn select(&self, cursor: Option<[i32; 2]>, clear_outside: bool) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.advance();
+        state.request.active = true;
+        state.request.cursor = cursor;
+        state.request.clear_outside = clear_outside;
     }
     pub fn clear(&self) {
-        let mut r = self.request.lock().unwrap_or_else(|e| e.into_inner());
-        r.generation = r.generation.wrapping_add(1);
-        r.active = false;
-        r.cursor = None;
-        *self.view.lock().unwrap_or_else(|e| e.into_inner()) = View {
-            generation: r.generation,
-            ..View::default()
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.advance();
+        state.pins.clear();
+        state.settle();
+    }
+    pub fn remove(&self, id: &str) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if !state.pins.iter().any(|p| p.snapshot.as_ref().is_some_and(|s| s.recipe_id == id)) {
+            return;
+        }
+        state.advance();
+        state.pins.retain(|p| p.snapshot.as_ref().is_some_and(|s| s.recipe_id != id));
+        state.settle();
+    }
+    pub fn publish_for(
+        &self,
+        request: Request,
+        id: &str,
+        snapshot: Option<Snapshot>,
+        message: String,
+    ) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.request != request {
+            return;
+        }
+        let Some(index) =
+            state.pins.iter().position(|p| p.snapshot.as_ref().is_some_and(|s| s.recipe_id == id))
+        else {
+            return;
         };
+        if snapshot.as_ref().is_some_and(|s| s.recipe_id != id) {
+            return;
+        }
+        match snapshot
+            .filter(|s| s.recipe_id == id && s.ingredients.iter().any(|i| i.remaining > 0))
+        {
+            Some(mut next) => {
+                next.generation = request.generation;
+                state.pins[index] = View {
+                    snapshot: Some(next),
+                    message,
+                    generation: request.generation,
+                };
+            }
+            None => {
+                state.pins.remove(index);
+            }
+        }
+        state.request.active = !state.pins.is_empty();
     }
     pub fn publish(&self, request: Request, snapshot: Option<Snapshot>, message: String) {
-        let mut r = self.request.lock().unwrap_or_else(|e| e.into_inner());
-        if *r != request {
-            return;
+        let id = snapshot
+            .as_ref()
+            .map(|s| s.recipe_id.clone())
+            .or_else(|| self.view().snapshot.map(|s| s.recipe_id));
+        if let Some(id) = id {
+            self.publish_for(request, &id, snapshot, message);
         }
-        // A fully submitted update closes the pin. A successful reader absence
-        // arrives as None; unavailable observations use the separate error path.
-        let snapshot = snapshot
-            .filter(|s| s.ingredients.is_empty() || s.ingredients.iter().any(|i| i.remaining > 0));
-        if snapshot.is_none() {
-            r.active = false
-        }
-        *self.view.lock().unwrap_or_else(|e| e.into_inner()) = View {
-            snapshot,
-            message,
-            generation: request.generation,
-        };
     }
-    /// Clear only the request whose outside-station observation was validated.
     pub fn clear_requested(&self, request: Request) {
-        let mut r = self.request.lock().unwrap_or_else(|e| e.into_inner());
-        if *r != request {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.request != request {
             return;
         }
-        r.active = false;
-        r.cursor = None;
-        *self.view.lock().unwrap_or_else(|e| e.into_inner()) = View {
-            generation: r.generation,
-            ..View::default()
-        };
+        if request.clear_outside {
+            state.pins.clear();
+        }
+        state.settle();
     }
-    /// Commit a capture only after live requirements are available. Invalid or
-    /// completed targets leave the selection untouched; the same valid recipe
-    /// clears it, and a different valid recipe replaces it atomically.
+    /// Only a complete, guarded unfinished capture can add or toggle a pin.
     pub fn captured(&self, request: Request, snapshot: Option<Snapshot>) {
-        let mut r = self.request.lock().unwrap_or_else(|e| e.into_inner());
-        if *r != request {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.request != request {
             return;
         }
-        let mut view = self.view.lock().unwrap_or_else(|e| e.into_inner());
-        r.cursor = None;
-        match snapshot {
-            Some(mut next) if next.ingredients.iter().any(|i| i.remaining > 0) => {
-                if view.snapshot.as_ref().is_some_and(|old| old.recipe_id == next.recipe_id) {
-                    r.active = false;
-                    *view = View {
-                        generation: r.generation,
-                        ..View::default()
-                    };
-                } else {
-                    r.active = true;
-                    next.generation = r.generation;
-                    *view = View {
-                        snapshot: Some(next),
-                        message: String::new(),
-                        generation: r.generation,
-                    };
-                }
+        if let Some(mut next) = snapshot.filter(|s| s.ingredients.iter().any(|i| i.remaining > 0)) {
+            if let Some(index) = state
+                .pins
+                .iter()
+                .position(|p| p.snapshot.as_ref().is_some_and(|s| s.recipe_id == next.recipe_id))
+            {
+                state.pins.remove(index);
+            } else if state.pins.len() < MAX_PINS {
+                next.generation = request.generation;
+                state.pins.push(View {
+                    snapshot: Some(next),
+                    message: String::new(),
+                    generation: request.generation,
+                });
+            } else {
+                state.notice = "Three recipes are pinned. Close one before adding another.".into();
             }
-            _ => {
-                r.active = view.snapshot.is_some();
-                view.generation = r.generation;
-                if let Some(old) = &mut view.snapshot {
-                    old.generation = r.generation;
-                }
-            }
+        }
+        state.settle();
+    }
+    pub fn unavailable_for(&self, request: Request, id: &str, message: String) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.request == request
+            && let Some(view) = state
+                .pins
+                .iter_mut()
+                .find(|p| p.snapshot.as_ref().is_some_and(|s| s.recipe_id == id))
+        {
+            view.message = message;
         }
     }
     pub fn unavailable(&self, request: Request, message: String) {
-        let r = self.request.lock().unwrap_or_else(|e| e.into_inner());
-        if *r == request {
-            self.view.lock().unwrap_or_else(|e| e.into_inner()).message = message
+        if let Some(snapshot) = self.view().snapshot {
+            self.unavailable_for(request, &snapshot.recipe_id, message);
         }
     }
+    pub fn views(&self) -> Vec<View> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).pins.clone()
+    }
+    pub fn notice(&self) -> String {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).notice.clone()
+    }
     pub fn view(&self) -> View {
-        self.view.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.pins.first().cloned().unwrap_or_else(|| View {
+            generation: state.request.generation,
+            ..View::default()
+        })
     }
 }
 #[cfg(test)]
@@ -246,48 +314,84 @@ mod tests {
         c.captured(c.request(), next);
     }
     #[test]
-    fn invalid_complete_switch_same_and_pending_capture_behavior() {
+    fn captures_three_independently_and_rejects_fourth_without_replacing() {
         let c = Control::default();
-        c.toggle_at(Some([20, 30]));
-        assert!(c.view().snapshot.is_none());
-        assert!(c.view().message.is_empty());
-        c.captured(c.request(), None);
-        assert!(c.view().snapshot.is_none());
-        capture(&c, Some(sample("A", 400)));
-        capture(&c, None);
-        assert_eq!(c.view().snapshot.unwrap().recipe_id, "A");
-        capture(&c, Some(sample("B", 0)));
-        assert_eq!(c.view().snapshot.unwrap().recipe_id, "A");
-        capture(&c, Some(sample("A", 0)));
-        assert_eq!(c.view().snapshot.unwrap().recipe_id, "A");
-        c.toggle_at(Some([20, 30]));
-        let old = c.request();
-        c.toggle_at(Some([40, 50]));
-        c.captured(old, Some(sample("stale", 300)));
-        assert_eq!(c.view().snapshot.unwrap().recipe_id, "A");
-        c.captured(c.request(), Some(sample("B", 100)));
-        assert_eq!(c.view().snapshot.unwrap().recipe_id, "B");
+        for id in ["A", "B", "C", "D"] {
+            capture(&c, Some(sample(id, 100)));
+        }
+        assert_eq!(
+            c.views()
+                .iter()
+                .map(|v| v.snapshot.as_ref().unwrap().recipe_id.as_str())
+                .collect::<Vec<_>>(),
+            ["A", "B", "C"]
+        );
+        assert!(!c.notice().is_empty());
         capture(&c, Some(sample("B", 100)));
-        assert!(c.view().snapshot.is_none());
+        assert_eq!(c.views().len(), 2);
+        assert_eq!(c.views()[1].snapshot.as_ref().unwrap().recipe_id, "C");
+        capture(&c, Some(sample("D", 100)));
+        assert_eq!(c.views().len(), 3);
+    }
+    #[test]
+    fn invalid_completed_and_outside_mouse_preserve_all_pins_and_settle() {
+        let c = Control::default();
+        capture(&c, Some(sample("A", 100)));
+        capture(&c, Some(sample("B", 100)));
+        capture(&c, None);
+        capture(&c, Some(sample("A", 0)));
+        assert_eq!(c.views().len(), 2);
+        assert!(c.request().cursor.is_none());
+        c.mouse_at([20, 30]);
+        c.clear_requested(c.request());
+        assert_eq!(c.views().len(), 2);
+        c.toggle_at(Some([20, 30]));
+        c.clear_requested(c.request());
+        assert!(c.views().is_empty());
         assert!(!c.request().active);
     }
     #[test]
-    fn outside_station_clears_only_the_current_request() {
+    fn close_invalidates_pending_reads_and_recapture_without_resurrecting() {
         let c = Control::default();
-        c.toggle_at(Some([20, 30]));
-        c.clear_requested(c.request());
-        assert!(!c.request().active);
-        assert!(c.view().snapshot.is_none());
         capture(&c, Some(sample("A", 100)));
-        c.toggle_at(Some([20, 30]));
-        let old = c.request();
-        c.toggle_at(Some([30, 40]));
-        c.clear_requested(old);
-        assert_eq!(c.view().snapshot.unwrap().recipe_id, "A");
-        c.clear_requested(c.request());
-        c.captured(old, Some(sample("B", 100)));
-        assert!(c.view().snapshot.is_none());
+        capture(&c, Some(sample("B", 100)));
+        c.mouse_at([20, 30]);
+        let stale = c.request();
+        c.remove("A");
+        c.captured(stale, Some(sample("A", 100)));
+        c.publish_for(stale, "A", Some(sample("A", 100)), String::new());
+        assert_eq!(c.views().len(), 1);
+        assert_eq!(c.view().snapshot.unwrap().recipe_id, "B");
+    }
+    #[test]
+    fn one_completion_or_error_does_not_affect_siblings() {
+        let c = Control::default();
+        capture(&c, Some(sample("A", 100)));
+        capture(&c, Some(sample("B", 100)));
+        let request = c.request();
+        c.unavailable_for(request, "A", "temporary read error".into());
+        c.publish_for(request, "A", Some(sample("unrelated", 0)), String::new());
+        assert_eq!(c.views().len(), 2);
+        assert!(c.views()[1].message.is_empty());
+        c.publish_for(request, "A", Some(sample("A", 0)), String::new());
+        assert_eq!(c.views().len(), 1);
+        assert_eq!(c.view().snapshot.unwrap().recipe_id, "B");
+        c.publish_for(request, "B", None, String::new());
+        assert!(c.views().is_empty());
         assert!(!c.request().active);
+    }
+    #[test]
+    fn new_request_rejects_stale_capture_and_preserves_current_generations() {
+        let c = Control::default();
+        capture(&c, Some(sample("A", 100)));
+        c.mouse_at([20, 30]);
+        let stale = c.request();
+        c.mouse_at([30, 40]);
+        c.captured(stale, Some(sample("B", 100)));
+        assert_eq!(c.views().len(), 1);
+        assert_eq!(c.view().snapshot.unwrap().generation, c.request().generation);
+        c.captured(c.request(), None);
+        assert!(c.request().cursor.is_none());
     }
     #[test]
     fn partial_missing_duplicate_and_excess() {
@@ -297,26 +401,6 @@ mod tests {
         assert!(progress(&r, &[("a".into(), 100)]).is_err());
         assert!(progress(&r, &[("a".into(), 100), ("a".into(), 0)]).is_err());
         assert_eq!(progress(&r, &[("a".into(), 400), ("b".into(), 600)]).unwrap()[0].remaining, 0);
-    }
-    #[test]
-    fn completed_updates_close_the_pin_but_errors_and_stale_updates_do_not() {
-        let c = Control::default();
-        capture(&c, Some(sample("A", 100)));
-        let old = c.request();
-        c.unavailable(old, "temporary read error".into());
-        assert_eq!(c.view().snapshot.unwrap().recipe_id, "A");
-        c.publish(old, Some(sample("A", 0)), String::new());
-        assert!(c.view().snapshot.is_none());
-        assert!(!c.request().active);
-        capture(&c, Some(sample("A", 100)));
-        let stale = c.request();
-        capture(&c, Some(sample("B", 100)));
-        c.publish(stale, Some(sample("A", 0)), String::new());
-        c.publish(stale, None, String::new());
-        assert_eq!(c.view().snapshot.unwrap().recipe_id, "B");
-        c.publish(c.request(), None, String::new());
-        assert!(c.view().snapshot.is_none());
-        assert!(!c.request().active);
     }
     #[test]
     fn clearing_blocks_delayed_capture() {

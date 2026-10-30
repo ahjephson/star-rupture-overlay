@@ -428,7 +428,7 @@ pub fn run_with_assets(
                     recipe_generation = request.generation;
                     recipe_due = Instant::now();
                 }
-                if request.active && Instant::now() >= recipe_due {
+                if request.active && request.cursor.is_some() && Instant::now() >= recipe_due {
                     budget.renew(5000);
                     let selection = request.cursor.is_some();
                     let started = Instant::now();
@@ -452,7 +452,11 @@ pub fn run_with_assets(
                         }
                         let id = if selection {
                             crate::recipe::cursor_matches(request.cursor, s.process.identity.pid)?;
-                            let id = binding.capture(&ctx, &s.base, &t.catalogue).await?;
+                            let id = if request.clear_outside {
+                                binding.capture(&ctx, &s.base, &t.catalogue).await?
+                            } else {
+                                binding.capture_mouse(&ctx, &s.base, &t.catalogue).await?
+                            };
                             crate::recipe::cursor_matches(request.cursor, s.process.identity.pid)?;
                             id
                         } else {
@@ -497,6 +501,49 @@ pub fn run_with_assets(
                             Err(e) => t
                                 .control
                                 .unavailable(request, format!("{e:#}").chars().take(220).collect()),
+                        }
+                    }
+                    // Selection is settled immediately, including invalid/completed targets.
+                    recipe_due = Instant::now();
+                } else if request.active && Instant::now() >= recipe_due {
+                    budget.renew(5000);
+                    for view in t.control.views() {
+                        let Some(snapshot) = view.snapshot else {
+                            continue;
+                        };
+                        if t.control.request() != request {
+                            break;
+                        }
+                        let id = snapshot.recipe_id;
+                        let read: Result<_> = async {
+                            s.live.menu(&s.process, &s.base).await?;
+                            let ctx = s.live.context();
+                            let binding = recipe_binding
+                                .as_ref()
+                                .context("Recipe connection is unavailable")?;
+                            let sample = binding
+                                .sample(
+                                    &ctx,
+                                    &s.base,
+                                    s.live.world_address(),
+                                    &id,
+                                    &t.catalogue,
+                                    request.generation,
+                                )
+                                .await?;
+                            s.live.menu(&s.process, &s.base).await?;
+                            Ok(sample)
+                        }
+                        .await;
+                        match read {
+                            Ok(sample) => {
+                                t.control.publish_for(request, &id, sample, String::new())
+                            }
+                            Err(error) => t.control.unavailable_for(
+                                request,
+                                &id,
+                                format!("{error:#}").chars().take(220).collect(),
+                            ),
                         }
                     }
                     recipe_due = Instant::now() + Duration::from_millis(500);

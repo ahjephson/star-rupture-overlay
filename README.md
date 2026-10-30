@@ -11,7 +11,7 @@ This unofficial Windows companion adds a rupture countdown and an optional recip
 ## What it does
 
 - Shows the current rupture stage and time remaining, with a countdown that follows the game's simulation and pauses with it.
-- Pins a recipe's research materials in a narrow sidebar, showing how much you have submitted and how much is required.
+- Pins up to three recipes in compact panels, showing submitted materials, required amounts and completion.
 - Shows which recipe materials you have in your bag and how many you carry.
 - Offers controls for positioning, recipe scale, keyboard shortcut, starting with Windows and launching the game.
 
@@ -40,7 +40,7 @@ The app is unsigned, so Windows may show **Windows protected your PC** when you 
 
 ## Using the overlay
 
-Right-click the notification-area icon for controls, or double-click it to open Settings. To pin research progress, hover over an unfinished recipe in the station and press **Alt+X**. The sidebar closes when the recipe is completed.
+Right-click the notification-area icon for controls, or double-click it to open Settings. To pin research progress, hover over an unfinished recipe in the station and press **Alt+X**, or double-click its icon or name. Pin up to three recipes; each panel closes when its recipe is completed.
 
 The [features guide](docs/FEATURES.md) covers the rupture countdown, recipe counters and shortcuts, positioning, automatic setup and app controls.
 

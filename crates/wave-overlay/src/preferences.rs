@@ -30,6 +30,7 @@ pub struct Preferences {
 #[serde(rename_all = "camelCase", deny_unknown_fields, default)]
 pub struct RecipeSettings {
     pub enabled: bool,
+    pub double_click_pin: bool,
     pub key: u16,
     pub modifiers: u16,
     pub position: u8,
@@ -39,6 +40,7 @@ impl Default for RecipeSettings {
     fn default() -> Self {
         Self {
             enabled: true,
+            double_click_pin: true,
             key: 0x58,
             modifiers: 1,
             position: 1,
@@ -207,7 +209,8 @@ mod tests {
                 modifiers: 3,
                 scale: 125,
                 position: 2,
-                enabled: true
+                enabled: true,
+                double_click_pin: true
             }
             .validate()
             .is_ok()

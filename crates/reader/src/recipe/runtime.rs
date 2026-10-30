@@ -29,6 +29,8 @@ const FIELDS: &[(&str, &str, usize, i32)] = &[
     ("/Script/Chimera.CrCountItem", "Item", 8, 0),
     ("/Script/Chimera.CrCountItem", "Count", 4, 8),
     ("/Script/ChimeraUI.CrUW_RecipeTableRecipe", "Recipe", 8, 1024),
+    ("/Script/ChimeraUI.CrUW_RecipeTableRecipe", "RecipeName", 8, 976),
+    ("/Script/ChimeraUI.CrUW_RecipeTableRecipe", "RecipeImage", 8, 984),
     ("/Script/UMG.Widget", "Visibility", 1, 252),
     ("/Script/UMG.UserWidget", "WidgetTree", 8, 824),
     ("/Script/UMG.Widget", "Slot", 8, 48),
@@ -413,6 +415,16 @@ impl Binding {
     async fn widget_hovered(&self, ctx: &Ctx, row: u64, base: &RuntimeCache) -> Result<bool> {
         let s = serial(ctx, row).await?;
         self.widget_owner(ctx, row, base).await?;
+        let hovered = self.native_hovered(ctx, row, s).await?;
+        self.widget_owner(ctx, row, base).await?;
+        Ok(hovered)
+    }
+    async fn native_hovered(
+        &self,
+        ctx: &Ctx,
+        row: u64,
+        s: (crate::ObjectStamp, i32),
+    ) -> Result<bool> {
         let visibility = ctx.read::<u8>(row + 252).await?;
         if visibility == 1 || visibility == 2 {
             return Ok(false);
@@ -444,7 +456,9 @@ impl Binding {
                     && ctx.read::<i32>(c + 8).await? > 0
                     && ctx.read::<u8>(p + 0x3b).await? == hovered
                     && serial(ctx, row).await? == s
-                    && self.widget_owner(ctx, row, base).await.is_ok(),
+                    && ctx.read::<u8>(row + 252).await? == visibility
+                    && ctx.read::<u64>(row).await? == vt
+                    && ctx.read::<u64>(vt + 0x2c8).await? == self.hover,
                 "Hovered widget changed during capture"
             );
             return Ok(hovered == 1);
@@ -517,6 +531,30 @@ impl Binding {
             "Hover over one recipe row in the recipe station, then try again."
         );
         self.capture_row(ctx, base, catalogue, hovered[0]).await
+    }
+    pub(crate) async fn capture_mouse(
+        &self,
+        ctx: &Ctx,
+        base: &RuntimeCache,
+        catalogue: &Catalogue,
+    ) -> Result<String> {
+        let mut hovered = Vec::new();
+        for row in self.current_rows(ctx, base).await? {
+            if self.hovered(ctx, row.0.address, base).await? {
+                hovered.push(row.0.address);
+            }
+        }
+        ensure!(hovered.len() == 1, "Double-click a recipe icon or name.");
+        ensure!(
+            self.mouse_target(ctx, hovered[0]).await?,
+            "Double-click the recipe icon or name, away from ingredients and Insert."
+        );
+        let id = self.capture_row(ctx, base, catalogue, hovered[0]).await?;
+        ensure!(
+            self.mouse_target(ctx, hovered[0]).await?,
+            "Recipe icon hover changed during capture"
+        );
+        Ok(id)
     }
     async fn capture_row(
         &self,

@@ -82,6 +82,67 @@ fn follow_game_with_foreground(overlay: HWND, game: HWND, foreground: impl Fn() 
     }
 }
 
+/// Place a close target above its own panel, keeping the group below unrelated windows.
+/// All HWND mutations affect our windows; focus/band eligibility still belongs to the game.
+pub(super) fn follow_companion(overlay: HWND, anchor: HWND, game: HWND) -> bool {
+    unsafe {
+        if IsWindow(overlay) == 0
+            || !target_available(game)
+            || (topmost(game) && GetForegroundWindow() != game)
+            || !target_available(anchor)
+            || anchor == game
+            || topmost(anchor) != topmost(game)
+        {
+            hide_and_demote(overlay);
+            return false;
+        }
+        if topmost(overlay) != topmost(game)
+            && !topmost(game)
+            && SetWindowPos(overlay, HWND_NOTOPMOST, 0, 0, 0, 0, POSITION_FLAGS) == 0
+        {
+            hide_and_demote(overlay);
+            return false;
+        }
+        let previous = GetWindow(anchor, GW_HWNDPREV);
+        if previous != overlay {
+            let after = if previous.is_null() || (!topmost(game) && topmost(previous)) {
+                if topmost(game) {
+                    HWND_TOPMOST
+                } else {
+                    HWND_TOP
+                }
+            } else {
+                previous
+            };
+            if SetWindowPos(overlay, after, 0, 0, 0, 0, POSITION_FLAGS | SWP_SHOWWINDOW) == 0 {
+                hide_and_demote(overlay);
+                return false;
+            }
+        }
+        if IsWindowVisible(overlay) == 0
+            && SetWindowPos(
+                overlay,
+                std::ptr::null_mut(),
+                0,
+                0,
+                0,
+                0,
+                POSITION_FLAGS | SWP_NOZORDER | SWP_SHOWWINDOW,
+            ) == 0
+        {
+            return false;
+        }
+        let valid = target_available(game)
+            && target_available(anchor)
+            && GetWindow(anchor, GW_HWNDPREV) == overlay
+            && topmost(overlay) == topmost(game)
+            && (!topmost(game) || GetForegroundWindow() == game);
+        if !valid {
+            hide_and_demote(overlay);
+        }
+        valid
+    }
+}
 unsafe fn topmost(window: HWND) -> bool {
     unsafe { GetWindowLongPtrW(window, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST != 0 }
 }

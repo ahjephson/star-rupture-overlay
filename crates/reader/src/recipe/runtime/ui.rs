@@ -103,6 +103,25 @@ fn local_layout(records: &[u8], player: u64) -> Result<u64> {
 }
 
 impl Binding {
+    pub(super) async fn mouse_target(&self, ctx: &Ctx, row: u64) -> Result<bool> {
+        let mut read = Read::default();
+        read.object(ctx, row, Some(self.rows_class)).await?;
+        let mut hovered = false;
+        for offset in [976, 984] {
+            let widget = read.pointer(ctx, row + offset).await?;
+            if widget == 0 {
+                continue;
+            }
+            let allocation = read.object(ctx, widget, Some(self.widget_class)).await?;
+            if self.attached_to(ctx, widget, row, &mut read).await?
+                && self.native_hovered(ctx, widget, allocation).await?
+            {
+                hovered = true;
+            }
+        }
+        read.finish(ctx).await?;
+        Ok(hovered)
+    }
     async fn menu_screen(
         &self,
         ctx: &Ctx,

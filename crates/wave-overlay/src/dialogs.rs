@@ -191,6 +191,9 @@ fn selected(state: &State) -> Preferences {
             crate::preferences::RecipeSettings {
                 enabled: SendDlgItemMessageW(state.window.get(), 150, BM_GETCHECK, 0, 0) as u32
                     == BST_CHECKED,
+                double_click_pin: SendDlgItemMessageW(state.window.get(), 157, BM_GETCHECK, 0, 0)
+                    as u32
+                    == BST_CHECKED,
                 key,
                 modifiers,
                 position: SendDlgItemMessageW(state.window.get(), 152, CB_GETCURSEL, 0, 0)
@@ -286,6 +289,7 @@ fn settings_init(state: &State) {
     let recipe = state.context.preferences.get().recipe_tracker;
     unsafe {
         SendDlgItemMessageW(window, 150, BM_SETCHECK, usize::from(recipe.enabled), 0);
+        SendDlgItemMessageW(window, 157, BM_SETCHECK, usize::from(recipe.double_click_pin), 0);
         SendDlgItemMessageW(window, 151, EM_SETLIMITTEXT, 48, 0);
         for (id, labels) in [
             (152, vec!["Upper right", "Middle right", "Lower right"]),
@@ -393,7 +397,7 @@ fn settings_tab(state: &State) {
             );
         }
     }
-    for id in [150, 151, 152, 153, 154, 166, 167, 168, 169] {
+    for id in [150, 151, 152, 153, 154, 157, 166, 167, 168, 169] {
         unsafe {
             ShowWindow(
                 GetDlgItem(state.window.get(), id),
@@ -680,7 +684,7 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
                 return 1;
             }
             match (state.kind, id) {
-                (SETTINGS, 110 | 111 | 150 | 151 | 152 | 153 | 156)
+                (SETTINGS, 110 | 111 | 150 | 151 | 152 | 153 | 156 | 157)
                     if notification == BN_CLICKED
                         || notification == CBN_SELCHANGE
                         || notification == EN_CHANGE =>

@@ -179,7 +179,14 @@ unsafe fn tick(window: HWND) {
     }
     a.game = found.1;
     let visible = !no_world && !a.hidden && !a.game.is_null() && unsafe { IsIconic(a.game) } == 0;
-    a.recipe.tick(window, a.game, visible, a.dialog_context.preferences.get().recipe_tracker, pid);
+    a.recipe.tick(
+        window,
+        a.game,
+        visible,
+        a.dialog_context.preferences.get().recipe_tracker,
+        pid,
+        a.pause_position,
+    );
     *a.dialog_context.recipe_status.borrow_mut() = a.recipe.status.clone();
     a.dialogs.refresh_recipe_status();
     if !visible || stopped {
@@ -529,6 +536,16 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
         }
         WM_TIMER | READING_READY => {
             unsafe { tick(window) };
+            0
+        }
+        crate::recipe_tracker::MOUSE_CLICK => {
+            if let Some(a) = unsafe { app(window) } {
+                a.recipe.mouse_pressed(
+                    a.game,
+                    w as u32,
+                    [l as u32 as i32, ((l as u64) >> 32) as u32 as i32],
+                );
+            }
             0
         }
         WM_HOTKEY => {

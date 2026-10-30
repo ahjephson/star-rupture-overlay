@@ -2,7 +2,7 @@
 use crate::{desktop::wide, preferences::RecipeSettings};
 use anyhow::{Context, Result, ensure};
 use starrupture_observation_model::recipe::{Catalogue, Control, View};
-use std::{collections::BTreeMap, mem::size_of, path::Path, sync::Arc};
+use std::{cell::RefCell, collections::BTreeMap, mem::size_of, path::Path, rc::Rc, sync::Arc};
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
@@ -10,6 +10,7 @@ use windows_sys::Win32::{
     UI::{Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
 };
 
+pub const MOUSE_CLICK: u32 = mouse::MESSAGE;
 const HOTKEY: i32 = 0x5243;
 struct Image {
     width: usize,
@@ -38,7 +39,7 @@ impl Image {
 pub struct Assets {
     pub catalogue: Arc<Catalogue>,
     directory: std::path::PathBuf,
-    selected: Option<String>,
+    selected: Vec<String>,
     images: BTreeMap<String, Image>,
     header_frame: Image,
     header_background: Image,
@@ -95,7 +96,7 @@ impl Assets {
         Ok(Self {
             catalogue: Arc::new(catalogue),
             directory: directory.into(),
-            selected: None,
+            selected: Vec::new(),
             images,
             header_frame,
             header_background,
@@ -134,8 +135,12 @@ impl Image {
 }
 impl Assets {
     fn prepare(&mut self, view: &View) -> Result<()> {
-        let selected = view.snapshot.as_ref().map(|s| s.recipe_id.as_str());
-        if self.selected.as_deref() == selected {
+        self.prepare_views(std::slice::from_ref(view))
+    }
+    fn prepare_views(&mut self, views: &[View]) -> Result<()> {
+        let selected: Vec<_> =
+            views.iter().filter_map(|v| v.snapshot.as_ref().map(|s| s.recipe_id.clone())).collect();
+        if self.selected == selected {
             return Ok(());
         }
         let mut needed = vec![
@@ -143,7 +148,7 @@ impl Assets {
             self.catalogue.frame.clone(),
             self.catalogue.background.clone(),
         ];
-        if let Some(id) = selected {
+        for id in &selected {
             let recipe = self.catalogue.recipes.get(id).context("Recipe reference missing")?;
             needed.push(self.catalogue.items[&recipe.item_id].image.clone());
             for id in recipe.requirements.keys() {
@@ -152,7 +157,7 @@ impl Assets {
         }
         needed.sort();
         needed.dedup();
-        self.selected = None;
+        self.selected.clear();
         self.images.retain(|name, _| needed.binary_search(name).is_ok());
         let mut total: usize = self.images.values().map(|i| i.pixels.capacity()).sum();
         for name in needed {
@@ -163,7 +168,7 @@ impl Assets {
                 self.images.insert(name, image);
             }
         }
-        self.selected = selected.map(str::to_owned);
+        self.selected = selected;
         Ok(())
     }
     fn clear_images(&mut self) {
@@ -172,11 +177,14 @@ impl Assets {
                 || name == &self.catalogue.frame
                 || name == &self.catalogue.background
         });
-        self.selected = None;
+        self.selected.clear();
     }
 }
 pub struct Panel {
-    window: HWND,
+    windows: [HWND; 3],
+    buttons: Vec<close::Button>,
+    mouse: mouse::Input,
+    cursor: Rc<RefCell<cursor::GameCursor>>,
     hotkey_owner: HWND,
     assets: Option<Assets>,
     pub control: Arc<Control>,
@@ -189,10 +197,13 @@ pub struct Panel {
 }
 impl Drop for Panel {
     fn drop(&mut self) {
+        self.mouse.configure(std::ptr::null_mut(), std::ptr::null_mut(), false);
         self.unregister();
-        if !self.window.is_null() {
-            unsafe {
-                DestroyWindow(self.window);
+        for window in self.windows {
+            if !window.is_null() {
+                unsafe {
+                    DestroyWindow(window);
+                }
             }
         }
     }
@@ -203,7 +214,10 @@ impl Panel {
         let status = "Start StarRupture and load your world to prepare the recipe tracker.".into();
         let setup_state = Arc::new(std::sync::Mutex::new(setup::State::default()));
         Self {
-            window: std::ptr::null_mut(),
+            windows: [std::ptr::null_mut(); 3],
+            buttons: Vec::new(),
+            mouse: mouse::Input::default(),
+            cursor: Rc::new(RefCell::new(cursor::GameCursor::default())),
             hotkey_owner: std::ptr::null_mut(),
             assets,
             control: Arc::new(Control::default()),
@@ -267,8 +281,8 @@ impl Panel {
             }
         }
     }
-    fn window(&mut self) -> Result<()> {
-        if !self.window.is_null() {
+    fn window(&mut self, index: usize) -> Result<()> {
+        if !self.windows[index].is_null() {
             return Ok(());
         }
         let class = wide("StarRuptureRecipeTracker");
@@ -299,7 +313,10 @@ impl Panel {
             )
         };
         ensure!(!w.is_null(), "Could not create recipe panel");
-        self.window = w;
+        self.windows[index] = w;
+        if self.buttons.len() <= index {
+            self.buttons.push(close::Button::new(self.control.clone(), self.cursor.clone())?);
+        }
         Ok(())
     }
     pub fn shortcut(&mut self, owner: HWND, game: HWND, settings: RecipeSettings) {
@@ -308,6 +325,7 @@ impl Panel {
         // Hotkeys are delivered to the main window, even though the panel is separate.
         let foreground = !game.is_null() && unsafe { GetForegroundWindow() } == game;
         let desired = foreground && settings.enabled && self.assets.is_some();
+        self.mouse.configure(owner, game, desired && settings.double_click_pin);
         if (self.hotkey.is_some_and(|s| s != settings) || !desired) && self.hotkey.take().is_some()
         {
             unsafe {
@@ -355,16 +373,31 @@ impl Panel {
             false
         }
     }
+    pub fn mouse_pressed(&mut self, game: HWND, time: u32, point: [i32; 2]) {
+        if self.mouse.accept(game, time, point) {
+            self.control.mouse_at(point);
+        }
+    }
     pub fn hide(&self) {
-        if !self.window.is_null() {
-            unsafe {
-                ShowWindow(self.window, SW_HIDE);
+        for window in self.windows {
+            if !window.is_null() {
+                unsafe {
+                    ShowWindow(window, SW_HIDE);
+                }
             }
+        }
+        for button in &self.buttons {
+            button.hide();
         }
     }
     pub fn follow(&self, game: HWND) {
-        if !self.window.is_null() && unsafe { IsWindowVisible(self.window) } != 0 {
-            crate::stacking::follow_game(self.window, game);
+        for window in self.windows {
+            if !window.is_null() && unsafe { IsWindowVisible(window) } != 0 {
+                crate::stacking::follow_game(window, game);
+            }
+        }
+        for button in &self.buttons {
+            button.follow(game);
         }
     }
     pub fn tick(
@@ -374,29 +407,31 @@ impl Panel {
         visible: bool,
         settings: RecipeSettings,
         process: u32,
+        pause: bool,
     ) {
+        self.cursor.borrow_mut().observe(game, process);
         self.shortcut(owner, game, settings);
         if !settings.enabled || !visible || self.assets.is_none() {
             self.hide();
             return;
         }
-        let view = self.control.view();
-        if view.snapshot.is_none() {
+        let views = self.control.views();
+        if views.is_empty() {
             if let Some(assets) = self.assets.as_mut() {
                 assets.clear_images();
             }
             self.hide();
             return;
         }
-        if let Some(s) = &view.snapshot
-            && (s.process != process || s.generation != view.generation)
-        {
+        if views.iter().any(|v| {
+            v.snapshot.as_ref().is_none_or(|s| s.process != process || s.generation != v.generation)
+        }) {
             self.hide();
             return;
         }
-        if let Err(e) = self.window() {
-            self.status = e.to_string();
-            return;
+        let notice = self.control.notice();
+        if !notice.is_empty() {
+            self.status = notice;
         }
         let mut rect = RECT::default();
         let mut origin = POINT::default();
@@ -406,42 +441,89 @@ impl Panel {
             self.hide();
             return;
         }
-        let factor = (rect.bottom as f64 / 1440.0).clamp(0.65, 2.0) * settings.scale as f64 / 100.0;
-        let count = view.snapshot.as_ref().map_or(0, |s| s.ingredients.len());
-        let width = (120.0 * factor).round() as i32;
-        let natural = ((155 + count * 98) as f64 * factor).round() as i32;
-        let height = natural.min(rect.bottom - 24).max(100);
-        let x = origin.x + rect.right - width - 14;
-        let y = origin.y
-            + match settings.position {
-                0 => 30,
-                2 => (rect.bottom - height - 20).max(10),
-                _ => (rect.bottom - height) / 2,
-            };
-        unsafe {
-            SetWindowPos(
-                self.window,
-                std::ptr::null_mut(),
-                x,
-                y,
-                width,
-                height,
-                SWP_NOZORDER | SWP_NOACTIVATE,
-            );
-        }
-        if let Some(a) = &mut self.assets
-            && let Err(e) =
-                a.prepare(&view).and_then(|()| render(self.window, a, &view, width, height))
-        {
-            self.status = e.to_string();
+        let count = views
+            .iter()
+            .filter_map(|v| v.snapshot.as_ref().map(|s| s.ingredients.len()))
+            .max()
+            .unwrap_or(0);
+        let Some(geometry) =
+            layout::fit([rect.right, rect.bottom], views.len(), count, settings.scale, pause)
+        else {
+            self.hide();
+            return;
+        };
+        if let Err(error) = self.assets.as_mut().unwrap().prepare_views(&views) {
+            self.status = error.to_string();
             self.hide();
             return;
         }
-        self.follow(game);
-        crate::stacking::follow_game(self.window, game);
+        let group_y = origin.y
+            + match settings.position {
+                0 => 20,
+                2 => (rect.bottom - geometry.height - 20).max(10),
+                _ => (rect.bottom - geometry.height) / 2,
+            };
+        let interactive = mouse::cursor_visible() && unsafe { GetForegroundWindow() } == game;
+        for (index, view) in views.iter().enumerate() {
+            if let Err(error) = self.window(index) {
+                self.status = error.to_string();
+                self.hide();
+                return;
+            }
+            let x = origin.x + rect.right
+                - geometry.right_margin
+                - geometry.width
+                - (geometry.width + geometry.gap) * index as i32;
+            let height = geometry.height;
+            unsafe {
+                SetWindowPos(
+                    self.windows[index],
+                    std::ptr::null_mut(),
+                    x,
+                    group_y,
+                    geometry.width,
+                    height,
+                    SWP_NOZORDER | SWP_NOACTIVATE,
+                );
+            }
+            if let Err(error) = render(
+                self.windows[index],
+                self.assets.as_ref().unwrap(),
+                view,
+                geometry.width,
+                height,
+                layout::frame(index, views.len()),
+            ) {
+                self.status = error.to_string();
+                self.hide();
+                return;
+            }
+            crate::stacking::follow_game(self.windows[index], game);
+            self.buttons[index].show(
+                game,
+                self.windows[index],
+                &view.snapshot.as_ref().unwrap().recipe_id,
+                [x + geometry.width - close::SIZE - 6, group_y + layout::control_y(geometry.width)],
+                interactive,
+            );
+        }
+        for index in views.len()..3 {
+            if !self.windows[index].is_null() {
+                unsafe {
+                    ShowWindow(self.windows[index], SW_HIDE);
+                }
+            }
+            if let Some(button) = self.buttons.get(index) {
+                button.hide();
+            }
+        }
     }
 }
 
+mod close;
+mod cursor;
+mod layout;
+mod mouse;
 mod setup;
 pub use setup::{
     self_test as self_test_asset_setup, self_test_cancel as self_test_asset_cancel,

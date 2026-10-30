@@ -6,15 +6,20 @@
 
 - Update 3 PTB compatibility for rupture timing and recipe tracking, including Rarely, Normal and Often fire-wave frequency settings.
 - Countdown format setting for hours when needed or total minutes, with a fixed panel width.
+- Track up to three recipes at once, with optional double-click pinning and individual close buttons.
+- Highlight recipe close buttons when hovered.
 
 ### Changed
 
 - Hide overlays at the main menu and hide the wave panel while waves are stopped.
 - Show INCINERATING for seven seconds before switching to COOLING.
+- Smaller recipe icons and tighter panel spacing, with a fixed right-edge position and pause-menu scaling only when needed.
+- Recipe panels share a common height, with clear two-line names, larger inset close buttons and adornments on the outer panels.
 
 ### Fixed
 
 - Show the Pre-wave countdown before the first rupture start time is set.
+- Keep recipe close buttons clear of the scaled border, steady on refresh and using the game's cursor appearance when available.
 
 ## 1.0.0 — 2026-10-28
 
