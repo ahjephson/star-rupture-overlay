@@ -264,9 +264,16 @@ impl Text {
     }
 }
 fn draw(surface: &Surface, assets: &Assets, view: &View, now: u64) {
-    draw_panel(surface, assets, view, now, layout::frame(0, 1));
+    draw_panel(surface, assets, view, now, layout::frame(0, 1), None);
 }
-fn draw_panel(surface: &Surface, assets: &Assets, view: &View, now: u64, frame: layout::Frame) {
+fn draw_panel(
+    surface: &Surface,
+    assets: &Assets,
+    view: &View,
+    now: u64,
+    frame: layout::Frame,
+    hovered: Option<usize>,
+) {
     let width = surface.width;
     let height = surface.height;
     let w = width as usize;
@@ -278,12 +285,6 @@ fn draw_panel(surface: &Surface, assets: &Assets, view: &View, now: u64, frame: 
     let mut texts = Vec::new();
     let count = view.snapshot.as_ref().map_or(0, |s| s.ingredients.len());
     let scale = width as f64 / layout::WIDTH;
-    let row = (((height as f64 - layout::controls(width) - layout::HEADER * scale)
-        / count.max(1) as f64)
-        .min(layout::ROW * scale))
-    .max(20.0);
-    let tile = (64.0 * scale).min(row - 8.0 * scale).round() as i32;
-    let x = (width - tile) / 2;
     let cat = &assets.catalogue;
     let fresh = view
         .snapshot
@@ -321,14 +322,18 @@ fn draw_panel(surface: &Surface, assets: &Assets, view: &View, now: u64, frame: 
                 layout: TextLayout::Centered,
             });
             for (index, item) in snapshot.ingredients.iter().enumerate() {
-                let y =
-                    (layout::controls(width) + layout::HEADER * scale + index as f64 * row) as i32;
+                let [x, y, tile] = layout::tile(width, height, count, index);
                 let complete = fresh && item.remaining == 0;
-                let bg = if complete {
+                let mut bg: [u8; 4] = if complete {
                     [55, 55, 55, 255]
                 } else {
                     [107, 119, 133, 255]
                 };
+                if hovered == Some(index) {
+                    for component in &mut bg[..3] {
+                        *component = component.saturating_add(22);
+                    }
+                }
                 for py in y.max(0)..(y + tile).min(height) {
                     for px in x.max(0)..(x + tile).min(width) {
                         pixels[(py as usize * w + px as usize) * 4..][..4].copy_from_slice(&bg)
@@ -506,9 +511,17 @@ pub(super) fn render(
     width: i32,
     height: i32,
     frame: layout::Frame,
+    hovered: Option<usize>,
 ) -> Result<()> {
     let s = Surface::new(width, height)?;
-    draw_panel(&s, assets, view, starrupture_wave_core::formatting::now_ms().max(0) as u64, frame);
+    draw_panel(
+        &s,
+        assets,
+        view,
+        starrupture_wave_core::formatting::now_ms().max(0) as u64,
+        frame,
+        hovered,
+    );
     present(window, &s)
 }
 fn present(window: HWND, s: &Surface) -> Result<()> {
@@ -552,14 +565,7 @@ fn close_pixels(hovered: bool) -> Vec<u8> {
             // Full click area remains present even around the larger cross.
             p.copy_from_slice(&[0, 0, 0, 1]);
             if (3..size - 3).contains(&x) && (3..size - 3).contains(&y) {
-                p.copy_from_slice(if hovered {
-                    &[24, 36, 52, 255]
-                } else {
-                    &[24, 24, 24, 240]
-                });
-                if hovered && (x == 3 || y == 3 || x == size - 4 || y == size - 4) {
-                    p.copy_from_slice(&[0, 153, 255, 255]);
-                }
+                p.copy_from_slice(&[24, 24, 24, 240]);
             }
             if (6..size - 6).contains(&x)
                 && (6..size - 6).contains(&y)
@@ -567,7 +573,7 @@ fn close_pixels(hovered: bool) -> Vec<u8> {
                     || ((x + y) as i32 - (size as i32 - 1)).abs() <= 1)
             {
                 p.copy_from_slice(if hovered {
-                    &[0, 153, 255, 255]
+                    &[230, 224, 117, 255]
                 } else {
                     &[240, 240, 240, 255]
                 });
@@ -583,6 +589,98 @@ pub(super) fn close(window: HWND, hovered: bool) -> Result<()> {
         std::ptr::copy_nonoverlapping(pixels.as_ptr(), surface.bits, pixels.len());
     }
     present(window, &surface)
+}
+pub(super) fn tooltip(
+    window: HWND,
+    name: &str,
+    font_size: i32,
+    max_width: i32,
+) -> Result<[i32; 2]> {
+    let surface = tooltip_surface(name, font_size, max_width)?;
+    present(window, &surface)?;
+    Ok([surface.width, surface.height])
+}
+fn tooltip_surface(name: &str, font_size: i32, max_width: i32) -> Result<Surface> {
+    ensure!(!name.is_empty() && name.len() <= 240, "Tooltip name bound");
+    let probe = Surface::new(1, 1)?;
+    let family = wide("Nippo");
+    let font = unsafe {
+        CreateFontW(
+            -font_size,
+            0,
+            0,
+            0,
+            400,
+            0,
+            0,
+            0,
+            DEFAULT_CHARSET as u32,
+            0,
+            0,
+            ANTIALIASED_QUALITY as u32,
+            0,
+            family.as_ptr(),
+        )
+    };
+    ensure!(!font.is_null(), "Tooltip font");
+    let value = wide(name);
+    let mut measured = RECT {
+        left: 0,
+        top: 0,
+        right: (max_width - 24).max(20),
+        bottom: 0,
+    };
+    unsafe {
+        let previous = SelectObject(probe.dc, font);
+        DrawTextW(
+            probe.dc,
+            value.as_ptr(),
+            value.len() as i32 - 1,
+            &mut measured,
+            DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX,
+        );
+        SelectObject(probe.dc, previous);
+        DeleteObject(font);
+    }
+    let width = (measured.right + 24).clamp(40, max_width.max(40));
+    let height = (measured.bottom + 16).clamp(font_size + 16, 180);
+    let surface = Surface::new(width, height)?;
+    let mut pixels = vec![0u8; width as usize * height as usize * 4];
+    for pixel in pixels.as_chunks_mut::<4>().0 {
+        pixel.copy_from_slice(&[8, 8, 8, 250]);
+    }
+    unsafe {
+        std::ptr::copy_nonoverlapping(pixels.as_ptr(), surface.bits, pixels.len());
+    }
+    Text {
+        value: name.into(),
+        rect: RECT {
+            left: 12,
+            top: 8,
+            right: width - 12,
+            bottom: height - 8,
+        },
+        size: font_size,
+        colour: [240, 240, 235],
+        outline: false,
+        layout: TextLayout::Centered,
+    }
+    .draw(surface.dc);
+    pixels = surface.pixels();
+    for y in 0..height as usize {
+        for x in 0..width as usize {
+            let p = &mut pixels[(y * width as usize + x) * 4..][..4];
+            if x == 0 || y == 0 || x + 1 == width as usize || y + 1 == height as usize {
+                p.copy_from_slice(&[218, 222, 220, 255]);
+            } else if p[3] == 0 {
+                p[3] = 255;
+            }
+        }
+    }
+    unsafe {
+        std::ptr::copy_nonoverlapping(pixels.as_ptr(), surface.bits, pixels.len());
+    }
+    Ok(surface)
 }
 fn bitmap(path: &Path, width: i32, height: i32, pixels: Vec<u8>) -> Result<()> {
     let mut header = vec![0u8; 54];
@@ -613,7 +711,7 @@ fn group_preview(directory: &Path, assets: &Assets, views: &[View]) -> Result<()
         for (index, view) in views.iter().enumerate() {
             let panel = Surface::new(geometry.width, height)?;
             let frame = layout::frame(index, views.len());
-            draw_panel(&panel, assets, view, 1000, frame);
+            draw_panel(&panel, assets, view, 1000, frame, None);
             let pixels = panel.pixels();
             let w = geometry.width as usize;
             let h = height as usize;
@@ -717,6 +815,22 @@ pub(super) fn self_test_at(directory: &Path, asset_directory: &Path) -> Result<(
         highlighted,
     )?;
     let mut assets = Assets::load(asset_directory)?;
+    super::items::self_test()?;
+    let tip = tooltip_surface("Calcite Sheets", 18, 360)?;
+    bitmap(&directory.join("item-name-tooltip.bmp"), tip.width, tip.height, tip.pixels())?;
+    for (a, b) in close_pixels(false)
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(close_pixels(true).as_chunks::<4>().0.iter())
+    {
+        if a != b {
+            ensure!(
+                *a == [240, 240, 240, 255] && *b == [230, 224, 117, 255],
+                "Close hover changed more than the cross colour"
+            );
+        }
+    }
     // Exercise every recipe with the actual asset pack, including repeated selection
     // and clear. This also bounds image residency independently of draw output.
     let baseline: usize = assets.images.values().map(|i| i.pixels.capacity()).sum();
@@ -956,6 +1070,17 @@ pub(super) fn self_test_at(directory: &Path, asset_directory: &Path) -> Result<(
                 1000
             },
         );
+        if name == "biofilament-bag" {
+            let hover = Surface::new(width, height)?;
+            draw_panel(&hover, &assets, &view, 1000, layout::frame(0, 1), Some(1));
+            let [x, y, _] = layout::tile(width, height, order.len(), 1);
+            let position = ((y + 1) * width + x + 1) as usize * 4;
+            ensure!(
+                hover.pixels()[position..position + 3] != surface.pixels()[position..position + 3],
+                "Material hover did not change the tile colour"
+            );
+            bitmap(&directory.join("material-hover.bmp"), width, height, hover.pixels())?;
+        }
         let pixels = surface.pixels();
         ensure!(
             pixels.len() == width as usize * height as usize * 4 && pixels[3] == 255,

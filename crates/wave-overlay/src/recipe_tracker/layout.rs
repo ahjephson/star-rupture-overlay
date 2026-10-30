@@ -25,6 +25,15 @@ pub(super) fn control_y(width: i32) -> i32 {
 pub(super) fn controls(width: i32) -> f64 {
     (control_y(width) + super::close::SIZE + 6) as f64
 }
+/// Exact material-tile geometry shared by drawing and click-through hover tests.
+pub(super) fn tile(width: i32, height: i32, count: usize, index: usize) -> [i32; 3] {
+    let scale = width as f64 / WIDTH;
+    let row = (((height as f64 - controls(width) - HEADER * scale) / count.max(1) as f64)
+        .min(ROW * scale))
+    .max(20.0);
+    let size = (64.0 * scale).min(row - 8.0 * scale).round() as i32;
+    [(width - size) / 2, (controls(width) + HEADER * scale + index as f64 * row) as i32, size]
+}
 const PAUSE_GUTTER: f64 = 0.096;
 pub(super) const HEADER: f64 = 128.0;
 pub(super) const ROW: f64 = 74.0;

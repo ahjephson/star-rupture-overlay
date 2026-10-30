@@ -7,7 +7,7 @@
 - Update 3 PTB compatibility for rupture timing and recipe tracking, including Rarely, Normal and Often fire-wave frequency settings.
 - Countdown format setting for hours when needed or total minutes, with a fixed panel width.
 - Track up to three recipes at once, with optional double-click pinning and individual close buttons.
-- Highlight recipe close buttons when hovered.
+- Hover feedback for recipe close buttons and materials, with item-name tooltips.
 
 ### Changed
 

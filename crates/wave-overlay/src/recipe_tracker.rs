@@ -185,6 +185,7 @@ pub struct Panel {
     buttons: Vec<close::Button>,
     mouse: mouse::Input,
     cursor: Rc<RefCell<cursor::GameCursor>>,
+    item_hover: RefCell<items::Hover>,
     hotkey_owner: HWND,
     assets: Option<Assets>,
     pub control: Arc<Control>,
@@ -218,6 +219,7 @@ impl Panel {
             buttons: Vec::new(),
             mouse: mouse::Input::default(),
             cursor: Rc::new(RefCell::new(cursor::GameCursor::default())),
+            item_hover: RefCell::new(items::Hover::default()),
             hotkey_owner: std::ptr::null_mut(),
             assets,
             control: Arc::new(Control::default()),
@@ -379,6 +381,7 @@ impl Panel {
         }
     }
     pub fn hide(&self) {
+        self.item_hover.borrow_mut().hide();
         for window in self.windows {
             if !window.is_null() {
                 unsafe {
@@ -399,6 +402,7 @@ impl Panel {
         for button in &self.buttons {
             button.follow(game);
         }
+        self.item_hover.borrow_mut().follow(game);
     }
     pub fn tick(
         &mut self,
@@ -464,6 +468,30 @@ impl Panel {
                 _ => (rect.bottom - geometry.height) / 2,
             };
         let interactive = mouse::cursor_visible() && unsafe { GetForegroundWindow() } == game;
+        let mut pointer = POINT::default();
+        let cursor_valid = interactive && unsafe { GetCursorPos(&mut pointer) } != 0;
+        let pointer_root = if cursor_valid {
+            unsafe { GetAncestor(WindowFromPoint(pointer), GA_ROOT) }
+        } else {
+            std::ptr::null_mut()
+        };
+        let pointer_valid = cursor_valid
+            && !pointer_root.is_null()
+            && (pointer_root == game
+                || self.windows.contains(&pointer_root)
+                || self.item_hover.borrow().owns(pointer_root));
+        let point = [pointer.x, pointer.y];
+        let target = if pointer_valid {
+            items::hit(
+                &views,
+                geometry,
+                origin.x + rect.right - geometry.right_margin,
+                group_y,
+                point,
+            )
+        } else {
+            None
+        };
         for (index, view) in views.iter().enumerate() {
             if let Err(error) = self.window(index) {
                 self.status = error.to_string();
@@ -493,6 +521,7 @@ impl Panel {
                 geometry.width,
                 height,
                 layout::frame(index, views.len()),
+                target.as_ref().filter(|t| t.panel == index).map(|t| t.ingredient),
             ) {
                 self.status = error.to_string();
                 self.hide();
@@ -517,11 +546,31 @@ impl Panel {
                 button.hide();
             }
         }
+        let hover = self.item_hover.get_mut();
+        if hover.select(target.clone(), std::time::Instant::now())
+            && let Some(target) = target
+            && let Some(item) = self.assets.as_ref().unwrap().catalogue.items.get(&target.item)
+        {
+            let font =
+                (18.0 * (rect.bottom as f64 / 1440.0).clamp(0.65, 2.0)).round().max(12.0) as i32;
+            if let Err(error) = hover.show(
+                &item.name,
+                target.center,
+                [origin.x, origin.y, origin.x + rect.right, origin.y + rect.bottom],
+                font,
+                game,
+                self.windows[0],
+            ) {
+                self.status = format!("Item tooltip unavailable: {error:#}");
+                hover.hide();
+            }
+        }
     }
 }
 
 mod close;
 mod cursor;
+mod items;
 mod layout;
 mod mouse;
 mod setup;

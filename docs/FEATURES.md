@@ -28,9 +28,11 @@ With the game focused, open the recipe station and pin up to three unfinished re
 
 Double-click pinning works on recipe icons and names, away from ingredient tiles and INSERT buttons. It leaves the game's normal clicks intact. Double-clicks outside the station do not clear pins. In **Settings > Recipe tracker**, turn double-click pinning on or off.
 
+When the game UI cursor is visible, hover over a material tile to highlight it. After a short pause, a small tooltip anchored to the icon's centre shows the item name. It stays in place while you hover over the same item; moving to another item starts a new tooltip. Moving away hides it.
+
 Each panel shows material icons and submitted/required research amounts. White counters mean you have some material in your bag; the orange number shows that quantity. Red counters mean you have none. A tick marks a completed requirement. Unavailable readings stay distinct from zero stock. Submit materials using the game's INSERT buttons.
 
-When the game's UI cursor is visible, click a panel's **×** to remove that recipe. The close button highlights amber/orange when hovered and keeps the game's cursor appearance when available. The rest of the panel lets clicks pass through to the game.
+When the game's UI cursor is visible, click a panel's **×** to remove that recipe. The close cross turns blue when hovered, without a surrounding hover border, and keeps the game's cursor appearance when available. The rest of the panel lets clicks pass through to the game.
 
 Panels sit side by side along the right edge with a top tab on the leftmost panel and a cut lower-right corner on the rightmost panel. A single panel has both details; the other panel edges are plain. They share the height of the tallest selected recipe, with space reserved for two-line names and close buttons. Settings lets you enable the tracker, change its shortcut, choose an upper/middle/lower right position and select 75–150% scale. Icons and spacing are compact; a new panel appears only after a successful reading. The rightmost panel keeps the same screen-edge gap during gameplay and pause. On the pause menu, the group shrinks only if it needs more room, leaving at least the same gap beside the menu. Smaller groups keep their normal size and right-edge position. If it cannot fit at a readable size, it hides until the menu closes. Close buttons keep their click area when panels shrink.
 
