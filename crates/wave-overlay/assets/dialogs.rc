@@ -1,42 +1,44 @@
 #pragma code_page(65001)
 
-101 DIALOGEX 0, 0, 320, 383
+101 DIALOGEX 0, 0, 320, 266
 STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
 EXSTYLE WS_EX_APPWINDOW
 CAPTION "StarRupture Overlay"
 FONT 9, "Segoe UI"
 BEGIN
     LTEXT "Settings", 140, 16, 12, 285, 21
-    CONTROL "", 155, "SysTabControl32", WS_TABSTOP, 16, 35, 288, 282
-    GROUPBOX "Startup", 160, 16, 56, 288, 52
-    CONTROL "Start with &Windows", 110, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 26, 72, 260, 14
-    LTEXT "Wait in the tray until StarRupture starts.", 161, 39, 89, 255, 12
-    GROUPBOX "When the game closes", 162, 16, 119, 288, 63
-    LTEXT "After a StarRupture session ends", 163, 26, 135, 264, 12
-    COMBOBOX 111, 26, 152, 264, 65, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    GROUPBOX "Desktop shortcut", 164, 16, 193, 288, 64
-    LTEXT "No shortcut created", 112, 26, 211, 163, 12
-    PUSHBUTTON "Create shortcut", 113, 195, 205, 98, 20
-    LTEXT "Starts the overlay and game through Steam. Shortcut changes apply immediately.", 165, 26, 232, 264, 22
-    GROUPBOX "Countdown format", 170, 16, 268, 288, 47
-    COMBOBOX 156, 26, 285, 264, 65, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    CONTROL "Enable recipe &tracker", 150, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 26, 72, 260, 14
-    LTEXT "Pin / clear shortcut", 166, 26, 101, 94, 12
-    EDITTEXT 151, 124, 98, 166, 18, ES_AUTOHSCROLL | WS_TABSTOP
-    LTEXT "Position", 167, 26, 131, 43, 12
-    COMBOBOX 152, 72, 128, 120, 70, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    LTEXT "Scale", 168, 202, 131, 30, 12
-    COMBOBOX 153, 234, 128, 56, 70, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    CONTROL "Double-click recipe icons to pin or unpin", 157, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 26, 158, 264, 14
-    LTEXT "Pin up to three recipes. The shortcut toggles the hovered recipe; outside the station it clears all. Use a panel's close button to unpin it. Panels shrink beside the pause menu when space permits.", 169, 26, 182, 264, 44
-    LTEXT "", 154, 26, 237, 264, 44
-    LTEXT "", 114, 16, 324, 288, 26
-    LTEXT "No unsaved changes", 115, 16, 361, 152, 12
-    PUSHBUTTON "Cancel", IDCANCEL, 188, 356, 54, 20
-    DEFPUSHBUTTON "Save", IDOK, 250, 356, 54, 20
+    CONTROL "", 155, "SysTabControl32", WS_TABSTOP, 16, 35, 288, 202
+    GROUPBOX "Startup", 160, 24, 54, 272, 36
+    CONTROL "Start with &Windows", 110, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 34, 65, 252, 10
+    LTEXT "Wait in the tray until StarRupture starts.", 161, 47, 78, 239, 10
+    GROUPBOX "When the game closes", 162, 24, 96, 272, 36
+
+    COMBOBOX 111, 34, 110, 252, 65, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    GROUPBOX "Desktop shortcut", 164, 24, 138, 272, 52
+    LTEXT "No shortcut created", 112, 34, 151, 156, 10
+    PUSHBUTTON "Create shortcut", 113, 196, 148, 90, 14
+    LTEXT "Starts the overlay and game through Steam. Shortcut changes apply immediately.", 165, 34, 166, 252, 20
+    GROUPBOX "Countdown format", 170, 24, 196, 272, 34
+    COMBOBOX 156, 34, 209, 252, 65, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    CONTROL "Enable recipe &tracker", 150, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 24, 54, 262, 10
+    GROUPBOX "Pinning", 172, 24, 72, 272, 86
+    LTEXT "Pin / clear shortcut", 166, 34, 85, 94, 10
+    CONTROL "", 151, "msctls_hotkey32", WS_BORDER | WS_TABSTOP, 132, 83, 154, 14
+    LTEXT "Click the shortcut box, then press Alt/Ctrl + a letter, number or F1–F11.", 171, 34, 102, 252, 10
+    CONTROL "Double-click recipe icons to pin or unpin", 157, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 34, 119, 252, 10
+    LTEXT "Track up to three recipes. The shortcut toggles a hovered recipe or clears all outside the station. Close a panel with its × button.", 169, 34, 133, 252, 22
+    GROUPBOX "Appearance", 173, 24, 164, 272, 34
+    LTEXT "Position", 167, 34, 179, 43, 10
+    COMBOBOX 152, 80, 177, 112, 70, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT "Scale", 168, 194, 179, 30, 10
+    COMBOBOX 153, 226, 177, 60, 70, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT "", 154, 34, 204, 252, 22
+    LTEXT "", 114, 16, 245, 288, 20
+    PUSHBUTTON "Cancel", IDCANCEL, 197, 245, 50, 14
+    DEFPUSHBUTTON "Save", IDOK, 254, 245, 50, 14
 END
 
-102 DIALOGEX 0, 0, 320, 335
+102 DIALOGEX 0, 0, 320, 282
 STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
 EXSTYLE WS_EX_APPWINDOW
 CAPTION "About StarRupture Overlay"
@@ -44,23 +46,24 @@ FONT 9, "Segoe UI"
 BEGIN
     CONTROL "", 143, "Static", SS_ICON | SS_REALSIZECONTROL, 16, 16, 34, 34
     LTEXT "StarRupture Overlay", 140, 57, 13, 247, 23
-    LTEXT "", 120, 57, 38, 247, 24
-    CONTROL "", 142, "Static", SS_OWNERDRAW, 16, 76, 10, 15
-    LTEXT "", 121, 31, 76, 273, 15, SS_CENTERIMAGE
-    LTEXT "", 122, 31, 95, 273, 27
-    LTEXT "Source revision", -1, 16, 132, 81, 12
-    LTEXT "", 123, 102, 132, 202, 12
-    LTEXT "Supported game", -1, 16, 153, 81, 12
-    LTEXT "Steam · Windows x64", -1, 102, 153, 202, 12
-    LTEXT "SHA256 95f95eee…8d1d76f1", -1, 102, 169, 202, 12
-    LTEXT "Game location", -1, 16, 193, 81, 12
-    EDITTEXT 124, 102, 190, 202, 45, ES_READONLY | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL | WS_TABSTOP
-    PUSHBUTTON "Project", 125, 16, 245, 65, 20
-    PUSHBUTTON "Report a problem", 126, 88, 245, 101, 20
-    PUSHBUTTON "Licence notices", 127, 196, 245, 108, 20
-    LTEXT "© 2026 Alex Jephson · PolyForm Strict 1.0.0\nAn unofficial community utility for StarRupture.", -1, 16, 276, 288, 24
-    PUSHBUTTON "Copy support details", 128, 16, 309, 123, 20
-    DEFPUSHBUTTON "Close", IDCANCEL, 250, 309, 54, 20
+    LTEXT "", 120, 57, 38, 247, 12
+    CONTROL "", 142, "Static", SS_OWNERDRAW, 16, 60, 10, 15
+    LTEXT "", 121, 31, 60, 273, 15, SS_CENTERIMAGE
+    LTEXT "", 122, 31, 79, 273, 22
+    LTEXT "Source revision", -1, 16, 105, 81, 12
+    LTEXT "", 123, 102, 105, 202, 12
+    LTEXT "Supported game", -1, 16, 123, 81, 12
+    LTEXT "", 144, 102, 123, 202, 12
+    LTEXT "", 145, 102, 136, 202, 12
+    LTEXT "Steam · Windows x64", -1, 102, 149, 202, 12
+    LTEXT "Game location", -1, 16, 165, 81, 12
+    EDITTEXT 124, 102, 162, 202, 33, ES_READONLY | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON "Project", 125, 16, 204, 50, 14
+    PUSHBUTTON "Report a problem", 126, 73, 204, 90, 14
+    PUSHBUTTON "Licence notices", 127, 170, 204, 90, 14
+    LTEXT "© 2026 Alex Jephson · PolyForm Strict 1.0.0\nAn unofficial community utility for StarRupture.", -1, 16, 226, 288, 24
+    PUSHBUTTON "Copy support details", 128, 16, 260, 90, 14
+    DEFPUSHBUTTON "Close", IDCANCEL, 254, 260, 50, 14
 END
 
 103 DIALOGEX 0, 0, 400, 310

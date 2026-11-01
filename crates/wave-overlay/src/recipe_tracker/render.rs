@@ -412,7 +412,11 @@ fn draw_panel(
                                 bottom: y + (18.0 * scale) as i32,
                             },
                             size: (12.0 * scale).max(9.0) as i32,
-                            colour: [255, 163, 0],
+                            colour: if n >= item.remaining {
+                                [128, 230, 128]
+                            } else {
+                                [255, 163, 0]
+                            },
                             outline: true,
                             layout: TextLayout::Centered,
                         });
@@ -988,6 +992,9 @@ pub(super) fn self_test_at(directory: &Path, asset_directory: &Path) -> Result<(
         ("quantum-stale", 96, true, false, false, 100),
         ("quantum-complete", 96, false, true, false, 0),
         ("biofilament-bag", 96, false, false, true, 300),
+        ("biofilament-enough", 96, false, false, true, 400),
+        ("biofilament-remaining", 96, false, false, true, 100),
+        ("biofilament-remaining-shortfall", 96, false, false, true, 99),
         ("biofilament-submitted", 96, false, false, true, 0),
         ("biofilament-counter-reference", 96, false, false, true, 0),
     ] {
@@ -1018,7 +1025,9 @@ pub(super) fn self_test_at(directory: &Path, asset_directory: &Path) -> Result<(
                         recipe.requirements[*id]
                     } else if (name == "biofilament-counter-reference"
                         && id.ends_with("I_SubstanceFHS-135-493"))
-                        || (bio && bag == 0 && id.ends_with("I_SyntheticProtein"))
+                        || (bio
+                            && (bag == 0 || name.starts_with("biofilament-remaining"))
+                            && id.ends_with("I_SyntheticProtein"))
                     {
                         300
                     } else if id.ends_with("I_Supermagnet") {

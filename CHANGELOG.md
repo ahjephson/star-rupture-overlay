@@ -11,6 +11,9 @@
 
 ### Changed
 
+- Ingredient inventory amounts turn green when your bag holds enough to finish that requirement.
+- More compact Settings and About windows, with aligned sections, standard-sized desktop buttons and a Recipe tracker tab that fits its content.
+- Set the recipe shortcut by pressing the key combination in Settings.
 - Hide overlays at the main menu and hide the wave panel while waves are stopped.
 - Show INCINERATING for seven seconds before switching to COOLING.
 - Smaller recipe icons and tighter panel spacing, with a fixed right-edge position and pause-menu scaling only when needed.
@@ -18,6 +21,7 @@
 
 ### Fixed
 
+- Show the supported game version in About and copied support details.
 - Show the Pre-wave countdown before the first rupture start time is set.
 - Keep recipe close buttons clear of the scaled border, steady on refresh and using the game's cursor appearance when available.
 

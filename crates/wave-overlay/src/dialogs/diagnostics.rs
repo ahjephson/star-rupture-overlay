@@ -43,11 +43,94 @@ pub fn self_test(directory: &Path) -> Result<()> {
         }
     }
     capture(window, &directory.join("settings.bmp"))?;
+    let mut general = RECT::default();
+    unsafe {
+        GetClientRect(window, &mut general);
+    }
     unsafe {
         SendDlgItemMessageW(window, 155, TCM_SETCURSEL, 1, 0);
     }
     settings_tab(&dialogs.windows[0].0);
     capture(window, &directory.join("settings-recipe.bmp"))?;
+    let before = selected(&dialogs.windows[0].0).recipe_tracker;
+    unsafe {
+        SendDlgItemMessageW(window, 150, BM_SETCHECK, BST_UNCHECKED as usize, 0);
+        SendMessageW(window, WM_COMMAND, 150, 0);
+    }
+    for id in RECIPE_FIELDS {
+        ensure!(
+            unsafe { IsWindowEnabled(GetDlgItem(window, id)) } == 0,
+            "Disabled recipe control remained active: {id}"
+        );
+    }
+    ensure!(
+        unsafe { IsWindowEnabled(GetDlgItem(window, 150)) } != 0,
+        "Recipe enable switch disabled itself"
+    );
+    ensure!(
+        unsafe { IsWindowEnabled(GetDlgItem(window, IDOK)) } != 0,
+        "Disabling recipes did not enable Save"
+    );
+    let mut expected = before;
+    expected.enabled = false;
+    ensure!(
+        selected(&dialogs.windows[0].0).recipe_tracker == expected,
+        "Disabling recipes changed saved options"
+    );
+    capture(window, &directory.join("settings-recipe-disabled.bmp"))?;
+    unsafe {
+        SendDlgItemMessageW(window, 150, BM_SETCHECK, BST_CHECKED as usize, 0);
+        SendMessageW(window, WM_COMMAND, 150, 0);
+    }
+    for id in RECIPE_FIELDS {
+        ensure!(
+            unsafe { IsWindowEnabled(GetDlgItem(window, id)) } != 0,
+            "Re-enabled recipe control stayed disabled: {id}"
+        );
+    }
+    ensure!(
+        selected(&dialogs.windows[0].0).recipe_tracker == before,
+        "Re-enabling recipes lost options"
+    );
+    ensure!(
+        unsafe { IsWindowEnabled(GetDlgItem(window, IDOK)) } == 0,
+        "Restoring enable state left Save dirty"
+    );
+    settings_message(&dialogs.windows[0].0, "Choose a shortcut including Alt or Ctrl.");
+    let mut message_size = RECT::default();
+    unsafe {
+        GetClientRect(window, &mut message_size);
+    }
+    capture(window, &directory.join("settings-recipe-message.bmp"))?;
+    settings_message(&dialogs.windows[0].0, "");
+    let mut restored_size = RECT::default();
+    unsafe {
+        GetClientRect(window, &mut restored_size);
+    }
+    ensure!(message_size.bottom > restored_size.bottom, "Messages did not receive dedicated space");
+    let mut compact = RECT::default();
+    unsafe {
+        GetClientRect(window, &mut compact);
+    }
+    ensure!(compact.bottom < general.bottom, "Recipe tab did not compact the dialog");
+    *context.recipe_status.borrow_mut() =
+        "Preparing recipe icons. You can keep playing while setup finishes.".into();
+    dialogs.refresh_recipe_status();
+    let mut with_status = RECT::default();
+    unsafe {
+        GetClientRect(window, &mut with_status);
+    }
+    ensure!(
+        with_status.bottom > compact.bottom && with_status.bottom < general.bottom,
+        "Recipe setup status layout is not bounded"
+    );
+    capture(window, &directory.join("settings-recipe-status.bmp"))?;
+    context.recipe_status.borrow_mut().clear();
+    dialogs.refresh_recipe_status();
+    unsafe {
+        GetClientRect(window, &mut with_status);
+    }
+    ensure!(with_status.bottom == compact.bottom, "Empty setup status left blank space");
     ensure!(
         unsafe { GetWindowLongPtrW(GetDlgItem(window, 150), GWL_STYLE) } as u32 & WS_VISIBLE != 0,
         "Recipe tab controls hidden"
@@ -72,6 +155,75 @@ pub fn self_test(directory: &Path) -> Result<()> {
         unsafe { SendDlgItemMessageW(window, 157, BM_GETCHECK, 0, 0) } == BST_CHECKED as isize,
         "Double-click pinning default changed"
     );
+    // Exercise the native control using only this diagnostic thread's keyboard state
+    // and messages to our owned child HWND; no desktop input is injected.
+    {
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
+        struct Keyboard([u8; 256]);
+        impl Drop for Keyboard {
+            fn drop(&mut self) {
+                unsafe {
+                    SetKeyboardState(self.0.as_ptr());
+                }
+            }
+        }
+        let mut saved = Keyboard([0; 256]);
+        ensure!(
+            unsafe { GetKeyboardState(saved.0.as_mut_ptr()) } != 0,
+            "Keyboard state unavailable"
+        );
+        for (key, modifiers) in [(0x4a, 3), (0x78, 6), (0x31, 1)] {
+            let mut keys = [0u8; 256];
+            for (flag, virtual_key) in [(1, VK_MENU), (2, VK_CONTROL), (4, VK_SHIFT)] {
+                if modifiers & flag != 0 {
+                    keys[virtual_key as usize] = 0x80;
+                }
+            }
+            ensure!(unsafe { SetKeyboardState(keys.as_ptr()) } != 0, "Diagnostic keyboard state");
+            unsafe {
+                SendDlgItemMessageW(window, 151, HKM_SETHOTKEY, 0, 0);
+                SendDlgItemMessageW(window, 151, WM_KEYDOWN, key as usize, 1);
+                SendDlgItemMessageW(window, 151, WM_KEYUP, key as usize, 1);
+            }
+            ensure!(
+                preferences::parse_shortcut(&shortcut_text(&dialogs.windows[0].0))?
+                    == (key, modifiers),
+                "Native keypress capture lost a modifier or key"
+            );
+        }
+        drop(saved);
+        set_shortcut(
+            window,
+            preferences::RecipeSettings {
+                key: 0x7b,
+                modifiers: 2,
+                ..Default::default()
+            },
+        );
+        ensure!(save_settings(&dialogs.windows[0].0).is_err(), "Reserved F12 shortcut was saved");
+        set_shortcut(
+            window,
+            preferences::RecipeSettings {
+                key: 0x41,
+                modifiers: 0,
+                ..Default::default()
+            },
+        );
+        ensure!(
+            save_settings(&dialogs.windows[0].0).is_err(),
+            "Shortcut without Alt/Ctrl was saved"
+        );
+        ensure!(
+            context.preferences.get() == Preferences::default(),
+            "Invalid capture changed preferences"
+        );
+        set_shortcut(window, preferences::RecipeSettings::default());
+        dirty(&dialogs.windows[0].0);
+        ensure!(
+            unsafe { IsWindowEnabled(GetDlgItem(window, IDOK)) } == 0,
+            "Restoring the shortcut did not clear dirty state"
+        );
+    }
     let mut selected_label = [0u16; 128];
     let selected_length = unsafe {
         GetDlgItemTextW(window, 111, selected_label.as_mut_ptr(), selected_label.len() as i32)
@@ -105,7 +257,14 @@ pub fn self_test(directory: &Path) -> Result<()> {
     unsafe {
         SendDlgItemMessageW(window, 111, CB_SETCURSEL, 2, 0);
         SendDlgItemMessageW(window, 156, CB_SETCURSEL, 1, 0);
-        text(window, 151, "Ctrl+Alt+J");
+        set_shortcut(
+            window,
+            preferences::RecipeSettings {
+                key: 0x4a,
+                modifiers: 3,
+                ..Default::default()
+            },
+        );
         SendDlgItemMessageW(window, 157, BM_SETCHECK, BST_UNCHECKED as usize, 0);
         SendDlgItemMessageW(window, 152, CB_SETCURSEL, 2, 0);
         SendDlgItemMessageW(window, 153, CB_SETCURSEL, 2, 0);
@@ -138,6 +297,21 @@ pub fn self_test(directory: &Path) -> Result<()> {
             && !recipe.double_click_pin,
         "Recipe preferences did not round trip through native controls"
     );
+    let mut disabled = context.preferences.get();
+    disabled.recipe_tracker.enabled = false;
+    context.preferences.set(disabled);
+    dialogs.open(SETTINGS, std::ptr::null_mut(), context.clone())?;
+    let disabled_window = dialogs.windows[0].0.window.get();
+    for id in RECIPE_FIELDS {
+        ensure!(
+            unsafe { IsWindowEnabled(GetDlgItem(disabled_window, id)) } == 0,
+            "Initially disabled tracker field is active: {id}"
+        );
+    }
+    unsafe {
+        SendMessageW(disabled_window, WM_COMMAND, IDCANCEL as usize, 0);
+    }
+    ensure!(!context.preferences.get().recipe_tracker.enabled, "Cancel enabled the tracker");
     let blocked = directory.join("blocked");
     fs::create_dir_all(&blocked)?;
     let mut failure = context.clone();

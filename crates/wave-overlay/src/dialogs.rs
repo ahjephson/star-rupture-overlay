@@ -87,7 +87,7 @@ impl Dialogs {
         unsafe {
             InitCommonControlsEx(&INITCOMMONCONTROLSEX {
                 dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
-                dwICC: ICC_TAB_CLASSES,
+                dwICC: ICC_TAB_CLASSES | ICC_HOTKEY_CLASS,
             });
         }
         self.prune();
@@ -154,6 +154,15 @@ impl Dialogs {
         for d in &self.windows {
             if d.0.kind == SETTINGS && !d.0.window.get().is_null() {
                 text(d.0.window.get(), 154, &d.0.context.recipe_status.borrow());
+                let window = d.0.window.get();
+                let recipe = unsafe { SendDlgItemMessageW(window, 155, TCM_GETCURSEL, 0, 0) } == 1;
+                let visible = unsafe { GetWindowLongPtrW(GetDlgItem(window, 154), GWL_STYLE) }
+                    as u32
+                    & WS_VISIBLE
+                    != 0;
+                if recipe && visible != !d.0.context.recipe_status.borrow().is_empty() {
+                    settings_tab(&d.0);
+                }
             }
         }
     }
@@ -164,7 +173,11 @@ fn text(window: HWND, id: i32, value: &str) {
     }
 }
 fn error(state: &State, error: impl std::fmt::Display) {
-    text(state.window.get(), 114, &error.to_string());
+    settings_message(state, &error.to_string());
+}
+fn settings_message(state: &State, value: &str) {
+    text(state.window.get(), 114, value);
+    settings_tab(state);
 }
 fn selected(state: &State) -> Preferences {
     let choice = unsafe { SendDlgItemMessageW(state.window.get(), 111, CB_GETCURSEL, 0, 0) };
@@ -214,10 +227,24 @@ fn checked_startup(state: &State) -> bool {
     unsafe { SendDlgItemMessageW(state.window.get(), 110, BM_GETCHECK, 0, 0) as u32 == BST_CHECKED }
 }
 fn shortcut_text(state: &State) -> String {
-    let mut value = [0u16; 64];
-    let n =
-        unsafe { GetDlgItemTextW(state.window.get(), 151, value.as_mut_ptr(), value.len() as i32) };
-    String::from_utf16_lossy(&value[..n as usize])
+    let value = unsafe { SendDlgItemMessageW(state.window.get(), 151, HKM_GETHOTKEY, 0, 0) } as u16;
+    let flags = value >> 8;
+    preferences::RecipeSettings {
+        key: value & 0xff,
+        modifiers: ((flags & HOTKEYF_ALT as u16 != 0) as u16)
+            | (((flags & HOTKEYF_CONTROL as u16 != 0) as u16) << 1)
+            | (((flags & HOTKEYF_SHIFT as u16 != 0) as u16) << 2),
+        ..preferences::RecipeSettings::default()
+    }
+    .shortcut_label()
+}
+fn set_shortcut(window: HWND, recipe: preferences::RecipeSettings) {
+    let flags = ((recipe.modifiers & 1 != 0) as u16 * HOTKEYF_ALT as u16)
+        | ((recipe.modifiers & 2 != 0) as u16 * HOTKEYF_CONTROL as u16)
+        | ((recipe.modifiers & 4 != 0) as u16 * HOTKEYF_SHIFT as u16);
+    unsafe {
+        SendDlgItemMessageW(window, 151, HKM_SETHOTKEY, (recipe.key | (flags << 8)) as usize, 0);
+    }
 }
 fn dirty(state: &State) {
     let changed = checked_startup(state) != state.initial_startup.get()
@@ -229,15 +256,6 @@ fn dirty(state: &State) {
             i32::from(changed && state.startup_read.get()),
         );
     }
-    text(
-        state.window.get(),
-        115,
-        if changed {
-            "Unsaved changes"
-        } else {
-            "No unsaved changes"
-        },
-    );
 }
 fn settings_init(state: &State) {
     let window = state.window.get();
@@ -290,7 +308,7 @@ fn settings_init(state: &State) {
     unsafe {
         SendDlgItemMessageW(window, 150, BM_SETCHECK, usize::from(recipe.enabled), 0);
         SendDlgItemMessageW(window, 157, BM_SETCHECK, usize::from(recipe.double_click_pin), 0);
-        SendDlgItemMessageW(window, 151, EM_SETLIMITTEXT, 48, 0);
+
         for (id, labels) in [
             (152, vec!["Upper right", "Middle right", "Lower right"]),
             (153, vec!["75%", "100%", "125%", "150%"]),
@@ -315,7 +333,7 @@ fn settings_init(state: &State) {
         );
     }
     text(window, 154, &state.context.recipe_status.borrow());
-    text(window, 151, &recipe.shortcut_label());
+    set_shortcut(window, recipe);
     for label in
         ["Keep running in the tray", "Ask before exiting", "Exit the overlay automatically"]
     {
@@ -383,9 +401,21 @@ fn settings_init(state: &State) {
     settings_tab(state);
     dirty(state);
 }
+const RECIPE_FIELDS: [i32; 12] = [151, 152, 153, 154, 157, 166, 167, 168, 169, 171, 172, 173];
+fn recipe_enablement(state: &State) {
+    let window = state.window.get();
+    let enabled =
+        unsafe { SendDlgItemMessageW(window, 150, BM_GETCHECK, 0, 0) } as u32 == BST_CHECKED;
+    for id in RECIPE_FIELDS {
+        unsafe {
+            EnableWindow(GetDlgItem(window, id), i32::from(enabled));
+        }
+    }
+}
 fn settings_tab(state: &State) {
+    recipe_enablement(state);
     let recipe = unsafe { SendDlgItemMessageW(state.window.get(), 155, TCM_GETCURSEL, 0, 0) } == 1;
-    for id in [110, 111, 112, 113, 156, 160, 161, 162, 163, 164, 165, 170] {
+    for id in [110, 111, 112, 113, 156, 160, 161, 162, 164, 165, 170] {
         unsafe {
             ShowWindow(
                 GetDlgItem(state.window.get(), id),
@@ -397,7 +427,7 @@ fn settings_tab(state: &State) {
             );
         }
     }
-    for id in [150, 151, 152, 153, 154, 157, 166, 167, 168, 169] {
+    for id in std::iter::once(150).chain(RECIPE_FIELDS) {
         unsafe {
             ShowWindow(
                 GetDlgItem(state.window.get(), id),
@@ -408,6 +438,91 @@ fn settings_tab(state: &State) {
                 },
             );
         }
+    }
+    let has_status = !state.context.recipe_status.borrow().is_empty();
+    let base_height = if recipe {
+        if has_status {
+            264
+        } else {
+            232
+        }
+    } else {
+        266
+    };
+    let window = state.window.get();
+    let has_message = unsafe { GetWindowTextLengthW(GetDlgItem(window, 114)) } > 0;
+    let height = base_height
+        + if has_message {
+            24
+        } else {
+            0
+        };
+    for (id, x, y, width, height) in [
+        (155, 16, 35, 288, base_height - 64),
+        (114, 16, base_height - 21, 288, 20),
+        (IDCANCEL, 197, height - 21, 50, 14),
+        (IDOK, 254, height - 21, 50, 14),
+    ] {
+        let mut rect = RECT {
+            left: x,
+            top: y,
+            right: x + width,
+            bottom: y + height,
+        };
+        unsafe {
+            MapDialogRect(window, &mut rect);
+            SetWindowPos(
+                GetDlgItem(window, id),
+                std::ptr::null_mut(),
+                rect.left,
+                rect.top,
+                rect.right - rect.left,
+                rect.bottom - rect.top,
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
+    }
+    unsafe {
+        ShowWindow(
+            GetDlgItem(window, 114),
+            if has_message {
+                SW_SHOW
+            } else {
+                SW_HIDE
+            },
+        );
+        ShowWindow(
+            GetDlgItem(window, 154),
+            if recipe && has_status {
+                SW_SHOW
+            } else {
+                SW_HIDE
+            },
+        );
+        let mut desired = RECT {
+            left: 0,
+            top: 0,
+            right: 320,
+            bottom: height,
+        };
+        MapDialogRect(window, &mut desired);
+        let mut outer = RECT::default();
+        let mut client = RECT::default();
+        GetWindowRect(window, &mut outer);
+        GetClientRect(window, &mut client);
+        let wanted = desired.bottom + outer.bottom - outer.top - client.bottom;
+        if outer.bottom - outer.top != wanted {
+            SetWindowPos(
+                window,
+                std::ptr::null_mut(),
+                0,
+                0,
+                outer.right - outer.left,
+                wanted,
+                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
+        windows_sys::Win32::Graphics::Gdi::InvalidateRect(window, std::ptr::null(), 1);
     }
 }
 fn shortcut_labels(state: &State) {
@@ -449,6 +564,8 @@ fn save_settings(state: &State) -> Result<()> {
     state.context.preferences.set(preferences);
     Ok(())
 }
+const SUPPORTED_GAME: &str = "Update 3 PTB";
+const SUPPORTED_GAME_VERSION: &str = "0.4.0 (build 128786)";
 fn refresh_about(state: &State) {
     let window = state.window.get();
     let connection = state.context.connection.borrow();
@@ -463,7 +580,7 @@ fn refresh_about(state: &State) {
             } => "A compatibility update is required for this game build.",
             crate::connection::GameStatus::Running {
                 ..
-            } if connection.connected => "The running game matches the supported build.",
+            } if connection.connected => "Live game readings are available.",
             crate::connection::GameStatus::Running {
                 ..
             } => "Waiting for a supported world and validated observations.",
@@ -481,11 +598,12 @@ fn refresh_about(state: &State) {
 }
 fn support_details(connection: &Connection) -> String {
     format!(
-        "StarRupture Overlay {}\r\nSource revision: {}\r\nConnection: {}\r\nSupported executable SHA256: {}\r\nWindows x64",
+        "StarRupture Overlay {}\r\nSource revision: {}\r\nConnection: {}\r\nSupported game: {} - {}\r\nWindows x64",
         env!("CARGO_PKG_VERSION"),
         env!("OVERLAY_REVISION"),
         connection.label(),
-        starrupture_observation_model::overlay_stream::GAME_HASH
+        SUPPORTED_GAME,
+        SUPPORTED_GAME_VERSION
     )
 }
 fn clipboard(owner: HWND, value: &str) -> Result<()> {
@@ -593,6 +711,8 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
                     &format!("Version {} · Development build", env!("CARGO_PKG_VERSION")),
                 );
                 text(window, 123, env!("OVERLAY_REVISION"));
+                text(window, 144, SUPPORTED_GAME);
+                text(window, 145, SUPPORTED_GAME_VERSION);
                 refresh_about(state);
             }
             NOTICES => {
@@ -689,6 +809,9 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
                         || notification == CBN_SELCHANGE
                         || notification == EN_CHANGE =>
                 {
+                    if id == 150 {
+                        recipe_enablement(state);
+                    }
                     dirty(state);
                 }
                 (SETTINGS, IDOK) => match save_settings(state) {
@@ -706,9 +829,8 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
                                 desktop::ShortcutState::Missing
                             });
                             shortcut_labels(state);
-                            text(
-                                window,
-                                114,
+                            settings_message(
+                                state,
                                 "Shortcut updated. This action takes effect immediately.",
                             );
                         }
@@ -780,6 +902,7 @@ mod tests {
         assert!(!text.contains("Private user"));
         assert!(!text.contains("987654"));
         assert!(!text.contains("123456"));
-        assert!(text.contains(starrupture_observation_model::overlay_stream::GAME_HASH));
+        assert!(text.contains(SUPPORTED_GAME));
+        assert!(text.contains(SUPPORTED_GAME_VERSION));
     }
 }
