@@ -14,6 +14,8 @@ use windows_sys::Win32::{
 struct Handle(HANDLE);
 impl Drop for Handle {
     fn drop(&mut self) {
+        // SAFETY: This guard owns the non-shared Win32 handle returned by its creation/open API and
+        // closes it once without transferring Rust memory.
         unsafe {
             if !self.0.is_null() {
                 CloseHandle(self.0);
@@ -64,6 +66,10 @@ fn run_process(
 ) -> Result<()> {
     ensure!(line.len() < 30000, "Setup command length bound");
     let mut line = crate::desktop::wide(line);
+    // SAFETY: The job/process/thread handles below are owned RAII values; all Win32 structs are
+    // initialized C layouts and command/path buffers are terminated and live through
+    // CreateProcessW. The child is suspended until assigned to the kill-on-close job, and
+    // cancellation targets that owned job only.
     unsafe {
         let job = Handle(CreateJobObjectW(std::ptr::null(), std::ptr::null()));
         ensure!(!job.0.is_null(), "Could not create recipe setup job");
@@ -179,6 +185,8 @@ pub fn self_test(directory: &Path) -> Result<()> {
         .map_err(|_| anyhow::anyhow!("Cancellation fixture thread failed"))?
         .context("Setup fixture did not start its child")?;
     ensure!(result.is_err(), "Cancelled setup unexpectedly succeeded");
+    // SAFETY: The PID came from this test's owned child marker; the handle is opened only for
+    // synchronization, checked before use, and closed by its RAII owner.
     unsafe {
         let process = Handle(OpenProcess(PROCESS_SYNCHRONIZE, 0, pid));
         if !process.0.is_null() {

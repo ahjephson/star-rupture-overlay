@@ -37,6 +37,7 @@ pub struct WorldSample {
 pub enum Payload {
     Ready,
     Menu(MenuSample),
+    Compass(Option<crate::compass::Sample>),
     World(Box<WorldSample>),
     NoWorld,
     Unavailable(String),

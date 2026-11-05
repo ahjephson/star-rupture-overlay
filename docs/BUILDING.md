@@ -44,7 +44,7 @@ Use the toolchain in rust-toolchain.toml and PowerShell 7:
 ./scripts/Test-PublicContent.ps1
 ```
 
-The formatter visits first-party Rust files only. Do not run a formatter over vendored dependencies. Vendor bytes and font hashes are checked separately; intentional patches require a reason and before/after hashes in third-party/VENDOR.json. Dependency changes must update Cargo.lock and pass the dependency policy in deny.toml.
+Workspace lint inheritance denies undocumented unsafe blocks and missing public unsafe-function safety contracts in every first-party crate. The formatter visits first-party Rust files only. Do not run a formatter over vendored dependencies. Vendor bytes and font hashes are checked separately; intentional patches require a reason and before/after hashes in third-party/VENDOR.json. Dependency changes must update Cargo.lock and pass the dependency policy in deny.toml.
 
 Windows CI checks formatting, Clippy, workspace tests, a development build, dependency policy and vendor/font/icon hashes on pushes to main and update3. It caches Cargo downloads and development build output. Successful main builds save caches for later runs.
 
@@ -75,3 +75,7 @@ Report bugs using version numbers, reproduction steps and redacted diagnostics. 
 - Manually verify three-pin add/remove and fourth-pin rejection; mouse pinning on recipe icons/names, no pinning on ingredient/INSERT controls, invalid/completed targets and rapid successive captures; each close target without focus theft; pause-menu scaling/restoration and minimum-size hiding; Alt+X over the recipe icon, material tiles and row space; scrolling and closing/reopening the station; tracking after walking away; partial submissions, completion and clearing; shortcut changes/conflicts; focus changes; scale and placement. Automated counter reads do not establish those manual results.
 
 The optional `scripts/Import-RecipeAssets.ps1` prepares local exported test fixtures. Keep them outside Git and release archives.
+
+## Compass diagnostics
+
+`--self-test-compass ABSOLUTE-PRIVATE-DIRECTORY` renders synthetic no-pin, ahead, left, right, behind and north-wrap states; checks transparent premultiplied pixels and buffer reuse; and verifies pause, disabled, unavailable, stale and focus-loss hiding with owned offscreen windows. It also checks repeated unfocused refreshes, focus loss during rendering and recovery on focus return without changing actual foreground focus. Package verification includes this diagnostic. `--self-test-compass-reader ABSOLUTE-PRIVATE-DIRECTORY` performs 90 finite read-only navigation observations against a loaded world, records private samples and read timings, then joins shutdown. It does not start a normal overlay or change the game. Live turning, pin placement/removal, drone view and appearance require separate checks.

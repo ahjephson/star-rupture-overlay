@@ -35,6 +35,9 @@ fn main() {
                 .chain([0])
                 .collect();
             let title: Vec<u16> = "StarRupture Overlay".encode_utf16().chain([0]).collect();
+            // SAFETY: Title/message buffers are terminated UTF-16 and live for the modal call; the
+            // borrowed owner HWND is valid and App/RefCell borrows have been released before
+            // message dispatch.
             unsafe {
                 windows_sys::Win32::UI::WindowsAndMessaging::MessageBoxW(
                     std::ptr::null_mut(),
@@ -53,3 +56,5 @@ fn main() {
         std::process::exit(1)
     }
 }
+#[cfg(windows)]
+mod compass;

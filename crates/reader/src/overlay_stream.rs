@@ -33,7 +33,7 @@ impl RecipeRead {
         }
     }
 }
-fn now() -> u64 {
+pub(crate) fn clock_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64
 }
 struct Output<'a> {
@@ -50,7 +50,7 @@ impl Output<'_> {
             reader_pid: std::process::id(),
             sequence: self.sequence,
             generation: self.generation,
-            sampled_at_unix_ms: now(),
+            sampled_at_unix_ms: clock_ms(),
             process: self.process.clone(),
             read_only: true,
             game_code_invoked: false,
@@ -160,15 +160,27 @@ pub fn run_with_tracker(
 pub fn run_with_assets(
     directory: &Path,
     stop: Arc<StopSignal>,
+    sink: impl FnMut(Message) -> Result<()>,
+    status: impl FnMut(GameStatus),
+    tracker: Option<crate::recipe::Tracker>,
+    setup: Option<Box<dyn crate::recipe::AssetSetup>>,
+) -> Result<()> {
+    run_with_navigation(directory, stop, sink, status, tracker, setup, None)
+}
+pub fn run_with_navigation(
+    directory: &Path,
+    stop: Arc<StopSignal>,
     mut sink: impl FnMut(Message) -> Result<()>,
     mut status: impl FnMut(GameStatus),
     mut tracker: Option<crate::recipe::Tracker>,
     mut setup: Option<Box<dyn crate::recipe::AssetSetup>>,
+    navigation: Option<Arc<starrupture_observation_model::compass::Control>>,
 ) -> Result<()> {
     ensure!(!platform::is_elevated()?, "Do not run overlay elevated");
     ensure!(directory.is_absolute(), "Absolute private cache directory required");
     let cadence = crate::cadence::Cadence::new(50, 250).map_err(anyhow::Error::msg)?;
     let budget = platform::ReadBudget::new(stop.clone());
+    let navigation_wait = navigation.as_ref().map(|_| platform::ShortWait::new());
     std::fs::create_dir_all(directory)?;
     jmap_dumper::diag::set_verbosity(jmap_dumper::diag::Verbosity::Quiet);
     let mut output = Output {
@@ -188,6 +200,10 @@ pub fn run_with_assets(
         let mut failures = 0u32;
         let mut pause_due = Instant::now();
         let mut world_due = Instant::now();
+        let mut compass_due = Instant::now();
+        let mut compass_binding = None;
+        let mut compass_attempted = false;
+        let mut compass_error = None;
         let mut last_menu = None;
         let mut menu_sent = Instant::now();
         let mut presence_due = Instant::now();
@@ -254,6 +270,9 @@ pub fn run_with_assets(
                         } else {
                             None
                         };
+                        compass_binding = None;
+                        compass_attempted = false;
+                        compass_due = Instant::now();
                         session = Some(s);
                         recipe_setup_attempts = if tracker.is_some() {
                             1
@@ -284,11 +303,53 @@ pub fn run_with_assets(
                     }
                 }
             }
+            if navigation.as_ref().is_some_and(|c| c.enabled()) && !compass_attempted {
+                compass_attempted = true;
+                budget.renew(60000);
+                let ctx = session.as_ref().unwrap().live.context();
+                match crate::compass::Binding::discover(&ctx).await {
+                    Ok(b) => compass_binding = Some(b),
+                    Err(e) => eprintln!("Compass setup unavailable: {e:#}"),
+                }
+            }
+            if Instant::now() >= compass_due {
+                budget.renew(100);
+                let value = if navigation.as_ref().is_some_and(|c| c.enabled()) {
+                    if let Some(binding) = &mut compass_binding {
+                        let s = session.as_mut().unwrap();
+                        match s.live.compass(&s.process, &s.base, binding).await {
+                            Ok(value) if value.valid(clock_ms()) => {
+                                compass_error = None;
+                                Some(value)
+                            }
+                            result => {
+                                let reason = match result {
+                                    Err(e) => format!("{e:#}"),
+                                    Ok(_) => "Navigation read exceeded freshness bound".into(),
+                                };
+                                if compass_error.as_ref() != Some(&reason) {
+                                    eprintln!("Compass observation unavailable: {reason}");
+                                    compass_error = Some(reason);
+                                }
+                                None
+                            }
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                if navigation.is_some() {
+                    output.send(Payload::Compass(value))?;
+                }
+                compass_due = Instant::now() + Duration::from_millis(33);
+            }
             budget.renew(5000);
             let s = session.as_mut().unwrap();
             let result: Result<()> = async {
                 if Instant::now() >= pause_due {
-                    let started = now();
+                    let started = clock_ms();
                     let clock = Instant::now();
                     if let Some(menu) = s.live.menu(&s.process, &s.base).await? {
                         menu_reads += 1;
@@ -298,7 +359,7 @@ pub fn run_with_assets(
                             output.send(Payload::Menu(MenuSample {
                                 menu_open: menu,
                                 started_ms: started,
-                                finished_ms: now(),
+                                finished_ms: clock_ms(),
                                 guards_validated: true,
                             }))?;
                             last_menu = Some(menu);
@@ -310,11 +371,11 @@ pub fn run_with_assets(
                 }
                 if Instant::now() >= world_due {
                     let cycle = Instant::now();
-                    let started = now();
+                    let started = clock_ms();
                     sample_context(&s.process, &s.base, s.live.context()).await?;
                     let live = s.live.snapshot(&s.process, &s.base).await?;
                     let mut sample = sample_context(&s.process, &s.base, s.live.context()).await?;
-                    sample.observed_at_ms = now();
+                    sample.observed_at_ms = clock_ms();
                     let process =
                         output.process.clone().context("Missing active process identity")?;
                     output.send(Payload::World(Box::new(WorldSample {
@@ -549,7 +610,17 @@ pub fn run_with_assets(
                     recipe_due = Instant::now() + Duration::from_millis(500);
                 }
             }
-            stop.wait_until(pause_due.min(world_due));
+            let navigation_active = navigation.as_ref().is_some_and(|c| c.enabled());
+            let deadline = pause_due.min(world_due).min(if navigation_active {
+                compass_due
+            } else {
+                world_due
+            });
+            if navigation_active && let Some(wait) = &navigation_wait {
+                wait.until(&stop, deadline);
+            } else {
+                stop.wait_until(deadline);
+            }
         }
         Ok::<(), anyhow::Error>(())
     })?;

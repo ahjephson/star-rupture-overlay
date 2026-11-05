@@ -48,6 +48,8 @@ pub struct Assets {
 }
 impl Drop for Assets {
     fn drop(&mut self) {
+        // SAFETY: This handle is an owned font registration from AddFontMemResourceEx; it is
+        // removed before its backing font storage is dropped.
         unsafe {
             RemoveFontMemResourceEx(self.font);
         }
@@ -55,7 +57,7 @@ impl Drop for Assets {
 }
 impl Assets {
     pub fn load(directory: &Path) -> Result<Self> {
-        let data = std::fs::read(directory.join("catalogue.json"))
+        let data = setup::read_bounded(&directory.join("catalogue.json"), 512 * 1024)
             .context("Recipe assets are missing. Import a local game asset pack.")?;
         ensure!(data.len() <= 512 * 1024, "Recipe catalogue bound");
         let catalogue: Catalogue = serde_json::from_slice(&data)?;
@@ -76,12 +78,14 @@ impl Assets {
             ensure!(total <= IMAGE_BUDGET, "Recipe image cache bound");
             images.insert(name, image);
         }
-        let font_bytes = std::fs::read(directory.join(&catalogue.font))?;
+        let font_bytes = setup::read_bounded(&directory.join(&catalogue.font), 2 * 1024 * 1024)?;
         ensure!(
             font_bytes.len() <= 2 * 1024 * 1024 && font_bytes.starts_with(b"OTTO"),
             "Recipe font bound/type"
         );
         let mut count = 0;
+        // SAFETY: The font byte slice is retained and its bounded length fits DWORD; count is
+        // writable raw storage, and the returned registration is removed only by its owner.
         let font = unsafe {
             AddFontMemResourceEx(
                 font_bytes.as_ptr().cast(),
@@ -202,6 +206,9 @@ impl Drop for Panel {
         self.unregister();
         for window in self.windows {
             if !window.is_null() {
+                // SAFETY: Only this UI/fixture owner destroys its HWND; boxed callback state
+                // remains alive until DestroyWindow completes, and stale handles are validated by
+                // Win32.
                 unsafe {
                     DestroyWindow(window);
                 }
@@ -270,14 +277,16 @@ impl Panel {
         }
         if self.assets.is_none()
             && let Some(path) = state.progress
-            && let Ok(message) = std::fs::read_to_string(path)
-            && message.len() <= 512
+            && let Ok(bytes) = setup::read_bounded(&path, 512)
+            && let Ok(message) = String::from_utf8(bytes)
         {
             self.status = message;
         }
     }
     fn unregister(&mut self) {
         if self.hotkey.take().is_some() {
+            // SAFETY: The UI thread owns this window and shortcut ID; registration uses scalar
+            // key/modifier values and is released by the same owner before its HWND is destroyed.
             unsafe {
                 UnregisterHotKey(self.hotkey_owner, HOTKEY);
             }
@@ -288,6 +297,8 @@ impl Panel {
             return Ok(());
         }
         let class = wide("StarRuptureRecipeTracker");
+        // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+        // identity themselves, and neither dereference Rust memory nor transfer ownership.
         let module = unsafe { GetModuleHandleW(std::ptr::null()) };
         let wc = WNDCLASSW {
             lpfnWndProc: Some(DefWindowProcW),
@@ -295,9 +306,14 @@ impl Panel {
             lpszClassName: class.as_ptr(),
             ..Default::default()
         };
+        // SAFETY: The class structure is initialized, its terminated name is live during
+        // registration, and the callback has the Win32 ABI and remains in this module.
         unsafe {
             RegisterClassW(&wc);
         };
+        // SAFETY: The registered callback has the Win32 ABI, class/title strings remain live during
+        // creation, and any creation-state box stays at a stable address until after the new HWND
+        // is destroyed.
         let w = unsafe {
             CreateWindowExW(
                 crate::stacking::EXTENDED_STYLE,
@@ -325,16 +341,22 @@ impl Panel {
         self.setup_enabled.store(settings.enabled, std::sync::atomic::Ordering::Relaxed);
         self.refresh_setup();
         // Hotkeys are delivered to the main window, even though the panel is separate.
+        // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+        // identity themselves, and neither dereference Rust memory nor transfer ownership.
         let foreground = !game.is_null() && unsafe { GetForegroundWindow() } == game;
         let desired = foreground && settings.enabled && self.assets.is_some();
         self.mouse.configure(owner, game, desired && settings.double_click_pin);
         if (self.hotkey.is_some_and(|s| s != settings) || !desired) && self.hotkey.take().is_some()
         {
+            // SAFETY: The UI thread owns this window and shortcut ID; registration uses scalar
+            // key/modifier values and is released by the same owner before its HWND is destroyed.
             unsafe {
                 UnregisterHotKey(owner, HOTKEY);
             }
         }
         if desired && self.hotkey.is_none() {
+            // SAFETY: The UI thread owns this window and shortcut ID; registration uses scalar
+            // key/modifier values and is released by the same owner before its HWND is destroyed.
             if unsafe {
                 RegisterHotKey(
                     owner,
@@ -363,9 +385,15 @@ impl Panel {
         if id == HOTKEY as usize
             && self.hotkey.is_some()
             && !game.is_null()
+            // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native
+            // handle identity themselves, and neither dereference Rust memory nor transfer
+            // ownership.
             && unsafe { GetForegroundWindow() } == game
         {
             let mut cursor = POINT::default();
+            // SAFETY: Win32 validates the borrowed handle where required; every output points to an
+            // initialized local struct or bounded writable slice that stays live for the
+            // synchronous query.
             if unsafe { GetCursorPos(&mut cursor) } == 0 {
                 return false;
             }
@@ -384,6 +412,9 @@ impl Panel {
         self.item_hover.borrow_mut().hide();
         for window in self.windows {
             if !window.is_null() {
+                // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison
+                // handles; native position/style values are scalar, and referenced menu/state
+                // objects remain alive through synchronous dispatch.
                 unsafe {
                     ShowWindow(window, SW_HIDE);
                 }
@@ -395,6 +426,9 @@ impl Panel {
     }
     pub fn follow(&self, game: HWND) {
         for window in self.windows {
+            // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native
+            // handle identity themselves, and neither dereference Rust memory nor transfer
+            // ownership.
             if !window.is_null() && unsafe { IsWindowVisible(window) } != 0 {
                 crate::stacking::follow_game(window, game);
             }
@@ -439,7 +473,13 @@ impl Panel {
         }
         let mut rect = RECT::default();
         let mut origin = POINT::default();
+        // SAFETY: Win32 validates the borrowed handle where required; every output points to an
+        // initialized local struct or bounded writable slice that stays live for the synchronous
+        // query.
         if unsafe { GetClientRect(game, &mut rect) } == 0
+            // SAFETY: Win32 validates the borrowed handle where required; every output points to an
+            // initialized local struct or bounded writable slice that stays live for the
+            // synchronous query.
             || unsafe { ClientToScreen(game, &mut origin) } == 0
         {
             self.hide();
@@ -467,10 +507,18 @@ impl Panel {
                 2 => (rect.bottom - geometry.height - 20).max(10),
                 _ => (rect.bottom - geometry.height) / 2,
             };
+        // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+        // identity themselves, and neither dereference Rust memory nor transfer ownership.
         let interactive = mouse::cursor_visible() && unsafe { GetForegroundWindow() } == game;
         let mut pointer = POINT::default();
+        // SAFETY: Win32 validates the borrowed handle where required; every output points to an
+        // initialized local struct or bounded writable slice that stays live for the synchronous
+        // query.
         let cursor_valid = interactive && unsafe { GetCursorPos(&mut pointer) } != 0;
         let pointer_root = if cursor_valid {
+            // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native
+            // handle identity themselves, and neither dereference Rust memory nor transfer
+            // ownership.
             unsafe { GetAncestor(WindowFromPoint(pointer), GA_ROOT) }
         } else {
             std::ptr::null_mut()
@@ -503,6 +551,9 @@ impl Panel {
                 - geometry.width
                 - (geometry.width + geometry.gap) * index as i32;
             let height = geometry.height;
+            // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles;
+            // native position/style values are scalar, and referenced menu/state objects remain
+            // alive through synchronous dispatch.
             unsafe {
                 SetWindowPos(
                     self.windows[index],
@@ -528,16 +579,22 @@ impl Panel {
                 return;
             }
             crate::stacking::follow_game(self.windows[index], game);
-            self.buttons[index].show(
+            if let Err(error) = self.buttons[index].show(
                 game,
                 self.windows[index],
                 &view.snapshot.as_ref().unwrap().recipe_id,
                 [x + geometry.width - close::SIZE - 6, group_y + layout::control_y(geometry.width)],
                 interactive,
-            );
+            ) {
+                self.status = error.to_string();
+                self.buttons[index].hide();
+            }
         }
         for index in views.len()..3 {
             if !self.windows[index].is_null() {
+                // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison
+                // handles; native position/style values are scalar, and referenced menu/state
+                // objects remain alive through synchronous dispatch.
                 unsafe {
                     ShowWindow(self.windows[index], SW_HIDE);
                 }
@@ -586,13 +643,19 @@ fn self_test_shortcut() -> Result<()> {
     struct Window(HWND);
     impl Drop for Window {
         fn drop(&mut self) {
+            // SAFETY: Only this UI/fixture owner destroys its HWND; boxed callback state remains
+            // alive until DestroyWindow completes, and stale handles are validated by Win32.
             unsafe {
                 DestroyWindow(self.0);
             }
         }
     }
+    // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+    // identity themselves, and neither dereference Rust memory nor transfer ownership.
     let foreground = unsafe { GetForegroundWindow() };
     let class = wide("StarRuptureRecipeShortcutTest");
+    // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+    // identity themselves, and neither dereference Rust memory nor transfer ownership.
     let module = unsafe { GetModuleHandleW(std::ptr::null()) };
     let wc = WNDCLASSW {
         lpfnWndProc: Some(DefWindowProcW),
@@ -600,10 +663,15 @@ fn self_test_shortcut() -> Result<()> {
         lpszClassName: class.as_ptr(),
         ..Default::default()
     };
+    // SAFETY: The class structure is initialized, its terminated name is live during registration,
+    // and the callback has the Win32 ABI and remains in this module.
     unsafe {
         RegisterClassW(&wc);
     }
     let make = || {
+        // SAFETY: The registered callback has the Win32 ABI, class/title strings remain live during
+        // creation, and any creation-state box stays at a stable address until after the new HWND
+        // is destroyed.
         Window(unsafe {
             CreateWindowExW(
                 WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
@@ -626,18 +694,30 @@ fn self_test_shortcut() -> Result<()> {
     ensure!(!a.0.is_null() && !b.0.is_null(), "Shortcut diagnostic windows");
     let modifiers = MOD_ALT | MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT;
     let key = (0x70..=0x7a)
+        // SAFETY: The UI thread owns this window and shortcut ID; registration uses scalar
+        // key/modifier values and is released by the same owner before its HWND is destroyed.
         .find(|key| unsafe { RegisterHotKey(a.0, 1, modifiers, *key) } != 0)
         .context("No free diagnostic shortcut")?;
+    // SAFETY: The UI thread owns this window and shortcut ID; registration uses scalar key/modifier
+    // values and is released by the same owner before its HWND is destroyed.
     let conflict = unsafe { RegisterHotKey(b.0, 2, modifiers, key) } == 0;
+    // SAFETY: The UI thread owns this window and shortcut ID; registration uses scalar key/modifier
+    // values and is released by the same owner before its HWND is destroyed.
     unsafe {
         UnregisterHotKey(a.0, 1);
     }
     ensure!(conflict, "Duplicate shortcut was not rejected");
+    // SAFETY: The UI thread owns this window and shortcut ID; registration uses scalar key/modifier
+    // values and is released by the same owner before its HWND is destroyed.
     let released = unsafe { RegisterHotKey(b.0, 2, modifiers, key) } != 0;
+    // SAFETY: The UI thread owns this window and shortcut ID; registration uses scalar key/modifier
+    // values and is released by the same owner before its HWND is destroyed.
     unsafe {
         UnregisterHotKey(b.0, 2);
     }
     ensure!(released, "Shortcut was not released");
+    // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+    // identity themselves, and neither dereference Rust memory nor transfer ownership.
     ensure!(unsafe { GetForegroundWindow() } == foreground, "Recipe diagnostics changed focus");
     Ok(())
 }

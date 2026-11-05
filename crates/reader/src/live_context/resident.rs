@@ -145,6 +145,49 @@ impl Resident {
         self.last_sim = sim;
         Ok(Some(before))
     }
+    pub(crate) async fn compass(
+        &mut self,
+        process: &platform::Process,
+        base: &RuntimeCache,
+        binding: &mut crate::compass::Binding,
+    ) -> Result<starrupture_observation_model::compass::Sample> {
+        let started = crate::overlay_stream::clock_ms();
+        let menu = self.menu(process, base).await?.context("Navigation menu changed")?;
+        let sim = self
+            .ctx
+            .read::<f64>(self.bindings.world.address + self.bindings.clocks.simulation_seconds)
+            .await?;
+        let origin = crate::compass::origin(
+            &self.ctx,
+            self.bindings.world.address + self.bindings.clocks.world_origin,
+        )
+        .await?;
+        let sample = binding
+            .sample(
+                &self.ctx,
+                base,
+                crate::compass::View {
+                    world: self.bindings.world.address,
+                    state: self.state,
+                    simulation: sim,
+                    origin,
+                    menu,
+                    started,
+                },
+            )
+            .await?;
+        self.guard(process, base).await?;
+        ensure!(
+            crate::compass::origin(
+                &self.ctx,
+                self.bindings.world.address + self.bindings.clocks.world_origin
+            )
+            .await?
+                == origin,
+            "Navigation world origin changed"
+        );
+        Ok(sample)
+    }
     pub(crate) async fn snapshot(
         &mut self,
         process: &platform::Process,

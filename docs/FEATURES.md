@@ -1,6 +1,6 @@
 # Features
 
-StarRupture Overlay shows rupture timing and pinned recipe research progress while you play. It reads the supported game without changing game memory, files or saves.
+StarRupture Overlay shows a compass, rupture timing and pinned recipe research progress while you play. It reads the supported game without changing game memory, files or saves.
 
 ## Rupture countdown
 
@@ -13,6 +13,12 @@ The wave panel hides while the game reports waves stopped, including the observe
 The display moves below the pause-menu border. To position it yourself, choose **Unlock to move** from the tray menu, drag it, then **Lock position**. **Reset position** restores automatic placement. You can also hide and show the overlays from the tray menu.
 
 Borderless, windowed and the supported fullscreen mode are covered in [compatibility](COMPATIBILITY.md). The overlays hide at the main menu and when the game is minimized or closed. Other windows can cover the game and overlays; fullscreen overlays hide when the game loses focus.
+
+## Compass and personal pin
+
+A floating compass at the top centre follows your viewing direction. The fixed centre notch marks straight ahead. If you have a personal map pin, a cyan diamond shows its bearing and the distance beneath it. A side arrow guides you toward a pin outside the visible compass range. Distance is horizontal and straight-line, not a walking route or elevation measurement.
+
+The compass remains available without a pin. It hides when the game loses focus, during pause, while the game UI cursor is visible, and when current navigation readings are unavailable. In **Settings > General > Navigation**, turn **Show compass and personal pin** on or off.
 
 ## Recipe research sidebar
 
@@ -34,7 +40,7 @@ Each panel shows material icons and submitted/required research amounts. White c
 
 When the game's UI cursor is visible, click a panel's **×** to remove that recipe. The close cross turns blue when hovered, without a surrounding hover border, and keeps the game's cursor appearance when available. The rest of the panel lets clicks pass through to the game.
 
-Panels sit side by side along the right edge with a top tab on the leftmost panel and a cut lower-right corner on the rightmost panel. A single panel has both details; the other panel edges are plain. They share the height of the tallest selected recipe, with space reserved for two-line names and close buttons. In Settings, **Enable recipe tracker** controls the whole tab. Turning it off greys out the other recipe controls while preserving their values. **Pinning** groups the shortcut and double-click option; **Appearance** groups the upper/middle/lower right position and 75–150% scale. To change the shortcut, click its box and press Alt or Ctrl with a letter, number or F1–F11, optionally adding Shift, then Save. The Recipe tracker tab fits its controls and expands when setup has a status message. Icons and spacing are compact; a new panel appears only after a successful reading. The rightmost panel keeps the same screen-edge gap during gameplay and pause. On the pause menu, the group shrinks only if it needs more room, leaving at least the same gap beside the menu. Smaller groups keep their normal size and right-edge position. If it cannot fit at a readable size, it hides until the menu closes. Close buttons keep their click area when panels shrink.
+Panels sit side by side along the right edge with a top tab on the leftmost panel and a cut lower-right corner on the rightmost panel. A single panel has both details; the other panel edges are plain. They share the height of the tallest selected recipe, with space reserved for two-line names and close buttons. In Settings, **Enable recipe tracker** controls the whole tab. Turning it off greys out the other recipe controls while preserving their values. **Pinning** groups the shortcut and double-click option; **Appearance** groups the upper/middle/lower right position and 75–150% scale. To change the shortcut, click its box and press Alt or Ctrl with a letter, top-row number or F1–F11, optionally adding Shift, then Save. The Recipe tracker tab fits its controls and expands when setup has a status message. Icons and spacing are compact; a new panel appears only after a successful reading. The rightmost panel keeps the same screen-edge gap during gameplay and pause. On the pause menu, the group shrinks only if it needs more room, leaving at least the same gap beside the menu. Smaller groups keep their normal size and right-edge position. If it cannot fit at a readable size, it hides until the menu closes. Close buttons keep their click area when panels shrink.
 
 The app prepares names, icons and the recipe font automatically from your installed game. Setup works offline, and later launches reuse the local cache. Progress appears in **Settings > Recipe tracker**. Disabling the tracker or exiting the app stops setup. See [support](SUPPORT.md) if preparation fails.
 

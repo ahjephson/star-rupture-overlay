@@ -25,6 +25,8 @@ pub(crate) use runtime::Binding;
 fn foreground_process() -> u32 {
     use windows_sys::Win32::UI::WindowsAndMessaging::*;
     let mut pid = 0;
+    // SAFETY: Win32 validates the borrowed handle where required; every output points to an
+    // initialized local struct or bounded writable slice that stays live for the synchronous query.
     unsafe {
         GetWindowThreadProcessId(GetForegroundWindow(), &mut pid);
     }
@@ -50,6 +52,8 @@ pub(crate) fn cursor_matches(cursor: Option<[i32; 2]>, process: u32) -> Result<(
     use windows_sys::Win32::{Foundation::POINT, UI::WindowsAndMessaging::GetCursorPos};
     let expected = cursor.context("Recipe capture has no cursor position")?;
     let mut point = POINT::default();
+    // SAFETY: Win32 validates the borrowed handle where required; every output points to an
+    // initialized local struct or bounded writable slice that stays live for the synchronous query.
     ensure!(unsafe { GetCursorPos(&mut point) } != 0, "Recipe cursor position unavailable");
     validate_shortcut_context(
         process,
@@ -248,3 +252,5 @@ pub fn self_test_recipe(directory: &Path, catalogue_file: &Path, recipe_id: &str
     )?;
     Ok(())
 }
+pub(crate) use runtime::registered_objects;
+pub(crate) use runtime::serial as allocation;

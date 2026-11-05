@@ -79,6 +79,9 @@ fn layer_alpha(pixels: &mut [u8], width: usize, height: usize) {
 struct MemoryDc(HDC);
 impl Drop for MemoryDc {
     fn drop(&mut self) {
+        // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match their
+        // lengths. Owned GDI objects are restored/deselected before deletion; stock/system objects
+        // remain borrowed.
         unsafe {
             DeleteDC(self.0);
         }
@@ -88,6 +91,9 @@ struct GdiObject(HGDIOBJ);
 impl Drop for GdiObject {
     fn drop(&mut self) {
         if !self.0.is_null() {
+            // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match
+            // their lengths. Owned GDI objects are restored/deselected before deletion;
+            // stock/system objects remain borrowed.
             unsafe {
                 DeleteObject(self.0);
             }
@@ -103,6 +109,9 @@ impl GdiObject {
     fn select(&self, dc: HDC) -> Selection<'_> {
         Selection {
             dc,
+            // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match
+            // their lengths. Owned GDI objects are restored/deselected before deletion;
+            // stock/system objects remain borrowed.
             previous: unsafe { SelectObject(dc, self.0) },
             _object: self,
         }
@@ -111,6 +120,9 @@ impl GdiObject {
 impl Drop for Selection<'_> {
     fn drop(&mut self) {
         if !self.previous.is_null() && self.previous as isize != -1 {
+            // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match
+            // their lengths. Owned GDI objects are restored/deselected before deletion;
+            // stock/system objects remain borrowed.
             unsafe {
                 SelectObject(self.dc, self.previous);
             }
@@ -128,6 +140,8 @@ struct RenderSurface {
 }
 impl RenderSurface {
     fn new(screen: HDC, width: i32, height: i32) -> Option<Self> {
+        // SAFETY: Win32 accepts the borrowed source DC or null; the returned compatible DC is owned
+        // here and is released with DeleteDC after selected objects are restored.
         let dc = MemoryDc(unsafe { CreateCompatibleDC(screen) });
         if dc.0.is_null() {
             return None;
@@ -140,6 +154,9 @@ impl RenderSurface {
         info.bmiHeader.biBitCount = 32;
         info.bmiHeader.biCompression = BI_RGB;
         let mut bits = std::ptr::null_mut();
+        // SAFETY: BITMAPINFO has the required initialized header and bounded dimensions; the
+        // writable bits out-pointer is local. The returned bitmap is owned and remains alive until
+        // it is deselected and deleted.
         let bitmap = GdiObject(unsafe {
             CreateDIBSection(dc.0, &info, DIB_RGB_COLORS, &mut bits, std::ptr::null_mut(), 0)
         });
@@ -147,6 +164,9 @@ impl RenderSurface {
             return None;
         }
         let pixels = std::ptr::NonNull::new(bits.cast::<u8>())?;
+        // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match their
+        // lengths. Owned GDI objects are restored/deselected before deletion; stock/system objects
+        // remain borrowed.
         let previous_bitmap = unsafe { SelectObject(dc.0, bitmap.0) };
         if previous_bitmap.is_null() || previous_bitmap as isize == -1 {
             return None;
@@ -166,6 +186,9 @@ impl RenderSurface {
             bottom: self.height,
             ..RECT::default()
         };
+        // SAFETY: The owned DIB exposes initialized width * height * 4 bytes; its bitmap remains
+        // selected and alive through this UI-thread-only slice access. GdiFlush finishes native
+        // writes first.
         unsafe {
             draw(self.dc.0, rect, frame);
             GdiFlush();
@@ -180,6 +203,9 @@ impl RenderSurface {
 }
 impl Drop for RenderSurface {
     fn drop(&mut self) {
+        // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match their
+        // lengths. Owned GDI objects are restored/deselected before deletion; stock/system objects
+        // remain borrowed.
         unsafe {
             SelectObject(self.dc.0, self.previous_bitmap);
         }
@@ -197,8 +223,14 @@ impl LayerRenderer {
         }
         self.surface.as_mut()
     }
+    /// # Safety
+    /// window must be the live overlay and screen a borrowed paint DC on its UI thread; this
+    /// renderer and its bitmap may not be accessed concurrently.
     pub(super) unsafe fn render(&mut self, window: HWND, screen: HDC, frame: &HudFrame) -> bool {
         let mut rect = RECT::default();
+        // SAFETY: Win32 validates the borrowed handle where required; every output points to an
+        // initialized local struct or bounded writable slice that stays live for the synchronous
+        // query.
         unsafe {
             GetClientRect(window, &mut rect);
         }
@@ -220,6 +252,9 @@ impl LayerRenderer {
             SourceConstantAlpha: 255,
             AlphaFormat: AC_SRC_ALPHA as u8,
         };
+        // SAFETY: The target overlay HWND and selected DIB/DC remain owned on this UI thread; SIZE,
+        // POINT and blend parameters are initialized locals valid through the synchronous bitmap
+        // upload.
         unsafe {
             UpdateLayeredWindow(
                 window,
@@ -236,22 +271,40 @@ impl LayerRenderer {
     }
 }
 
+/// # Safety
+/// dc must remain valid for UI-thread drawing throughout this call, with exclusive access to
+/// its current object selections.
 pub(super) unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
     let width = rect.right;
     let panel_height = rect.bottom;
     let content_y = STAGE_TOP_PADDING + CONTENT_OFFSET_Y;
     // Extra headroom must not enlarge fonts or spread the existing content.
     let height = (panel_height - STAGE_TOP_PADDING).max(1);
+    // SAFETY: The caller supplies a live UI-thread drawing DC; created pens, brushes and fonts are
+    // scoped here, text buffers remain live, and selected objects are restored before owned objects
+    // are deleted.
     let background = GdiObject(unsafe { CreateSolidBrush(rgb([24, 30, 32])) });
+    // SAFETY: The caller supplies a live UI-thread drawing DC; created pens, brushes and fonts are
+    // scoped here, text buffers remain live, and selected objects are restored before owned objects
+    // are deleted.
     unsafe {
         FillRect(dc, &rect, background.0);
         drop(background)
     };
+    // SAFETY: The caller supplies a live UI-thread drawing DC; created pens, brushes and fonts are
+    // scoped here, text buffers remain live, and selected objects are restored before owned objects
+    // are deleted.
     let edge = GdiObject(unsafe { CreatePen(PS_SOLID, 1, rgb(PANEL_EDGE)) });
     let old_pen = edge.select(dc);
+    // SAFETY: The caller supplies a live UI-thread drawing DC; created pens, brushes and fonts are
+    // scoped here, text buffers remain live, and selected objects are restored before owned objects
+    // are deleted.
     let old_brush = unsafe { SelectObject(dc, GetStockObject(NULL_BRUSH)) };
     let c = (height / 8).max(5);
     let points = panel_points(width, panel_height, 1);
+    // SAFETY: The caller supplies a live UI-thread drawing DC; created pens, brushes and fonts are
+    // scoped here, text buffers remain live, and selected objects are restored before owned objects
+    // are deleted.
     unsafe {
         Polygon(dc, points.as_ptr(), points.len() as i32);
         MoveToEx(dc, c + 3, height / 2 - 2 + content_y, std::ptr::null_mut());
@@ -264,6 +317,9 @@ pub(super) unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
     let font_name = wide("Oxanium");
     let small = (height as f64 * 0.30).round() as i32;
     let large = (height as f64 * 0.48).round() as i32;
+    // SAFETY: The caller supplies a live UI-thread drawing DC; created pens, brushes and fonts are
+    // scoped here, text buffers remain live, and selected objects are restored before owned objects
+    // are deleted.
     let font = GdiObject(unsafe {
         CreateFontW(
             -small,
@@ -283,6 +339,9 @@ pub(super) unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
         )
     });
     let old = font.select(dc);
+    // SAFETY: The caller supplies a live UI-thread drawing DC; created pens, brushes and fonts are
+    // scoped here, text buffers remain live, and selected objects are restored before owned objects
+    // are deleted.
     unsafe { SetTextColor(dc, rgb(frame.colour)) };
     let stage = wide(frame.stage);
     let mut title = RECT {
@@ -291,6 +350,9 @@ pub(super) unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
         right: width - c,
         bottom: height / 2 + content_y,
     };
+    // SAFETY: The caller supplies a live UI-thread drawing DC; created pens, brushes and fonts are
+    // scoped here, text buffers remain live, and selected objects are restored before owned objects
+    // are deleted.
     unsafe {
         DrawTextW(
             dc,
@@ -302,6 +364,9 @@ pub(super) unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
     };
     drop(old);
     drop(font);
+    // SAFETY: The caller supplies a live UI-thread drawing DC; created pens, brushes and fonts are
+    // scoped here, text buffers remain live, and selected objects are restored before owned objects
+    // are deleted.
     let font = GdiObject(unsafe {
         CreateFontW(
             -(height as f64 * 0.22).round() as i32,
@@ -321,6 +386,9 @@ pub(super) unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
         )
     });
     let old = font.select(dc);
+    // SAFETY: The caller supplies a live UI-thread drawing DC; created pens, brushes and fonts are
+    // scoped here, text buffers remain live, and selected objects are restored before owned objects
+    // are deleted.
     unsafe { SetTextColor(dc, rgb([245, 247, 248])) };
     let label = wide(frame.next_label);
     let mut line = RECT {
@@ -329,6 +397,9 @@ pub(super) unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
         right: width / 2 + width / 10,
         bottom: height - c + content_y,
     };
+    // SAFETY: The caller supplies a live UI-thread drawing DC; created pens, brushes and fonts are
+    // scoped here, text buffers remain live, and selected objects are restored before owned objects
+    // are deleted.
     unsafe {
         DrawTextW(
             dc,
@@ -345,6 +416,9 @@ pub(super) unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
     let timer_height = height - c - (height / 2 - 2);
     let text = wide(&frame.countdown);
     let digits = loop {
+        // SAFETY: The caller supplies a live UI-thread drawing DC; created pens, brushes and fonts
+        // are scoped here, text buffers remain live, and selected objects are restored before owned
+        // objects are deleted.
         let font = GdiObject(unsafe {
             CreateFontW(
                 -digit_height,
@@ -365,6 +439,9 @@ pub(super) unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
         });
         let old = font.select(dc);
         let mut extent = SIZE::default();
+        // SAFETY: The caller supplies a live UI-thread drawing DC; created pens, brushes and fonts
+        // are scoped here, text buffers remain live, and selected objects are restored before owned
+        // objects are deleted.
         unsafe {
             GetTextExtentPoint32W(dc, text.as_ptr(), (text.len() - 1) as i32, &mut extent);
             drop(old);
@@ -382,6 +459,9 @@ pub(super) unsafe fn draw(dc: HDC, rect: RECT, frame: &HudFrame) {
         right: width - c - 3,
         bottom: height - c + content_y,
     };
+    // SAFETY: The caller supplies a live UI-thread drawing DC; created pens, brushes and fonts are
+    // scoped here, text buffers remain live, and selected objects are restored before owned objects
+    // are deleted.
     unsafe {
         DrawTextW(
             dc,
@@ -402,6 +482,8 @@ mod tests {
     struct ScreenDc(HDC);
     impl Drop for ScreenDc {
         fn drop(&mut self) {
+            // SAFETY: The HWND is borrowed (or null for the screen); each acquired DC is released
+            // with the same target and is not deleted as an owned compatible DC.
             unsafe {
                 ReleaseDC(std::ptr::null_mut(), self.0);
             }
@@ -413,12 +495,16 @@ mod tests {
             GR_GDIOBJECTS, GetCurrentProcess, GetGuiResources,
         };
         let _fonts = crate::fonts::Fonts::load().unwrap();
+        // SAFETY: The HWND is borrowed (or null for the screen); each acquired DC is released with
+        // the same target and is not deleted as an owned compatible DC.
         let screen = ScreenDc(unsafe { GetDC(std::ptr::null_mut()) });
         assert!(!screen.0.is_null());
         let warm_frame = super::super::preview("Moving");
         let mut warm = RenderSurface::new(screen.0, 220, 84).unwrap();
         warm.draw(&warm_frame);
         drop(warm);
+        // SAFETY: The current-process pseudo-handle is borrowed for a scalar resource-count query
+        // and must not be closed.
         let before = unsafe { GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) };
         let mut renderer = LayerRenderer::default();
         for (width, height) in [(220, 84), (300, 100), (220, 84)] {
@@ -445,12 +531,20 @@ mod tests {
                 let mut fresh = RenderSurface::new(screen.0, width, height).unwrap();
                 fresh.draw(&frame);
                 let length = width as usize * height as usize * 4;
+                // SAFETY: The owned DIB exposes initialized width * height * 4 bytes; its bitmap
+                // remains selected and alive through this UI-thread-only slice access. GdiFlush
+                // finishes native writes first.
                 let a = unsafe { std::slice::from_raw_parts(reused.pixels.as_ptr(), length) };
+                // SAFETY: The owned DIB exposes initialized width * height * 4 bytes; its bitmap
+                // remains selected and alive through this UI-thread-only slice access. GdiFlush
+                // finishes native writes first.
                 let b = unsafe { std::slice::from_raw_parts(fresh.pixels.as_ptr(), length) };
                 assert_eq!(a, b, "{phase} at {width}x{height}");
             }
         }
         drop(renderer);
+        // SAFETY: The current-process pseudo-handle is borrowed for a scalar resource-count query
+        // and must not be closed.
         let after = unsafe { GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) };
         assert_eq!(after, before);
     }

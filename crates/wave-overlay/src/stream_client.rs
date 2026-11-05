@@ -25,6 +25,7 @@ pub enum Update {
     Reset(u32),
     NoWorld,
     Menu(bool, u64),
+    Compass(Option<starrupture_observation_model::compass::Sample>),
     World(Box<Observation>),
     Unavailable(String),
 }
@@ -50,6 +51,16 @@ pub fn run_with_assets(
     tracker: Option<starrupture_overlay_reader::recipe::Tracker>,
     setup: Option<Box<dyn starrupture_overlay_reader::recipe::AssetSetup>>,
 ) -> Result<RunStatistics, String> {
+    run_with_navigation(config, stop, publish, tracker, setup, None)
+}
+pub fn run_with_navigation(
+    config: Config,
+    stop: Arc<StopSignal>,
+    publish: impl FnMut(Update),
+    tracker: Option<starrupture_overlay_reader::recipe::Tracker>,
+    setup: Option<Box<dyn starrupture_overlay_reader::recipe::AssetSetup>>,
+    navigation: Option<Arc<starrupture_observation_model::compass::Control>>,
+) -> Result<RunStatistics, String> {
     let cache = config.cache_directory.as_ref().ok_or("Private cache directory required")?;
     let publish = std::cell::RefCell::new(publish);
     let mut last_status = None;
@@ -60,7 +71,7 @@ pub fn run_with_assets(
         statistics: None,
         publish: |event| (publish.borrow_mut())(event),
     };
-    starrupture_overlay_reader::overlay_stream::run_with_assets(
+    starrupture_overlay_reader::overlay_stream::run_with_navigation(
         cache,
         stop,
         |message| sink.accept(message).map_err(anyhow::Error::msg),
@@ -72,6 +83,7 @@ pub fn run_with_assets(
         },
         tracker,
         setup,
+        navigation,
     )
     .map_err(|error| format!("{error:#}"))?;
     Ok(RunStatistics {
@@ -139,6 +151,12 @@ impl<F: FnMut(Update)> ObservationSink<F> {
                     );
                 }
                 (self.publish)(Update::World(Box::new(value)));
+            }
+            Payload::Compass(value) => {
+                if value.is_some_and(|s| !s.valid(now)) {
+                    return Err("Invalid navigation sample".into());
+                }
+                (self.publish)(Update::Compass(value));
             }
             Payload::NoWorld => (self.publish)(Update::NoWorld),
             Payload::Unavailable(reason) => {
@@ -304,6 +322,37 @@ mod tests {
         assert_eq!(value.overlay_session.generation, 1);
         assert!(matches!(events[2], Update::Menu(true, at) if at == now));
         assert!(matches!(&events[3], Update::Unavailable(reason) if reason == "Unavailable"));
+    }
+    #[test]
+    fn navigation_updates_do_not_refresh_timer_evidence_and_obey_session_guards() {
+        let now = now_ms().max(0) as u64;
+        let mut events = Vec::new();
+        let mut sink = ObservationSink {
+            validator: Validator::new(std::process::id(), now),
+            world_reads: 0,
+            menu_updates: 0,
+            statistics: None,
+            publish: |event| events.push(event),
+        };
+        sink.accept(message(Payload::Ready, 1, now)).unwrap();
+        sink.accept(message(Payload::World(Box::new(world(now))), 2, now)).unwrap();
+        let sample = starrupture_observation_model::compass::Sample {
+            started_ms: now,
+            finished_ms: now,
+            heading: 359.,
+            pin: None,
+            pin_known: true,
+            menu_open: false,
+        };
+        sink.accept(message(Payload::Compass(Some(sample)), 3, now)).unwrap();
+        assert_eq!((sink.world_reads, sink.menu_updates), (1, 0));
+        sink.accept(message(Payload::NoWorld, 4, now)).unwrap();
+        assert!(sink.accept(message(Payload::Compass(Some(sample)), 5, now)).is_err());
+        assert!(matches!(events[2], Update::Compass(Some(_))));
+        let Update::World(value) = &events[1] else {
+            panic!("Expected original timer evidence")
+        };
+        assert_eq!(value.window.completed_ms, now);
     }
     #[test]
     fn no_world_invalidates_evidence_until_a_new_ready_generation() {

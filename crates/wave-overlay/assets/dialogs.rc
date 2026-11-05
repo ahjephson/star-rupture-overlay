@@ -20,11 +20,13 @@ BEGIN
     LTEXT "Starts the overlay and game through Steam. Shortcut changes apply immediately.", 165, 34, 166, 252, 20
     GROUPBOX "Countdown format", 170, 24, 196, 272, 34
     COMBOBOX 156, 34, 209, 252, 65, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    GROUPBOX "Navigation", 175, 24, 236, 272, 28
+    CONTROL "Show &compass and personal pin", 174, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 34, 247, 252, 10
     CONTROL "Enable recipe &tracker", 150, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 24, 54, 262, 10
     GROUPBOX "Pinning", 172, 24, 72, 272, 86
     LTEXT "Pin / clear shortcut", 166, 34, 85, 94, 10
     CONTROL "", 151, "msctls_hotkey32", WS_BORDER | WS_TABSTOP, 132, 83, 154, 14
-    LTEXT "Click the shortcut box, then press Alt/Ctrl + a letter, number or F1–F11.", 171, 34, 102, 252, 10
+    LTEXT "Click the shortcut box, then press Alt/Ctrl + a letter, top-row number or F1–F11.", 171, 34, 102, 252, 10
     CONTROL "Double-click recipe icons to pin or unpin", 157, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 34, 119, 252, 10
     LTEXT "Track up to three recipes. The shortcut toggles a hovered recipe or clears all outside the station. Close a panel with its × button.", 169, 34, 133, 252, 22
     GROUPBOX "Appearance", 173, 24, 164, 272, 34

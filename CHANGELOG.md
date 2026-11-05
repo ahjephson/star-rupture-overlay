@@ -4,6 +4,8 @@
 
 ### Added
 
+- Floating compass with a personal-pin marker, horizontal distance and a setting to turn it off; hidden during pause.
+
 - Update 3 PTB compatibility for rupture timing and recipe tracking, including Rarely, Normal and Often fire-wave frequency settings.
 - Countdown format setting for hours when needed or total minutes, with a fixed panel width.
 - Track up to three recipes at once, with optional double-click pinning and individual close buttons.
@@ -20,6 +22,14 @@
 - Recipe panels share a common height, with clear two-line names, larger inset close buttons and adornments on the outer panels.
 
 ### Fixed
+
+- Keep the compass hidden while typing in another application, and restore it when the game regains focus.
+
+- Keep the wave panel hidden on the main menu and while waves are stopped when switching windows.
+
+- Reject unsupported captured shortcut keys instead of changing them to another key.
+- Allow disabling recipe tracking while a captured shortcut is invalid, keeping the previous valid shortcut.
+- Bound recipe-cache reads before loading their contents and retry failed tooltip/close-button positioning.
 
 - Show the supported game version in About and copied support details.
 - Show the Pre-wave countdown before the first rupture start time is set.

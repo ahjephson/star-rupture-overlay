@@ -310,3 +310,4 @@ mod tests {
         assert!(smol::block_on(jmap_dumper::mem::Mem::read_buf(&reader, 0, &mut actual)).is_err());
     }
 }
+pub mod compass;

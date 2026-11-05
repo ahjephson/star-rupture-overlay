@@ -19,6 +19,8 @@ pub(super) struct Button {
 }
 impl Drop for Button {
     fn drop(&mut self) {
+        // SAFETY: Only this UI/fixture owner destroys its HWND; boxed callback state remains alive
+        // until DestroyWindow completes, and stale handles are validated by Win32.
         unsafe {
             DestroyWindow(self.window);
         }
@@ -31,17 +33,29 @@ fn hover(window: HWND, state: &State, active: bool) {
         eprintln!("Recipe close highlight unavailable: {error:#}");
     }
 }
+/// # Safety
+/// Windows must supply the structures matching each message. WM_NCCREATE receives the Button-
+/// owned State box retained until DestroyWindow completes.
 unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isize) -> isize {
     if message == WM_NCCREATE {
+        // SAFETY: WM_NCCREATE supplies a valid CREATESTRUCTW; its creation parameter is the State
+        // box owned by Button and kept alive until its HWND is destroyed.
         let create = unsafe { &*(l as *const CREATESTRUCTW) };
+        // SAFETY: This is an owned window on its UI thread; a stored creation-state pointer remains
+        // boxed through HWND teardown, and changing native style bits does not transfer Rust
+        // ownership.
         unsafe {
             SetWindowLongPtrW(window, GWLP_USERDATA, create.lpCreateParams as isize);
         }
         return 1;
     }
+    // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+    // identity themselves, and neither dereference Rust memory nor transfer ownership.
     let pointer = unsafe { GetWindowLongPtrW(window, GWLP_USERDATA) } as *const State;
     if !pointer.is_null() {
         // State is boxed and outlives its HWND; no mutable aliases reach this callback.
+        // SAFETY: Only this window's creation path stores its State pointer; Button retains the box
+        // through DestroyWindow, and callback mutation uses Cell/RefCell.
         let state = unsafe { &*pointer };
         match message {
             WM_WINDOWPOSCHANGING => {
@@ -55,6 +69,9 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
                         hwndTrack: window,
                         dwHoverTime: 0,
                     };
+                    // SAFETY: TRACKMOUSEEVENT has its initialized cbSize and this live close-button
+                    // HWND; Windows reads the local structure synchronously and later posts only a
+                    // mouse-leave message.
                     unsafe {
                         TrackMouseEvent(&mut tracking);
                     }
@@ -69,6 +86,8 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
             }
             WM_MOUSEACTIVATE => return MA_NOACTIVATE as isize,
             WM_SETCURSOR => {
+                // SAFETY: The cursor is borrowed from the live shared system cursor or this UI
+                // thread's retained owned copy; SetCursor does not take ownership.
                 unsafe {
                     let cursor = state.cursor.borrow().handle();
                     SetCursor(cursor);
@@ -92,12 +111,17 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
                 }
                 return 0;
             }
+            // SAFETY: This is an owned window on its UI thread; a stored creation-state pointer
+            // remains boxed through HWND teardown, and changing native style bits does not transfer
+            // Rust ownership.
             WM_NCDESTROY => unsafe {
                 SetWindowLongPtrW(window, GWLP_USERDATA, 0);
             },
             _ => {}
         }
     }
+    // SAFETY: This callback forwards the original Win32 message parameters unchanged; message-owned
+    // pointers remain valid for the synchronous default handling.
     unsafe { DefWindowProcW(window, message, w, l) }
 }
 impl Button {
@@ -106,14 +130,21 @@ impl Button {
         cursor: Rc<RefCell<cursor::GameCursor>>,
     ) -> Result<Self> {
         let class = wide("StarRuptureRecipeClose");
+        // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+        // identity themselves, and neither dereference Rust memory nor transfer ownership.
         let module = unsafe { GetModuleHandleW(std::ptr::null()) };
         let wc = WNDCLASSW {
             lpfnWndProc: Some(procedure),
+            // SAFETY: The module/resource identifiers or terminated path are valid for the
+            // synchronous lookup; shared image handles are borrowed, while explicitly extracted
+            // copies retain their documented owners.
             hCursor: unsafe { LoadCursorW(std::ptr::null_mut(), IDC_ARROW) },
             hInstance: module,
             lpszClassName: class.as_ptr(),
             ..Default::default()
         };
+        // SAFETY: The class structure is initialized, its terminated name is live during
+        // registration, and the callback has the Win32 ABI and remains in this module.
         unsafe {
             RegisterClassW(&wc);
         }
@@ -125,6 +156,9 @@ impl Button {
             position_changes: Cell::new(0),
             hovered: Cell::new(false),
         });
+        // SAFETY: The registered callback has the Win32 ABI, class/title strings remain live during
+        // creation, and any creation-state box stays at a stable address until after the new HWND
+        // is destroyed.
         let window = unsafe {
             CreateWindowExW(
                 crate::stacking::EXTENDED_STYLE & !WS_EX_TRANSPARENT,
@@ -158,10 +192,10 @@ impl Button {
         id: &str,
         position: [i32; 2],
         visible: bool,
-    ) {
+    ) -> Result<()> {
         if !visible {
             self.hide();
-            return;
+            return Ok(());
         }
         if *self.state.id.borrow() != id {
             *self.state.pressed.borrow_mut() = None;
@@ -169,30 +203,43 @@ impl Button {
         }
         if self.position.get() != Some(position) {
             hover(self.window, &self.state, false);
-            unsafe {
-                SetWindowPos(
-                    self.window,
-                    std::ptr::null_mut(),
-                    position[0],
-                    position[1],
-                    SIZE,
-                    SIZE,
-                    SWP_NOZORDER | SWP_NOACTIVATE,
-                );
-            }
+            ensure!(
+                // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison
+                // handles; native position/style values are scalar, and referenced menu/state
+                // objects remain alive through synchronous dispatch.
+                unsafe {
+                    SetWindowPos(
+                        self.window,
+                        std::ptr::null_mut(),
+                        position[0],
+                        position[1],
+                        SIZE,
+                        SIZE,
+                        SWP_NOZORDER | SWP_NOACTIVATE,
+                    )
+                } != 0,
+                "Could not position recipe close button: {}",
+                std::io::Error::last_os_error()
+            );
             self.position.set(Some(position));
         }
         self.anchor.set(anchor);
         crate::stacking::follow_companion(self.window, anchor, game);
+        Ok(())
     }
     pub(super) fn hide(&self) {
         *self.state.pressed.borrow_mut() = None;
+        // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles;
+        // native position/style values are scalar, and referenced menu/state objects remain alive
+        // through synchronous dispatch.
         unsafe {
             ShowWindow(self.window, SW_HIDE);
         }
         hover(self.window, &self.state, false);
     }
     pub(super) fn follow(&self, game: HWND) {
+        // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+        // identity themselves, and neither dereference Rust memory nor transfer ownership.
         if unsafe { IsWindowVisible(self.window) } != 0 {
             crate::stacking::follow_companion(self.window, self.anchor.get(), game);
         }
@@ -201,6 +248,8 @@ impl Button {
 
 pub(super) fn self_test() -> Result<()> {
     use starrupture_observation_model::recipe::{Ingredient, Snapshot};
+    // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+    // identity themselves, and neither dereference Rust memory nor transfer ownership.
     let foreground = unsafe { GetForegroundWindow() };
     let control = Arc::new(Control::default());
     for id in ["close-A", "close-B"] {
@@ -227,12 +276,17 @@ pub(super) fn self_test() -> Result<()> {
     struct Fixture(HWND);
     impl Drop for Fixture {
         fn drop(&mut self) {
+            // SAFETY: Only this UI/fixture owner destroys its HWND; boxed callback state remains
+            // alive until DestroyWindow completes, and stale handles are validated by Win32.
             unsafe {
                 DestroyWindow(self.0);
             }
         }
     }
     let make = || -> Result<Fixture> {
+        // SAFETY: The registered callback has the Win32 ABI, class/title strings remain live during
+        // creation, and any creation-state box stays at a stable address until after the new HWND
+        // is destroyed.
         let window = unsafe {
             CreateWindowExW(
                 WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
@@ -250,6 +304,9 @@ pub(super) fn self_test() -> Result<()> {
             )
         };
         ensure!(!window.is_null(), "Close-order fixture create");
+        // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles;
+        // native position/style values are scalar, and referenced menu/state objects remain alive
+        // through synchronous dispatch.
         unsafe {
             ShowWindow(window, SW_SHOWNOACTIVATE);
         }
@@ -258,16 +315,24 @@ pub(super) fn self_test() -> Result<()> {
     let game = make()?;
     let panel = make()?;
     ensure!(crate::stacking::follow_game(panel.0, game.0), "Recipe fixture stacking");
-    button.show(game.0, panel.0, "close-A", [-32000, -32000], true);
+    button.show(game.0, panel.0, "close-A", [-32000, -32000], true)?;
     ensure!(
+        // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+        // identity themselves, and neither dereference Rust memory nor transfer ownership.
         unsafe { GetWindow(panel.0, GW_HWNDPREV) } == button.window,
         "Close target sits behind its panel"
     );
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     unsafe {
         SendMessageW(button.window, WM_MOUSEMOVE, 0, 12 | (12 << 16));
     }
     ensure!(button.state.hovered.get(), "Close target did not highlight on mouse entry");
     let after_enter = button.state.position_changes.get();
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     unsafe {
         SendMessageW(button.window, WM_MOUSEMOVE, 0, 13 | (12 << 16));
     }
@@ -275,13 +340,16 @@ pub(super) fn self_test() -> Result<()> {
         button.state.position_changes.get() == after_enter,
         "Hover movement repeatedly redrew/reordered close target"
     );
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     unsafe {
         SendMessageW(button.window, WM_MOUSELEAVE, 0, 0);
     }
     ensure!(!button.state.hovered.get(), "Close target did not clear highlight on mouse leave");
     button.state.position_changes.set(0);
     for _ in 0..20 {
-        button.show(game.0, panel.0, "close-A", [-32000, -32000], true);
+        button.show(game.0, panel.0, "close-A", [-32000, -32000], true)?;
         button.follow(game.0);
     }
     ensure!(
@@ -289,11 +357,16 @@ pub(super) fn self_test() -> Result<()> {
         "Stable close target moved/reordered on refresh"
     );
     ensure!(
+        // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+        // identity themselves, and neither dereference Rust memory nor transfer ownership.
         unsafe { GetWindow(panel.0, GW_HWNDPREV) } == button.window,
         "Follow put close target behind its panel"
     );
     button.hide();
     ensure!(!button.state.hovered.get(), "Hidden close target retained hover highlight");
+    // SAFETY: The module/resource identifiers or terminated path are valid for the synchronous
+    // lookup; shared image handles are borrowed, while explicitly extracted copies retain their
+    // documented owners.
     unsafe {
         let previous = GetCursor();
         let result = SendMessageW(button.window, WM_SETCURSOR, 0, 0);
@@ -306,6 +379,9 @@ pub(super) fn self_test() -> Result<()> {
         );
     }
     *button.state.cursor.borrow_mut() = super::cursor::self_test()?;
+    // SAFETY: The module/resource identifiers or terminated path are valid for the synchronous
+    // lookup; shared image handles are borrowed, while explicitly extracted copies retain their
+    // documented owners.
     unsafe {
         let previous = GetCursor();
         let expected = button.state.cursor.borrow().handle();
@@ -320,6 +396,9 @@ pub(super) fn self_test() -> Result<()> {
         );
     }
     *button.state.id.borrow_mut() = "close-A".into();
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     unsafe {
         ensure!(
             SendMessageW(button.window, WM_MOUSEACTIVATE, 0, 0) == MA_NOACTIVATE as isize,
@@ -337,23 +416,47 @@ pub(super) fn self_test() -> Result<()> {
         "Close affected another pin"
     );
     *button.state.id.borrow_mut() = "close-B".into();
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     unsafe {
         SendMessageW(button.window, WM_LBUTTONDOWN, 0, 0);
     }
     button.hide();
     ensure!(!button.state.hovered.get(), "Hidden close target retained hover highlight");
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     unsafe {
         SendMessageW(button.window, WM_LBUTTONUP, 0, 12 | (12 << 16));
     }
     ensure!(control.views().len() == 1, "Hidden close target retained a pressed action");
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     unsafe {
         SendMessageW(button.window, WM_LBUTTONDOWN, 0, 0);
         SendMessageW(button.window, WM_LBUTTONUP, 0, ((SIZE + 1) | (12 << 16)) as isize);
     }
     ensure!(control.views().len() == 1, "Outside release removed a pin");
     let window = button.window;
+    let last_position = button.position.get();
+    // SAFETY: This fixture owns the close-button HWND and retains its boxed State
+    // until after synchronous teardown; no handle allocation occurs before the failed move.
+    unsafe {
+        DestroyWindow(window);
+    }
+    ensure!(
+        button.show(game.0, panel.0, "close-B", [-31900, -31900], true).is_err(),
+        "Invalid close HWND did not report a positioning error"
+    );
+    ensure!(button.position.get() == last_position, "Failed close move was cached");
     drop(button);
+    // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+    // identity themselves, and neither dereference Rust memory nor transfer ownership.
     ensure!(unsafe { IsWindow(window) } == 0, "Close HWND leaked");
+    // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+    // identity themselves, and neither dereference Rust memory nor transfer ownership.
     ensure!(unsafe { GetForegroundWindow() } == foreground, "Close fixture changed focus");
     Ok(())
 }

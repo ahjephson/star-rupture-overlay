@@ -1,15 +1,18 @@
 //! Native diagnostics using owned hidden or off-screen windows and synthetic HUD data.
 use super::render::{BACKGROUND_ALPHA, LayerRenderer, STAGE_TOP_PADDING, draw};
-use super::{App, Reading, Result, preview, procedure, wide};
+use super::{App, Reading, Result, preview, procedure, tick, wide};
 use serde_json::json;
 use starrupture_observation_model::shutdown::StopSignal;
 use starrupture_observation_model::wave::HudPresenter;
+use starrupture_wave_core::formatting::now_ms;
 use std::{
     mem::size_of,
     sync::{Arc, Mutex},
 };
 use windows_sys::Win32::{
-    Foundation::*, Graphics::Gdi::*, System::LibraryLoader::GetModuleHandleW,
+    Foundation::*,
+    Graphics::Gdi::*,
+    System::{LibraryLoader::GetModuleHandleW, Threading::GetCurrentProcessId},
     UI::WindowsAndMessaging::*,
 };
 
@@ -21,16 +24,21 @@ pub(super) fn window_events_self_test() -> Result<()> {
     struct Fixture(HWND);
     impl Drop for Fixture {
         fn drop(&mut self) {
+            // SAFETY: Only this UI/fixture owner destroys its HWND; boxed callback state remains
+            // alive until DestroyWindow completes, and stale handles are validated by Win32.
             unsafe {
                 DestroyWindow(self.0);
             }
         }
     }
+    // SAFETY: The registered callback has the Win32 ABI, class/title strings remain live during
+    // creation, and any creation-state box stays at a stable address until after the new HWND is
+    // destroyed.
     unsafe {
         let foreground = GetForegroundWindow();
         let module = GetModuleHandleW(std::ptr::null());
         let hud_class = wide("StarRuptureEventHudSelfTest");
-        let game_class = wide("StarRuptureEventGameSelfTest");
+        let game_class = wide("UnrealWindow");
         let classes: [(&[u16], WNDPROC); 2] =
             [(&hud_class, Some(procedure)), (&game_class, Some(DefWindowProcW))];
         for (class, callback) in classes {
@@ -45,6 +53,8 @@ pub(super) fn window_events_self_test() -> Result<()> {
             }
         }
         let shared = Arc::new(Mutex::new(Reading {
+            compass: None,
+            navigation: Arc::new(Default::default()),
             no_world: false,
             value: None,
             menu: None,
@@ -52,6 +62,7 @@ pub(super) fn window_events_self_test() -> Result<()> {
             connection: crate::connection::Connection::default(),
         }));
         let mut state = Box::new(App {
+            compass: crate::compass::Panel::default(),
             recipe: crate::recipe_tracker::Panel::new(),
             dialogs: crate::dialogs::Dialogs::default(),
             dialog_context: crate::dialogs::Context::diagnostic(std::path::PathBuf::new()),
@@ -65,6 +76,7 @@ pub(super) fn window_events_self_test() -> Result<()> {
             renderer: LayerRenderer::default(),
             preview: None,
             hidden: false,
+            countdown_eligible: true,
             unlocked: false,
             user_moved: false,
             pause_position: false,
@@ -149,6 +161,85 @@ pub(super) fn window_events_self_test() -> Result<()> {
             return Err("Event fixture changed focus or used a timer".into());
         }
         drop(reader_lock);
+        // Exercise the production tick decision before an event, independently
+        // for no world and stopped waves. Only this process's fixture is found.
+        for no_world in [true, false] {
+            {
+                use starrupture_observation_model::{observation::*, overlay_stream::GameIdentity};
+                let at = now_ms().max(0) as u64;
+                let mut reading = shared.lock().map_err(|_| "Fixture reader mutex poisoned")?;
+                reading.process = GetCurrentProcessId();
+                reading.no_world = no_world;
+                reading.value = Some(Box::new(Observation {
+                    process: GameIdentity {
+                        pid: reading.process,
+                        creation_ticks: 1,
+                        executable_sha256: "0".repeat(64).into(),
+                    },
+                    overlay_session: OverlaySession::default(),
+                    observed_at_ms: at,
+                    window: ReadWindow {
+                        completed_ms: at,
+                        ..ReadWindow::default()
+                    },
+                    reader_is_elevated: false,
+                    position: Position::default(),
+                    map_position: None,
+                    world: WorldState::default(),
+                    clocks: Clocks::default(),
+                    pause: PauseState::default(),
+                    wave: WaveTiming {
+                        phase: if no_world {
+                            Phase::Waiting
+                        } else {
+                            Phase::Disabled
+                        },
+                        ..WaveTiming::default()
+                    },
+                }));
+            }
+            tick(hud.0);
+            if state.game != game.0 || state.countdown_eligible || IsWindowVisible(hud.0) != 0 {
+                return Err("Tick did not hide the ineligible fixture countdown".into());
+            }
+            let reader_lock = shared.lock().map_err(|_| "Fixture reader mutex poisoned")?;
+            let before = handled;
+            let start = Instant::now();
+            NotifyWinEvent(EVENT_OBJECT_REORDER, game.0, OBJID_WINDOW, 0);
+            while handled == before {
+                if start.elapsed() > Duration::from_secs(2) {
+                    return Err("Hidden-state window notification was not handled".into());
+                }
+                let mut message = MSG::default();
+                while PeekMessageW(&mut message, std::ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
+                    if message.message == crate::window_events::CHANGED {
+                        handled += 1;
+                    }
+                    if message.message == WM_TIMER {
+                        return Err("Hidden-state diagnostic used a timer".into());
+                    }
+                    TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                    if IsWindowVisible(hud.0) != 0 {
+                        return Err("Window event resurrected an ineligible countdown".into());
+                    }
+                }
+                std::thread::yield_now();
+            }
+            drop(reader_lock);
+        }
+        // A later eligible observation must still allow event-driven recovery.
+        {
+            let mut reading = shared.lock().map_err(|_| "Fixture reader mutex poisoned")?;
+            reading.value = None;
+        }
+        tick(hud.0);
+        if !state.countdown_eligible || IsWindowVisible(hud.0) == 0 {
+            return Err("Countdown did not recover after visibility became eligible".into());
+        }
+        if GetForegroundWindow() != foreground {
+            return Err("Hidden-state fixture changed focus".into());
+        }
         drop(events);
         // Unregistered callbacks must not enqueue new work, including callbacks
         // already queued before unregistration (the target has been disabled).
@@ -177,7 +268,10 @@ pub(super) fn window_events_self_test() -> Result<()> {
                 "gameRead": false,
                 "actualWindowsModified": false,
                 "injectedCode": false,
-                "notificationRoundTrips": 20,
+                "notificationRoundTrips": 22,
+                "noWorldRemainsHidden": true,
+                "stoppedWavesRemainHidden": true,
+                "eligibleCountdownRecovers": true,
                 "timerMessages": timers,
                 "readerMutexHeldDuringRecovery": true,
                 "maxRecoveryMicros": max_micros,
@@ -191,6 +285,9 @@ pub(super) fn window_events_self_test() -> Result<()> {
 
 /// Exercise our own hidden HWND only: no game reads, focus change or tray icon.
 pub(super) fn window_self_test() -> Result<()> {
+    // SAFETY: The registered callback has the Win32 ABI, class/title strings remain live during
+    // creation, and any creation-state box stays at a stable address until after the new HWND is
+    // destroyed.
     unsafe {
         let foreground = GetForegroundWindow();
         let module = GetModuleHandleW(std::ptr::null());
@@ -206,6 +303,7 @@ pub(super) fn window_self_test() -> Result<()> {
         }
         let stop = Arc::new(StopSignal::default());
         let mut state = Box::new(App {
+            compass: crate::compass::Panel::default(),
             recipe: crate::recipe_tracker::Panel::new(),
             dialogs: crate::dialogs::Dialogs::default(),
             dialog_context: crate::dialogs::Context::diagnostic(std::path::PathBuf::new()),
@@ -213,6 +311,8 @@ pub(super) fn window_self_test() -> Result<()> {
             launch: crate::connection::Launch::default(),
             tray_status: String::new(),
             shared: Arc::new(Mutex::new(Reading {
+                compass: None,
+                navigation: Arc::new(Default::default()),
                 no_world: false,
                 value: None,
                 menu: None,
@@ -225,6 +325,7 @@ pub(super) fn window_self_test() -> Result<()> {
             renderer: LayerRenderer::default(),
             preview: Some("Moving".into()),
             hidden: true,
+            countdown_eligible: false,
             unlocked: false,
             user_moved: false,
             pause_position: false,
@@ -313,6 +414,9 @@ pub(super) fn self_test(dir: &std::path::Path) -> Result<()> {
     std::fs::create_dir_all(dir)?;
     let width = 220;
     let height = 80 + STAGE_TOP_PADDING;
+    // SAFETY: The owned DIB exposes initialized width * height * 4 bytes; its bitmap remains
+    // selected and alive through this UI-thread-only slice access. GdiFlush finishes native writes
+    // first.
     unsafe {
         let screen = GetDC(std::ptr::null_mut());
         let dc = CreateCompatibleDC(screen);

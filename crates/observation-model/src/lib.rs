@@ -6,4 +6,5 @@ pub mod wave;
 
 /// Compatibility identifier checked by the typed observation validator.
 pub const READER_CONTRACT_VERSION: &str = "0.5.0";
+pub mod compass;
 pub mod recipe;

@@ -13,6 +13,9 @@ struct Surface {
 }
 impl Drop for Surface {
     fn drop(&mut self) {
+        // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match their
+        // lengths. Owned GDI objects are restored/deselected before deletion; stock/system objects
+        // remain borrowed.
         unsafe {
             SelectObject(self.dc, self.old);
             DeleteObject(self.bitmap);
@@ -26,6 +29,8 @@ impl Surface {
             (1..=4096).contains(&width) && (1..=4096).contains(&height),
             "Recipe surface bounds"
         );
+        // SAFETY: Win32 accepts the borrowed source DC or null; the returned compatible DC is owned
+        // here and is released with DeleteDC after selected objects are restored.
         let dc = unsafe { CreateCompatibleDC(std::ptr::null_mut()) };
         ensure!(!dc.is_null(), "Recipe render context");
         let info = BITMAPINFO {
@@ -41,17 +46,29 @@ impl Surface {
             ..Default::default()
         };
         let mut bits = std::ptr::null_mut();
+        // SAFETY: BITMAPINFO has the required initialized header and bounded dimensions; the
+        // writable bits out-pointer is local. The returned bitmap is owned and remains alive until
+        // it is deselected and deleted.
         let bitmap = unsafe {
             CreateDIBSection(dc, &info, DIB_RGB_COLORS, &mut bits, std::ptr::null_mut(), 0)
         };
         if bitmap.is_null() {
+            // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match
+            // their lengths. Owned GDI objects are restored/deselected before deletion;
+            // stock/system objects remain borrowed.
             unsafe {
                 DeleteDC(dc);
             }
             anyhow::bail!("Recipe render bitmap")
         };
+        // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match their
+        // lengths. Owned GDI objects are restored/deselected before deletion; stock/system objects
+        // remain borrowed.
         let old = unsafe { SelectObject(dc, bitmap) };
         if old.is_null() || old as isize == -1 {
+            // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match
+            // their lengths. Owned GDI objects are restored/deselected before deletion;
+            // stock/system objects remain borrowed.
             unsafe {
                 DeleteObject(bitmap);
                 DeleteDC(dc);
@@ -68,6 +85,9 @@ impl Surface {
         })
     }
     fn pixels(&self) -> Vec<u8> {
+        // SAFETY: The owned DIB exposes initialized width * height * 4 bytes; its bitmap remains
+        // selected and alive through this UI-thread-only slice access. GdiFlush finishes native
+        // writes first.
         unsafe {
             GdiFlush();
             std::slice::from_raw_parts(self.bits, self.width as usize * self.height as usize * 4)
@@ -144,6 +164,9 @@ struct Text {
 }
 impl Text {
     fn draw(&self, dc: HDC) {
+        // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match their
+        // lengths. Owned GDI objects are restored/deselected before deletion; stock/system objects
+        // remain borrowed.
         unsafe {
             let name = wide("Nippo");
             let mut size = self.size;
@@ -467,12 +490,17 @@ fn draw_panel(
             layout: TextLayout::Centered,
         });
     }
+    // SAFETY: The Vec and owned top-down DIB are disjoint allocations of the same checked BGRA byte
+    // length; only this UI thread accesses the bitmap.
     unsafe {
         std::ptr::copy_nonoverlapping(pixels.as_ptr(), surface.bits, pixels.len());
     }
     for text in texts {
         text.draw(surface.dc)
     }
+    // SAFETY: The Vec and owned top-down DIB are disjoint allocations of the same checked BGRA byte
+    // length; only this UI thread accesses the bitmap. GdiFlush completes queued GDI writes before
+    // the CPU reads the DIB.
     unsafe {
         GdiFlush();
         std::ptr::copy_nonoverlapping(surface.bits, pixels.as_mut_ptr(), pixels.len());
@@ -504,6 +532,8 @@ fn draw_panel(
             }
         }
     }
+    // SAFETY: The Vec and owned top-down DIB are disjoint allocations of the same checked BGRA byte
+    // length; only this UI thread accesses the bitmap.
     unsafe {
         std::ptr::copy_nonoverlapping(pixels.as_ptr(), surface.bits, pixels.len());
     }
@@ -543,6 +573,9 @@ fn present(window: HWND, s: &Surface) -> Result<()> {
         AlphaFormat: AC_SRC_ALPHA as u8,
     };
     ensure!(
+        // SAFETY: The target overlay HWND and selected DIB/DC remain owned on this UI thread; SIZE,
+        // POINT and blend parameters are initialized locals valid through the synchronous bitmap
+        // upload.
         unsafe {
             UpdateLayeredWindow(
                 window,
@@ -589,6 +622,8 @@ fn close_pixels(hovered: bool) -> Vec<u8> {
 pub(super) fn close(window: HWND, hovered: bool) -> Result<()> {
     let surface = Surface::new(super::close::SIZE, super::close::SIZE)?;
     let pixels = close_pixels(hovered);
+    // SAFETY: The Vec and owned top-down DIB are disjoint allocations of the same checked BGRA byte
+    // length; only this UI thread accesses the bitmap.
     unsafe {
         std::ptr::copy_nonoverlapping(pixels.as_ptr(), surface.bits, pixels.len());
     }
@@ -608,6 +643,9 @@ fn tooltip_surface(name: &str, font_size: i32, max_width: i32) -> Result<Surface
     ensure!(!name.is_empty() && name.len() <= 240, "Tooltip name bound");
     let probe = Surface::new(1, 1)?;
     let family = wide("Nippo");
+    // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match their
+    // lengths. Owned GDI objects are restored/deselected before deletion; stock/system objects
+    // remain borrowed.
     let font = unsafe {
         CreateFontW(
             -font_size,
@@ -634,6 +672,9 @@ fn tooltip_surface(name: &str, font_size: i32, max_width: i32) -> Result<Surface
         right: (max_width - 24).max(20),
         bottom: 0,
     };
+    // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match their
+    // lengths. Owned GDI objects are restored/deselected before deletion; stock/system objects
+    // remain borrowed.
     unsafe {
         let previous = SelectObject(probe.dc, font);
         DrawTextW(
@@ -653,6 +694,8 @@ fn tooltip_surface(name: &str, font_size: i32, max_width: i32) -> Result<Surface
     for pixel in pixels.as_chunks_mut::<4>().0 {
         pixel.copy_from_slice(&[8, 8, 8, 250]);
     }
+    // SAFETY: The Vec and owned top-down DIB are disjoint allocations of the same checked BGRA byte
+    // length; only this UI thread accesses the bitmap.
     unsafe {
         std::ptr::copy_nonoverlapping(pixels.as_ptr(), surface.bits, pixels.len());
     }
@@ -681,6 +724,8 @@ fn tooltip_surface(name: &str, font_size: i32, max_width: i32) -> Result<Surface
             }
         }
     }
+    // SAFETY: The Vec and owned top-down DIB are disjoint allocations of the same checked BGRA byte
+    // length; only this UI thread accesses the bitmap.
     unsafe {
         std::ptr::copy_nonoverlapping(pixels.as_ptr(), surface.bits, pixels.len());
     }
@@ -945,9 +990,14 @@ pub(super) fn self_test_at(directory: &Path, asset_directory: &Path) -> Result<(
         }))?,
     )?;
     // Verify the private font is actually selected, not silently substituted.
+    // SAFETY: Win32 accepts the borrowed source DC or null; the returned compatible DC is owned
+    // here and is released with DeleteDC after selected objects are restored.
     let dc = unsafe { CreateCompatibleDC(std::ptr::null_mut()) };
     ensure!(!dc.is_null(), "Font test context");
     let name = wide("Nippo");
+    // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match their
+    // lengths. Owned GDI objects are restored/deselected before deletion; stock/system objects
+    // remain borrowed.
     let font = unsafe {
         CreateFontW(
             -20,
@@ -967,9 +1017,18 @@ pub(super) fn self_test_at(directory: &Path, asset_directory: &Path) -> Result<(
         )
     };
     ensure!(!font.is_null(), "Recipe test font");
+    // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match their
+    // lengths. Owned GDI objects are restored/deselected before deletion; stock/system objects
+    // remain borrowed.
     let old = unsafe { SelectObject(dc, font) };
     let mut face = [0u16; 128];
+    // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match their
+    // lengths. Owned GDI objects are restored/deselected before deletion; stock/system objects
+    // remain borrowed.
     let n = unsafe { GetTextFaceW(dc, 128, face.as_mut_ptr()) };
+    // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match their
+    // lengths. Owned GDI objects are restored/deselected before deletion; stock/system objects
+    // remain borrowed.
     unsafe {
         SelectObject(dc, old);
         DeleteObject(font);

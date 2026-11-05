@@ -27,3 +27,6 @@ starrupture-observation-model = { path = "../observation-model" }
 
 [lib]
 path = "src/lib.rs"
+
+[lints]
+workspace = true

@@ -5,6 +5,8 @@ use super::*;
 pub fn self_test(directory: &Path) -> Result<()> {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
     fs::create_dir_all(directory)?;
+    // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+    // identity themselves, and neither dereference Rust memory nor transfer ownership.
     let foreground = unsafe { GetForegroundWindow() };
     let context = Context::diagnostic(directory.join("preferences.json"));
     let mut dialogs = Dialogs::default();
@@ -13,10 +15,16 @@ pub fn self_test(directory: &Path) -> Result<()> {
     dialogs.open(SETTINGS, std::ptr::null_mut(), context.clone())?;
     ensure!(dialogs.windows.len() == 1, "Settings opened more than one window");
     ensure!(
+        // SAFETY: The UI/fixture owns the dialog and its resource-template child handles; only
+        // scalar enabled/theme/invalidation state is changed or queried, with no Rust pointer
+        // retained.
         unsafe { IsWindowEnabled(GetDlgItem(window, IDOK)) } == 0,
         "Save should start disabled"
     );
     ensure!(
+        // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+        // initialized text/message buffers remain live until the call returns, with no retained
+        // Rust pointers.
         unsafe { SendDlgItemMessageW(window, 111, CB_GETCURSEL, 0, 0) } == 0,
         "Default exit preference changed"
     );
@@ -30,6 +38,9 @@ pub fn self_test(directory: &Path) -> Result<()> {
         shortcut_labels(&dialogs.windows[0].0);
         for (control, expected) in [(112, expected_label), (113, expected_action)] {
             let mut buffer = [0u16; 128];
+            // SAFETY: These synchronous messages target owned UI controls/windows; scalar
+            // parameters or initialized text/message buffers remain live until the call returns,
+            // with no retained Rust pointers.
             let length = unsafe {
                 GetDlgItemTextW(window, control, buffer.as_mut_ptr(), buffer.len() as i32)
             };
@@ -42,32 +53,71 @@ pub fn self_test(directory: &Path) -> Result<()> {
             capture(window, &directory.join("settings-shortcut-update.bmp"))?;
         }
     }
+    ensure!(selected(&dialogs.windows[0].0).compass_enabled, "Compass should default on");
+    // SAFETY: The diagnostic owns the dialog and checkbox and sends only scalar control messages.
+    unsafe {
+        SendDlgItemMessageW(window, 174, BM_SETCHECK, BST_UNCHECKED as usize, 0);
+        SendMessageW(window, WM_COMMAND, 174, 0);
+    }
+    ensure!(
+        !selected(&dialogs.windows[0].0).compass_enabled,
+        "Compass checkbox did not update selection"
+    );
+    // SAFETY: IsWindowEnabled queries only the diagnostic's owned Save control.
+    ensure!(
+        // SAFETY: This query uses only the diagnostic-owned Save control.
+        unsafe { IsWindowEnabled(GetDlgItem(window, IDOK)) } != 0,
+        "Compass edit did not enable Save"
+    );
+    // SAFETY: Restore the owned checkbox using synchronous scalar messages.
+    unsafe {
+        SendDlgItemMessageW(window, 174, BM_SETCHECK, BST_CHECKED as usize, 0);
+        SendMessageW(window, WM_COMMAND, 174, 0);
+    }
     capture(window, &directory.join("settings.bmp"))?;
     let mut general = RECT::default();
+    // SAFETY: Win32 validates the borrowed handle where required; every output points to an
+    // initialized local struct or bounded writable slice that stays live for the synchronous query.
     unsafe {
         GetClientRect(window, &mut general);
     }
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     unsafe {
         SendDlgItemMessageW(window, 155, TCM_SETCURSEL, 1, 0);
     }
     settings_tab(&dialogs.windows[0].0);
     capture(window, &directory.join("settings-recipe.bmp"))?;
     let before = selected(&dialogs.windows[0].0).recipe_tracker;
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     unsafe {
         SendDlgItemMessageW(window, 150, BM_SETCHECK, BST_UNCHECKED as usize, 0);
         SendMessageW(window, WM_COMMAND, 150, 0);
     }
     for id in RECIPE_FIELDS {
         ensure!(
+            // SAFETY: The UI/fixture owns the dialog and its resource-template child handles; only
+            // scalar enabled/theme/invalidation state is changed or queried, with no Rust pointer
+            // retained.
             unsafe { IsWindowEnabled(GetDlgItem(window, id)) } == 0,
             "Disabled recipe control remained active: {id}"
         );
     }
     ensure!(
+        // SAFETY: The UI/fixture owns the dialog and its resource-template child handles; only
+        // scalar enabled/theme/invalidation state is changed or queried, with no Rust pointer
+        // retained.
         unsafe { IsWindowEnabled(GetDlgItem(window, 150)) } != 0,
         "Recipe enable switch disabled itself"
     );
     ensure!(
+        // SAFETY: The UI/fixture owns the dialog and its resource-template child handles; only
+        // scalar enabled/theme/invalidation state is changed or queried, with no Rust pointer
+        // retained.
+        // SAFETY: This query uses only the diagnostic-owned Save control.
         unsafe { IsWindowEnabled(GetDlgItem(window, IDOK)) } != 0,
         "Disabling recipes did not enable Save"
     );
@@ -78,12 +128,18 @@ pub fn self_test(directory: &Path) -> Result<()> {
         "Disabling recipes changed saved options"
     );
     capture(window, &directory.join("settings-recipe-disabled.bmp"))?;
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     unsafe {
         SendDlgItemMessageW(window, 150, BM_SETCHECK, BST_CHECKED as usize, 0);
         SendMessageW(window, WM_COMMAND, 150, 0);
     }
     for id in RECIPE_FIELDS {
         ensure!(
+            // SAFETY: The UI/fixture owns the dialog and its resource-template child handles; only
+            // scalar enabled/theme/invalidation state is changed or queried, with no Rust pointer
+            // retained.
             unsafe { IsWindowEnabled(GetDlgItem(window, id)) } != 0,
             "Re-enabled recipe control stayed disabled: {id}"
         );
@@ -93,22 +149,31 @@ pub fn self_test(directory: &Path) -> Result<()> {
         "Re-enabling recipes lost options"
     );
     ensure!(
+        // SAFETY: The UI/fixture owns the dialog and its resource-template child handles; only
+        // scalar enabled/theme/invalidation state is changed or queried, with no Rust pointer
+        // retained.
         unsafe { IsWindowEnabled(GetDlgItem(window, IDOK)) } == 0,
         "Restoring enable state left Save dirty"
     );
     settings_message(&dialogs.windows[0].0, "Choose a shortcut including Alt or Ctrl.");
     let mut message_size = RECT::default();
+    // SAFETY: Win32 validates the borrowed handle where required; every output points to an
+    // initialized local struct or bounded writable slice that stays live for the synchronous query.
     unsafe {
         GetClientRect(window, &mut message_size);
     }
     capture(window, &directory.join("settings-recipe-message.bmp"))?;
     settings_message(&dialogs.windows[0].0, "");
     let mut restored_size = RECT::default();
+    // SAFETY: Win32 validates the borrowed handle where required; every output points to an
+    // initialized local struct or bounded writable slice that stays live for the synchronous query.
     unsafe {
         GetClientRect(window, &mut restored_size);
     }
     ensure!(message_size.bottom > restored_size.bottom, "Messages did not receive dedicated space");
     let mut compact = RECT::default();
+    // SAFETY: Win32 validates the borrowed handle where required; every output points to an
+    // initialized local struct or bounded writable slice that stays live for the synchronous query.
     unsafe {
         GetClientRect(window, &mut compact);
     }
@@ -117,6 +182,8 @@ pub fn self_test(directory: &Path) -> Result<()> {
         "Preparing recipe icons. You can keep playing while setup finishes.".into();
     dialogs.refresh_recipe_status();
     let mut with_status = RECT::default();
+    // SAFETY: Win32 validates the borrowed handle where required; every output points to an
+    // initialized local struct or bounded writable slice that stays live for the synchronous query.
     unsafe {
         GetClientRect(window, &mut with_status);
     }
@@ -127,18 +194,27 @@ pub fn self_test(directory: &Path) -> Result<()> {
     capture(window, &directory.join("settings-recipe-status.bmp"))?;
     context.recipe_status.borrow_mut().clear();
     dialogs.refresh_recipe_status();
+    // SAFETY: Win32 validates the borrowed handle where required; every output points to an
+    // initialized local struct or bounded writable slice that stays live for the synchronous query.
     unsafe {
         GetClientRect(window, &mut with_status);
     }
     ensure!(with_status.bottom == compact.bottom, "Empty setup status left blank space");
     ensure!(
+        // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+        // identity themselves, and neither dereference Rust memory nor transfer ownership.
         unsafe { GetWindowLongPtrW(GetDlgItem(window, 150), GWL_STYLE) } as u32 & WS_VISIBLE != 0,
         "Recipe tab controls hidden"
     );
     ensure!(
+        // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+        // identity themselves, and neither dereference Rust memory nor transfer ownership.
         unsafe { GetWindowLongPtrW(GetDlgItem(window, 110), GWL_STYLE) } as u32 & WS_VISIBLE == 0,
         "General tab overlaps recipe controls"
     );
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     unsafe {
         SendDlgItemMessageW(window, 155, TCM_SETCURSEL, 0, 0);
     }
@@ -148,10 +224,16 @@ pub fn self_test(directory: &Path) -> Result<()> {
         "Default recipe shortcut is not Alt+X"
     );
     ensure!(
+        // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+        // initialized text/message buffers remain live until the call returns, with no retained
+        // Rust pointers.
         unsafe { SendDlgItemMessageW(window, 150, BM_GETCHECK, 0, 0) } == BST_CHECKED as isize,
         "Recipe tracker default changed"
     );
     ensure!(
+        // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+        // initialized text/message buffers remain live until the call returns, with no retained
+        // Rust pointers.
         unsafe { SendDlgItemMessageW(window, 157, BM_GETCHECK, 0, 0) } == BST_CHECKED as isize,
         "Double-click pinning default changed"
     );
@@ -162,6 +244,9 @@ pub fn self_test(directory: &Path) -> Result<()> {
         struct Keyboard([u8; 256]);
         impl Drop for Keyboard {
             fn drop(&mut self) {
+                // SAFETY: The keyboard-state array has exactly 256 initialized bytes; these calls
+                // affect only this diagnostic thread, and the guard restores the saved state before
+                // leaving the fixture.
                 unsafe {
                     SetKeyboardState(self.0.as_ptr());
                 }
@@ -169,6 +254,9 @@ pub fn self_test(directory: &Path) -> Result<()> {
         }
         let mut saved = Keyboard([0; 256]);
         ensure!(
+            // SAFETY: The keyboard-state array has exactly 256 initialized bytes; these calls
+            // affect only this diagnostic thread, and the guard restores the saved state before
+            // leaving the fixture.
             unsafe { GetKeyboardState(saved.0.as_mut_ptr()) } != 0,
             "Keyboard state unavailable"
         );
@@ -179,7 +267,13 @@ pub fn self_test(directory: &Path) -> Result<()> {
                     keys[virtual_key as usize] = 0x80;
                 }
             }
+            // SAFETY: The keyboard-state array has exactly 256 initialized bytes; these calls
+            // affect only this diagnostic thread, and the guard restores the saved state before
+            // leaving the fixture.
             ensure!(unsafe { SetKeyboardState(keys.as_ptr()) } != 0, "Diagnostic keyboard state");
+            // SAFETY: These synchronous messages target owned UI controls/windows; scalar
+            // parameters or initialized text/message buffers remain live until the call returns,
+            // with no retained Rust pointers.
             unsafe {
                 SendDlgItemMessageW(window, 151, HKM_SETHOTKEY, 0, 0);
                 SendDlgItemMessageW(window, 151, WM_KEYDOWN, key as usize, 1);
@@ -213,18 +307,67 @@ pub fn self_test(directory: &Path) -> Result<()> {
             save_settings(&dialogs.windows[0].0).is_err(),
             "Shortcut without Alt/Ctrl was saved"
         );
+        for key in [0x61, 0x6b] {
+            set_shortcut(
+                window,
+                preferences::RecipeSettings {
+                    key,
+                    modifiers: 2,
+                    ..Default::default()
+                },
+            );
+            ensure!(
+                captured_shortcut(&dialogs.windows[0].0).key == key,
+                "Captured virtual key was remapped"
+            );
+            ensure!(
+                save_settings(&dialogs.windows[0].0).is_err(),
+                "Unsupported numpad key was saved as a letter"
+            );
+            ensure!(
+                selected(&dialogs.windows[0].0).recipe_tracker.key == 0x58,
+                "Invalid capture replaced the previous key"
+            );
+        }
         ensure!(
             context.preferences.get() == Preferences::default(),
             "Invalid capture changed preferences"
         );
+        // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+        // initialized text/message buffers remain live until the call returns, with no retained
+        // Rust pointers.
+        unsafe {
+            SendDlgItemMessageW(window, 150, BM_SETCHECK, BST_UNCHECKED as usize, 0);
+            SendMessageW(window, WM_COMMAND, 150, 0);
+        }
+        save_settings(&dialogs.windows[0].0)?;
+        let disabled = preferences::load(&context.preferences_path)?.recipe_tracker;
+        ensure!(
+            !disabled.enabled && disabled.key == 0x58 && disabled.modifiers == 1,
+            "Disabling with an invalid capture did not preserve the valid shortcut"
+        );
+        context.preferences.set(Preferences::default());
+        // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+        // initialized text/message buffers remain live until the call returns, with no retained
+        // Rust pointers.
+        unsafe {
+            SendDlgItemMessageW(window, 150, BM_SETCHECK, BST_CHECKED as usize, 0);
+            SendMessageW(window, WM_COMMAND, 150, 0);
+        }
         set_shortcut(window, preferences::RecipeSettings::default());
         dirty(&dialogs.windows[0].0);
         ensure!(
+            // SAFETY: The UI/fixture owns the dialog and its resource-template child handles; only
+            // scalar enabled/theme/invalidation state is changed or queried, with no Rust pointer
+            // retained.
             unsafe { IsWindowEnabled(GetDlgItem(window, IDOK)) } == 0,
             "Restoring the shortcut did not clear dirty state"
         );
     }
     let mut selected_label = [0u16; 128];
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     let selected_length = unsafe {
         GetDlgItemTextW(window, 111, selected_label.as_mut_ptr(), selected_label.len() as i32)
     };
@@ -234,10 +377,16 @@ pub fn self_test(directory: &Path) -> Result<()> {
         "Selected exit preference is not visible to Windows controls"
     );
     ensure!(
+        // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+        // initialized text/message buffers remain live until the call returns, with no retained
+        // Rust pointers.
         unsafe { SendDlgItemMessageW(window, 156, CB_GETCURSEL, 0, 0) } == 0,
         "Default countdown format should show hours when needed"
     );
     // Diagnostic windows remain hidden when reused too.
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     unsafe {
         SendDlgItemMessageW(window, 111, CB_SETCURSEL, 1, 0);
         SendDlgItemMessageW(window, 156, CB_SETCURSEL, 1, 0);
@@ -245,15 +394,25 @@ pub fn self_test(directory: &Path) -> Result<()> {
         SendMessageW(window, WM_COMMAND, 111 | ((CBN_SELCHANGE as usize) << 16), 0);
     }
     ensure!(
+        // SAFETY: The UI/fixture owns the dialog and its resource-template child handles; only
+        // scalar enabled/theme/invalidation state is changed or queried, with no Rust pointer
+        // retained.
+        // SAFETY: This query uses only the diagnostic-owned Save control.
         unsafe { IsWindowEnabled(GetDlgItem(window, IDOK)) } != 0,
         "Edited settings did not enable Save"
     );
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     unsafe {
         SendMessageW(window, WM_COMMAND, IDCANCEL as usize, 0);
     }
     ensure!(context.preferences.get() == Preferences::default(), "Cancel changed preferences");
     dialogs.open(SETTINGS, std::ptr::null_mut(), context.clone())?;
     let window = dialogs.windows[0].0.window.get();
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     unsafe {
         SendDlgItemMessageW(window, 111, CB_SETCURSEL, 2, 0);
         SendDlgItemMessageW(window, 156, CB_SETCURSEL, 1, 0);
@@ -304,10 +463,16 @@ pub fn self_test(directory: &Path) -> Result<()> {
     let disabled_window = dialogs.windows[0].0.window.get();
     for id in RECIPE_FIELDS {
         ensure!(
+            // SAFETY: The UI/fixture owns the dialog and its resource-template child handles; only
+            // scalar enabled/theme/invalidation state is changed or queried, with no Rust pointer
+            // retained.
             unsafe { IsWindowEnabled(GetDlgItem(disabled_window, id)) } == 0,
             "Initially disabled tracker field is active: {id}"
         );
     }
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     unsafe {
         SendMessageW(disabled_window, WM_COMMAND, IDCANCEL as usize, 0);
     }
@@ -318,14 +483,22 @@ pub fn self_test(directory: &Path) -> Result<()> {
     failure.preferences_path = blocked;
     dialogs.open(SETTINGS, std::ptr::null_mut(), failure)?;
     let window = dialogs.windows[0].0.window.get();
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     unsafe {
         SendDlgItemMessageW(window, 111, CB_SETCURSEL, 1, 0);
         SendDlgItemMessageW(window, 156, CB_SETCURSEL, 1, 0);
         SendMessageW(window, WM_COMMAND, IDOK as usize, 0);
     }
+    // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+    // identity themselves, and neither dereference Rust memory nor transfer ownership.
     ensure!(unsafe { IsWindow(window) } != 0, "Save failure closed Settings");
     let mut value = [0u16; 512];
     ensure!(
+        // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+        // initialized text/message buffers remain live until the call returns, with no retained
+        // Rust pointers.
         unsafe { GetDlgItemTextW(window, 114, value.as_mut_ptr(), value.len() as i32) } > 0,
         "Save failure did not show an error"
     );
@@ -333,6 +506,9 @@ pub fn self_test(directory: &Path) -> Result<()> {
         context.preferences.get().game_exit == GameExit::Exit,
         "Failed save changed preferences"
     );
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     unsafe {
         SendMessageW(window, WM_COMMAND, IDCANCEL as usize, 0);
     }
@@ -343,9 +519,13 @@ pub fn self_test(directory: &Path) -> Result<()> {
         dialogs.windows.iter().find(|dialog| dialog.0.kind == ABOUT).unwrap().0.window.get();
     capture(about, &directory.join("about.bmp"))?;
     let mut icon_rect = RECT::default();
+    // SAFETY: Win32 validates the borrowed handle where required; every output points to an
+    // initialized local struct or bounded writable slice that stays live for the synchronous query.
     unsafe {
         GetWindowRect(GetDlgItem(about, 143), &mut icon_rect);
     }
+    // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+    // identity themselves, and neither dereference Rust memory nor transfer ownership.
     let dpi = unsafe { windows_sys::Win32::UI::HiDpi::GetDpiForWindow(about) }.max(96);
     ensure!(
         icon_rect.right - icon_rect.left == (57 * dpi as i32 + 48) / 96,
@@ -363,6 +543,9 @@ pub fn self_test(directory: &Path) -> Result<()> {
     context.connection.borrow_mut().update(crate::connection::GameStatus::Waiting);
     dialogs.refresh_about();
     capture(about, &directory.join("about-waiting.bmp"))?;
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     let length = unsafe { GetDlgItemTextW(about, 121, value.as_mut_ptr(), value.len() as i32) };
     ensure!(
         String::from_utf16_lossy(&value[..length as usize]) == "Waiting for StarRupture",
@@ -376,10 +559,14 @@ pub fn self_test(directory: &Path) -> Result<()> {
     let handles: Vec<_> = dialogs.windows.iter().map(|dialog| dialog.0.window.get()).collect();
     drop(dialogs);
     ensure!(
+        // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+        // identity themselves, and neither dereference Rust memory nor transfer ownership.
         handles.iter().all(|window| unsafe { IsWindow(*window) } == 0),
         "Dialog resources survived close"
     );
     ensure!(
+        // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+        // identity themselves, and neither dereference Rust memory nor transfer ownership.
         unsafe { GetForegroundWindow() } == foreground,
         "Hidden diagnostics changed foreground focus"
     );
@@ -399,6 +586,9 @@ fn capture(window: HWND, path: &Path) -> Result<()> {
     }
     impl Drop for Surface {
         fn drop(&mut self) {
+            // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match
+            // their lengths. Owned GDI objects are restored/deselected before deletion;
+            // stock/system objects remain borrowed.
             unsafe {
                 if !self.old.is_null() {
                     SelectObject(self.dc, self.old);
@@ -411,10 +601,15 @@ fn capture(window: HWND, path: &Path) -> Result<()> {
         }
     }
     let mut rect = RECT::default();
+    // SAFETY: Win32 validates the borrowed handle where required; every output points to an
+    // initialized local struct or bounded writable slice that stays live for the synchronous query.
     ensure!(unsafe { GetWindowRect(window, &mut rect) } != 0, "Could not measure dialog");
     struct OffscreenWindow(HWND, RECT);
     impl Drop for OffscreenWindow {
         fn drop(&mut self) {
+            // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles;
+            // native position/style values are scalar, and referenced menu/state objects remain
+            // alive through synchronous dispatch.
             unsafe {
                 ShowWindow(self.0, SW_HIDE);
                 SetWindowPos(
@@ -430,6 +625,9 @@ fn capture(window: HWND, path: &Path) -> Result<()> {
         }
     }
     let _visible = OffscreenWindow(window, rect);
+    // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles; native
+    // position/style values are scalar, and referenced menu/state objects remain alive through
+    // synchronous dispatch.
     unsafe {
         SetWindowPos(
             window,
@@ -450,8 +648,14 @@ fn capture(window: HWND, path: &Path) -> Result<()> {
     }
     let width = rect.right - rect.left;
     let height = rect.bottom - rect.top;
+    // SAFETY: The HWND is borrowed (or null for the screen); each acquired DC is released with the
+    // same target and is not deleted as an owned compatible DC.
     let screen = unsafe { GetDC(std::ptr::null_mut()) };
+    // SAFETY: Win32 accepts the borrowed source DC or null; the returned compatible DC is owned
+    // here and is released with DeleteDC after selected objects are restored.
     let dc = unsafe { CreateCompatibleDC(screen) };
+    // SAFETY: The HWND is borrowed (or null for the screen); each acquired DC is released with the
+    // same target and is not deleted as an owned compatible DC.
     unsafe {
         ReleaseDC(std::ptr::null_mut(), screen);
     }
@@ -469,9 +673,18 @@ fn capture(window: HWND, path: &Path) -> Result<()> {
     info.bmiHeader.biBitCount = 32;
     let mut bits = std::ptr::null_mut();
     surface.bitmap =
+        // SAFETY: BITMAPINFO has the required initialized header and bounded dimensions; the
+        // writable bits out-pointer is local. The returned bitmap is owned and remains alive until
+        // it is deselected and deleted.
         unsafe { CreateDIBSection(dc, &info, DIB_RGB_COLORS, &mut bits, std::ptr::null_mut(), 0) };
     ensure!(!surface.bitmap.is_null() && !bits.is_null(), "No dialog capture bitmap");
+    // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match their
+    // lengths. Owned GDI objects are restored/deselected before deletion; stock/system objects
+    // remain borrowed.
     surface.old = unsafe { SelectObject(dc, surface.bitmap) };
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     unsafe {
         SendMessageW(
             window,
@@ -482,6 +695,9 @@ fn capture(window: HWND, path: &Path) -> Result<()> {
         GdiFlush();
     }
     let pixels =
+        // SAFETY: The owned DIB exposes initialized width * height * 4 bytes; its bitmap remains
+        // selected and alive through this UI-thread-only slice access. GdiFlush finishes native
+        // writes first.
         unsafe { std::slice::from_raw_parts(bits.cast::<u8>(), (width * height * 4) as usize) };
     let mut header = Vec::new();
     header.extend(b"BM");

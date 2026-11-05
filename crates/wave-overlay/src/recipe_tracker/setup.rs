@@ -105,7 +105,7 @@ pub(super) fn diagnostic_assets() -> Result<PathBuf> {
     );
     Ok(directory)
 }
-fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
+pub(super) fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
     let file = fs::File::open(path)?;
     ensure!(file.metadata()?.len() <= limit, "Local setup file exceeds size bound");
     let mut bytes = Vec::new();
@@ -350,6 +350,24 @@ fn self_test_impl(directory: &Path, enabled: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bounded_reads_reject_oversize_cache_files() -> Result<()> {
+        let root = std::env::temp_dir().join(format!("overlay-read-bound-{}", std::process::id()));
+        fs::create_dir_all(&root)?;
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let path = root.join("progress.txt");
+        fs::write(&path, vec![b'x'; 513])?;
+        assert!(read_bounded(&path, 512).is_err());
+        fs::write(&path, vec![b'x'; 512])?;
+        assert_eq!(read_bounded(&path, 512)?.len(), 512);
+        Ok(())
+    }
     #[test]
     fn cache_rejects_changed_archives_corrupt_images_and_escaping_receipts() -> Result<()> {
         let scratch = std::env::temp_dir().join(format!(

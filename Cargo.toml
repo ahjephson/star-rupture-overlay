@@ -19,3 +19,7 @@ sha2 = "0.10"
 strip = true
 lto = "thin"
 codegen-units = 1
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"

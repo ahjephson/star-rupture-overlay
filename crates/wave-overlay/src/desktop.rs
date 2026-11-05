@@ -37,6 +37,9 @@ fn checked(code: u32) -> Result<()> {
 struct Key(HKEY);
 impl Drop for Key {
     fn drop(&mut self) {
+        // SAFETY: Registry strings are terminated and live for each call; output pointers reference
+        // initialized writable storage, and data lengths match the allocated slices. Opened keys
+        // are owned and closed by Key.
         unsafe {
             RegCloseKey(self.0);
         }
@@ -46,6 +49,9 @@ const RUN: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const VALUE: &str = "StarRuptureOverlay";
 pub fn startup_value() -> Result<Option<Vec<u16>>> {
     let mut size = 0;
+    // SAFETY: Registry strings are terminated and live for each call; output pointers reference
+    // initialized writable storage, and data lengths match the allocated slices. Opened keys are
+    // owned and closed by Key.
     let code = unsafe {
         RegGetValueW(
             HKEY_CURRENT_USER,
@@ -63,6 +69,9 @@ pub fn startup_value() -> Result<Option<Vec<u16>>> {
     checked(code)?;
     ensure!(size <= 65536 && size % 2 == 0, "Invalid startup registration");
     let mut value = vec![0u16; size as usize / 2];
+    // SAFETY: Registry strings are terminated and live for each call; output pointers reference
+    // initialized writable storage, and data lengths match the allocated slices. Opened keys are
+    // owned and closed by Key.
     checked(unsafe {
         RegGetValueW(
             HKEY_CURRENT_USER,
@@ -79,6 +88,9 @@ pub fn startup_value() -> Result<Option<Vec<u16>>> {
 }
 pub fn set_startup(value: Option<&[u16]>) -> Result<()> {
     let mut key = std::ptr::null_mut();
+    // SAFETY: Registry strings are terminated and live for each call; output pointers reference
+    // initialized writable storage, and data lengths match the allocated slices. Opened keys are
+    // owned and closed by Key.
     checked(unsafe {
         RegCreateKeyExW(
             HKEY_CURRENT_USER,
@@ -94,6 +106,9 @@ pub fn set_startup(value: Option<&[u16]>) -> Result<()> {
     })?;
     let key = Key(key);
     match value {
+        // SAFETY: Registry strings are terminated and live for each call; output pointers reference
+        // initialized writable storage, and data lengths match the allocated slices. Opened keys
+        // are owned and closed by Key.
         Some(value) => checked(unsafe {
             RegSetValueExW(
                 key.0,
@@ -105,6 +120,9 @@ pub fn set_startup(value: Option<&[u16]>) -> Result<()> {
             )
         }),
         None => {
+            // SAFETY: Registry strings are terminated and live for each call; output pointers
+            // reference initialized writable storage, and data lengths match the allocated slices.
+            // Opened keys are owned and closed by Key.
             let code = unsafe { RegDeleteValueW(key.0, wide(VALUE).as_ptr()) };
             if code == ERROR_FILE_NOT_FOUND {
                 Ok(())
@@ -168,6 +186,8 @@ pub fn startup_command(config: Option<&Path>) -> Result<Vec<u16>> {
 struct Com;
 impl Com {
     fn initialize() -> Result<Self> {
+        // SAFETY: COM initialization and its matching successful-initialization guard are confined
+        // to this thread; CoUninitialize runs only for that guard.
         unsafe {
             CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE).ok()?;
         }
@@ -176,6 +196,8 @@ impl Com {
 }
 impl Drop for Com {
     fn drop(&mut self) {
+        // SAFETY: COM initialization and its matching successful-initialization guard are confined
+        // to this thread; CoUninitialize runs only for that guard.
         unsafe {
             CoUninitialize();
         }
@@ -185,9 +207,13 @@ impl Drop for Com {
 pub fn shortcut_path() -> Result<PathBuf> {
     let mut raw = std::ptr::null_mut();
     let result =
+        // SAFETY: The known-folder GUID is static and the output pointer is writable; success
+        // yields a terminated COM-task allocation copied and freed by shortcut_path.
         unsafe { SHGetKnownFolderPath(&FOLDERID_Desktop, 0, std::ptr::null_mut(), &mut raw) };
     ensure!(result >= 0, "Could not find the user's Desktop ({result:#x})");
     let mut size = 0;
+    // SAFETY: Successful SHGetKnownFolderPath returns a CoTaskMem-allocated, NUL-terminated UTF-16
+    // buffer; copy its contents before freeing that allocation exactly once.
     unsafe {
         while *raw.add(size) != 0 {
             size += 1;
@@ -252,6 +278,8 @@ pub fn shortcut_state(path: &Path, config: Option<&Path>) -> Result<ShortcutStat
         return Ok(ShortcutState::Missing);
     }
     let _com = Com::initialize()?;
+    // SAFETY: The apartment COM guard lives through these calls; the ShellLink interfaces are owned
+    // values and UTF-16 input/output buffers remain valid for every synchronous method.
     unsafe {
         let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
         let persist: IPersistFile = link.cast()?;
@@ -309,6 +337,8 @@ fn toggle_shortcut_at(path: &Path, config: Option<&Path>) -> Result<bool> {
             0
         };
         ensure!(
+            // SAFETY: Both paths are terminated UTF-16 buffers retained through the call; flags
+            // operate only on the owned temporary and explicitly selected destination file.
             unsafe {
                 windows_sys::Win32::Storage::FileSystem::MoveFileExW(
                     wide(&temporary).as_ptr(),
@@ -329,6 +359,8 @@ fn toggle_shortcut_at(path: &Path, config: Option<&Path>) -> Result<bool> {
 }
 fn save_shortcut(path: &Path, executable: &Path, config: Option<&Path>) -> Result<()> {
     let _com = Com::initialize()?;
+    // SAFETY: The apartment COM guard lives through these calls; the ShellLink interfaces are owned
+    // values and UTF-16 input/output buffers remain valid for every synchronous method.
     unsafe {
         let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
         link.SetPath(PCWSTR(wide(executable).as_ptr()))?;
@@ -345,6 +377,8 @@ fn save_shortcut(path: &Path, executable: &Path, config: Option<&Path>) -> Resul
 }
 pub fn open(owner: HWND, target: &str) -> Result<()> {
     let _com = Com::initialize()?;
+    // SAFETY: The shell operation and target are terminated UTF-16 buffers live for this call; the
+    // owner HWND is borrowed and no Rust allocation is handed to the shell.
     let result = unsafe {
         ShellExecuteW(
             owner,
@@ -438,6 +472,8 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), before);
         save_shortcut(&path, &target, None).unwrap();
         let _com = Com::initialize().unwrap();
+        // SAFETY: The apartment COM guard lives through these calls; the ShellLink interfaces are
+        // owned values and UTF-16 input/output buffers remain valid for every synchronous method.
         unsafe {
             let link: IShellLinkW =
                 CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).unwrap();

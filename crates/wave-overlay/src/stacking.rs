@@ -10,12 +10,17 @@ const POSITION_FLAGS: u32 = SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOMOVE | SW
 /// Changes only our HWND. Topmost games are followed only while foreground;
 /// switching away hides and demotes the HUD without activating another window.
 pub(super) fn follow_game(overlay: HWND, game: HWND) -> bool {
+    // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+    // identity themselves, and neither dereference Rust memory nor transfer ownership.
     follow_game_with_foreground(overlay, game, || unsafe { GetForegroundWindow() })
 }
 
 // A foreground provider lets the owned-window diagnostic exercise focus transitions
 // without stealing the user's actual foreground window.
 fn follow_game_with_foreground(overlay: HWND, game: HWND, foreground: impl Fn() -> HWND) -> bool {
+    // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles; native
+    // position/style values are scalar, and referenced menu/state objects remain alive through
+    // synchronous dispatch.
     unsafe {
         if IsWindow(overlay) == 0 || overlay == game {
             return false;
@@ -85,6 +90,9 @@ fn follow_game_with_foreground(overlay: HWND, game: HWND, foreground: impl Fn() 
 /// Place a close target above its own panel, keeping the group below unrelated windows.
 /// All HWND mutations affect our windows; focus/band eligibility still belongs to the game.
 pub(super) fn follow_companion(overlay: HWND, anchor: HWND, game: HWND) -> bool {
+    // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles; native
+    // position/style values are scalar, and referenced menu/state objects remain alive through
+    // synchronous dispatch.
     unsafe {
         if IsWindow(overlay) == 0
             || !target_available(game)
@@ -143,11 +151,22 @@ pub(super) fn follow_companion(overlay: HWND, anchor: HWND, game: HWND) -> bool 
         valid
     }
 }
+/// # Safety
+/// Call on the overlay UI thread with a borrowed native HWND; Win32 may reject stale handles
+/// and no ownership is transferred.
 unsafe fn topmost(window: HWND) -> bool {
+    // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+    // identity themselves, and neither dereference Rust memory nor transfer ownership.
     unsafe { GetWindowLongPtrW(window, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST != 0 }
 }
 
+/// # Safety
+/// overlay must belong to this UI-thread owner; it must never be a game or unrelated
+/// application window.
 unsafe fn hide_and_demote(overlay: HWND) {
+    // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles; native
+    // position/style values are scalar, and referenced menu/state objects remain alive through
+    // synchronous dispatch.
     unsafe {
         ShowWindow(overlay, SW_HIDE);
         if topmost(overlay) {
@@ -156,7 +175,12 @@ unsafe fn hide_and_demote(overlay: HWND) {
     }
 }
 
+/// # Safety
+/// Pass only a borrowed native HWND for validation; this query must not be interpreted as
+/// retaining or owning the target.
 unsafe fn target_available(game: HWND) -> bool {
+    // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+    // identity themselves, and neither dereference Rust memory nor transfer ownership.
     unsafe {
         !game.is_null() && IsWindow(game) != 0 && IsWindowVisible(game) != 0 && IsIconic(game) == 0
     }
@@ -174,6 +198,9 @@ pub(super) fn self_test() -> Result<(), Box<dyn std::error::Error>> {
     impl OwnedWindow {
         fn close(&mut self) {
             if !self.0.is_null() {
+                // SAFETY: Only this UI/fixture owner destroys its HWND; boxed callback state
+                // remains alive until DestroyWindow completes, and stale handles are validated by
+                // Win32.
                 unsafe {
                     DestroyWindow(self.0);
                 }
@@ -186,10 +213,15 @@ pub(super) fn self_test() -> Result<(), Box<dyn std::error::Error>> {
             self.close();
         }
     }
+    /// # Safety
+    /// Call only with Win32 message parameters for this owned fixture class; no Rust
+    /// creation-state pointer is installed for this default-procedure wrapper.
     unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isize) -> isize {
         if message == WM_MOUSEACTIVATE {
             MA_NOACTIVATE as isize
         } else {
+            // SAFETY: This callback forwards the original Win32 message parameters unchanged;
+            // message-owned pointers remain valid for the synchronous default handling.
             unsafe { DefWindowProcW(window, message, w, l) }
         }
     }
@@ -200,7 +232,12 @@ pub(super) fn self_test() -> Result<(), Box<dyn std::error::Error>> {
             Err(format!("Stacking check failed: {label}").into())
         }
     }
+    /// # Safety
+    /// Both arguments must be native HWNDs borrowed by this fixture; ordering is only
+    /// observed and neither target is retained.
     unsafe fn above(first: HWND, second: HWND) -> bool {
+        // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+        // identity themselves, and neither dereference Rust memory nor transfer ownership.
         let mut current = unsafe { GetWindow(second, GW_HWNDPREV) };
         // Bounded because windows can disappear/reorder during enumeration.
         for _ in 0..4096 {
@@ -210,10 +247,16 @@ pub(super) fn self_test() -> Result<(), Box<dyn std::error::Error>> {
             if current == first {
                 return true;
             }
+            // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native
+            // handle identity themselves, and neither dereference Rust memory nor transfer
+            // ownership.
             current = unsafe { GetWindow(current, GW_HWNDPREV) };
         }
         false
     }
+    // SAFETY: The registered callback has the Win32 ABI, class/title strings remain live during
+    // creation, and any creation-state box stays at a stable address until after the new HWND is
+    // destroyed.
     unsafe {
         let foreground = GetForegroundWindow();
         let module = GetModuleHandleW(null_mut());

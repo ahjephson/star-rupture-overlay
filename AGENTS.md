@@ -6,6 +6,8 @@ Read README.md, docs/ARCHITECTURE.md and docs/BUILDING.md before changes.
 
 ## Implementation
 
+- Use the local [Rust skills](.agents/skills/rust-skills/SKILL.md) when writing, reviewing or refactoring first-party Rust. Read the relevant rule files as needed. Apply the guidance within this project's read-only game-access, resource-lifetime, toolchain and architecture requirements.
+
 - Use query/read process permissions exclusively and run with standard user privileges. Keep game memory and save files unchanged.
 - Keep memory reads on the embedded worker thread and rendering in the application's own native window. Preserve bounded observation envelopes, sequence/process/build/generation/freshness guards, per-read cancellation/time budgets and joined shutdown.
 - Fast menu observations control position only. Timer observations independently establish simulation time and pause evidence. Advance countdowns only from validated simulation observations.

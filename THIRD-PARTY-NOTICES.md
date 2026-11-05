@@ -22,3 +22,7 @@ Oxanium font binaries are embedded under their original names and retain their o
 ## Recipe setup components
 
 Recipe assets are prepared offline by built-in Rust code from the user's installed game. No third-party executable or native decompressor is downloaded or bundled. Selected retoc/repak source and the BC3 decoder retain their licences listed above. The local retoc/repak adaptations exclude unused native loaders and reject unsupported compressed archives. Locally extracted StarRupture icons, fonts and definitions remain in the user cache and retain their owners' rights.
+
+## Development guidance
+
+The repository includes Leonardo Maldonado's [rust-skills](https://github.com/leonardomso/rust-skills) under the MIT licence, copyright (c) 2025 Leonardo Maldonado. The skill, its rule files and the original licence are retained in `.agents/skills/rust-skills/`; `SOURCE.json` records the selected upstream revision and file hashes.

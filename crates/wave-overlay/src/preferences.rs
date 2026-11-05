@@ -19,9 +19,10 @@ pub enum GameExit {
     Ask,
     Exit,
 }
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields, default)]
 pub struct Preferences {
+    pub compass_enabled: bool,
     pub countdown_format: starrupture_observation_model::wave::CountdownFormat,
     pub game_exit: GameExit,
     pub recipe_tracker: RecipeSettings,
@@ -35,6 +36,16 @@ pub struct RecipeSettings {
     pub modifiers: u16,
     pub position: u8,
     pub scale: u16,
+}
+impl Default for Preferences {
+    fn default() -> Self {
+        Self {
+            compass_enabled: true,
+            countdown_format: Default::default(),
+            game_exit: Default::default(),
+            recipe_tracker: Default::default(),
+        }
+    }
 }
 impl Default for RecipeSettings {
     fn default() -> Self {
@@ -72,7 +83,7 @@ impl RecipeSettings {
             (0x30..=0x39).contains(&self.key)
                 || (0x41..=0x5a).contains(&self.key)
                 || (0x70..=0x7a).contains(&self.key),
-            "Choose a letter, number or F1–F11 shortcut."
+            "Choose a letter, top-row number or F1–F11 shortcut."
         );
         ensure!(
             self.modifiers & !7 == 0 && self.modifiers & 3 != 0,
@@ -153,6 +164,8 @@ pub fn save(path: &Path, preferences: Preferences) -> Result<()> {
         let from: Vec<_> = temporary.as_os_str().encode_wide().chain([0]).collect();
         let to: Vec<_> = path.as_os_str().encode_wide().chain([0]).collect();
         ensure!(
+            // SAFETY: Both paths are terminated UTF-16 buffers retained through the call; flags
+            // operate only on the owned temporary and explicitly selected destination file.
             unsafe {
                 MoveFileExW(
                     from.as_ptr(),
@@ -215,6 +228,16 @@ mod tests {
             .validate()
             .is_ok()
         );
+    }
+    #[test]
+    fn compass_defaults_on_for_existing_preferences_and_can_be_disabled() {
+        assert!(serde_json::from_str::<Preferences>("{}").unwrap().compass_enabled);
+        let p = Preferences {
+            compass_enabled: false,
+            ..Preferences::default()
+        };
+        let bytes = serde_json::to_vec(&p).unwrap();
+        assert_eq!(serde_json::from_slice::<Preferences>(&bytes).unwrap(), p);
     }
     #[test]
     fn preferences_round_trip_and_failures_preserve_previous_file() {

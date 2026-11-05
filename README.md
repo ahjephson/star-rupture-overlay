@@ -2,7 +2,7 @@
 
 Keep rupture timing and recipe research progress visible while you play StarRupture.
 
-This unofficial Windows companion adds a rupture countdown and an optional recipe tracker over the game. It reads the running game without changing game files, memory or saves.
+This unofficial Windows companion adds a rupture countdown, compass and optional recipe tracker over the game. It reads the running game without changing game files, memory or saves.
 
 ![Example rupture countdown showing STABLE and an illustrative time of 12:34](assets/overlay-preview.png)
 
@@ -10,6 +10,7 @@ This unofficial Windows companion adds a rupture countdown and an optional recip
 
 ## What it does
 
+- Adds a floating compass showing the direction and distance to your personal map pin.
 - Shows the current rupture stage and time remaining, with a countdown that follows the game's simulation and pauses with it.
 - Pins up to three recipes in compact panels, showing submitted materials, required amounts and completion.
 - Shows which recipe materials you have in your bag and how many you carry.

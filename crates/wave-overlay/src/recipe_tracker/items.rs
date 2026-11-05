@@ -87,6 +87,8 @@ impl Default for Hover {
 impl Drop for Hover {
     fn drop(&mut self) {
         if !self.window.is_null() {
+            // SAFETY: Only this UI/fixture owner destroys its HWND; boxed callback state remains
+            // alive until DestroyWindow completes, and stale handles are validated by Win32.
             unsafe {
                 DestroyWindow(self.window);
             }
@@ -96,6 +98,9 @@ impl Drop for Hover {
 impl Hover {
     fn hide_window(&self) {
         if !self.window.is_null() {
+            // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles;
+            // native position/style values are scalar, and referenced menu/state objects remain
+            // alive through synchronous dispatch.
             unsafe {
                 ShowWindow(self.window, SW_HIDE);
             }
@@ -124,6 +129,8 @@ impl Hover {
             return Ok(());
         }
         let class = wide("StarRuptureItemTooltip");
+        // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+        // identity themselves, and neither dereference Rust memory nor transfer ownership.
         let module = unsafe { GetModuleHandleW(std::ptr::null()) };
         let wc = WNDCLASSW {
             lpfnWndProc: Some(DefWindowProcW),
@@ -131,9 +138,14 @@ impl Hover {
             lpszClassName: class.as_ptr(),
             ..Default::default()
         };
+        // SAFETY: The class structure is initialized, its terminated name is live during
+        // registration, and the callback has the Win32 ABI and remains in this module.
         unsafe {
             RegisterClassW(&wc);
         }
+        // SAFETY: The registered callback has the Win32 ABI, class/title strings remain live during
+        // creation, and any creation-state box stays at a stable address until after the new HWND
+        // is destroyed.
         self.window = unsafe {
             CreateWindowExW(
                 crate::stacking::EXTENDED_STYLE,
@@ -176,17 +188,24 @@ impl Hover {
         }
         if self.position.is_none() {
             let position = tooltip_position(center, self.size, bounds);
-            unsafe {
-                SetWindowPos(
-                    self.window,
-                    std::ptr::null_mut(),
-                    position[0],
-                    position[1],
-                    self.size[0],
-                    self.size[1],
-                    SWP_NOZORDER | SWP_NOACTIVATE,
-                );
-            }
+            ensure!(
+                // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison
+                // handles; native position/style values are scalar, and referenced menu/state
+                // objects remain alive through synchronous dispatch.
+                unsafe {
+                    SetWindowPos(
+                        self.window,
+                        std::ptr::null_mut(),
+                        position[0],
+                        position[1],
+                        self.size[0],
+                        self.size[1],
+                        SWP_NOZORDER | SWP_NOACTIVATE,
+                    )
+                } != 0,
+                "Could not position item tooltip: {}",
+                std::io::Error::last_os_error()
+            );
             self.position = Some(position);
         }
         self.anchor = anchor;
@@ -194,26 +213,36 @@ impl Hover {
         Ok(())
     }
     pub(super) fn follow(&mut self, game: HWND) {
+        // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+        // identity themselves, and neither dereference Rust memory nor transfer ownership.
         if unsafe { GetForegroundWindow() } != game {
             self.hide();
             return;
         }
+        // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+        // identity themselves, and neither dereference Rust memory nor transfer ownership.
         if !self.window.is_null() && unsafe { IsWindowVisible(self.window) } != 0 {
             crate::stacking::follow_companion(self.window, self.anchor, game);
         }
     }
 }
 pub(super) fn self_test() -> Result<()> {
+    // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+    // identity themselves, and neither dereference Rust memory nor transfer ownership.
     let foreground = unsafe { GetForegroundWindow() };
     struct Window(HWND);
     impl Drop for Window {
         fn drop(&mut self) {
+            // SAFETY: Only this UI/fixture owner destroys its HWND; boxed callback state remains
+            // alive until DestroyWindow completes, and stale handles are validated by Win32.
             unsafe {
                 DestroyWindow(self.0);
             }
         }
     }
     let class = wide("StarRuptureTooltipFixture");
+    // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+    // identity themselves, and neither dereference Rust memory nor transfer ownership.
     let module = unsafe { GetModuleHandleW(std::ptr::null()) };
     let wc = WNDCLASSW {
         lpfnWndProc: Some(DefWindowProcW),
@@ -221,10 +250,15 @@ pub(super) fn self_test() -> Result<()> {
         lpszClassName: class.as_ptr(),
         ..Default::default()
     };
+    // SAFETY: The class structure is initialized, its terminated name is live during registration,
+    // and the callback has the Win32 ABI and remains in this module.
     unsafe {
         RegisterClassW(&wc);
     }
     let make = || -> Result<Window> {
+        // SAFETY: The registered callback has the Win32 ABI, class/title strings remain live during
+        // creation, and any creation-state box stays at a stable address until after the new HWND
+        // is destroyed.
         let w = unsafe {
             CreateWindowExW(
                 WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
@@ -242,6 +276,9 @@ pub(super) fn self_test() -> Result<()> {
             )
         };
         ensure!(!w.is_null(), "Tooltip fixture");
+        // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles;
+        // native position/style values are scalar, and referenced menu/state objects remain alive
+        // through synchronous dispatch.
         unsafe {
             ShowWindow(w, SW_SHOWNOACTIVATE);
         }
@@ -260,14 +297,20 @@ pub(super) fn self_test() -> Result<()> {
         panel.0,
     )?;
     ensure!(
+        // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+        // identity themselves, and neither dereference Rust memory nor transfer ownership.
         unsafe { GetWindowLongPtrW(hover.window, GWL_EXSTYLE) } as u32 & WS_EX_TRANSPARENT != 0,
         "Tooltip intercepts game input"
     );
     ensure!(
+        // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+        // identity themselves, and neither dereference Rust memory nor transfer ownership.
         unsafe { GetWindowLongPtrW(hover.window, GWL_EXSTYLE) } as u32 & WS_EX_NOACTIVATE != 0,
         "Tooltip can activate"
     );
     ensure!(
+        // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+        // identity themselves, and neither dereference Rust memory nor transfer ownership.
         unsafe { GetWindow(panel.0, GW_HWNDPREV) } == hover.window,
         "Tooltip is behind its card"
     );
@@ -284,10 +327,31 @@ pub(super) fn self_test() -> Result<()> {
     ensure!(hover.size == size, "Pointer movement changed tooltip size");
     ensure!(hover.position == position, "Pointer movement moved the open tooltip");
     hover.hide();
+    // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+    // identity themselves, and neither dereference Rust memory nor transfer ownership.
     ensure!(unsafe { IsWindowVisible(hover.window) } == 0, "Tooltip did not hide");
     let window = hover.window;
+    // SAFETY: Only this UI/fixture owner destroys its HWND; boxed callback state remains alive
+    // until DestroyWindow completes, and stale handles are validated by Win32.
+    unsafe {
+        DestroyWindow(window);
+    }
+    let failed = hover.show(
+        "Calcite Sheets",
+        [-31020, -31420],
+        [-32000, -32000, -31000, -31400],
+        18,
+        game.0,
+        panel.0,
+    );
+    ensure!(failed.is_err() && hover.position.is_none(), "Failed tooltip move was cached");
+    hover.window = std::ptr::null_mut();
     drop(hover);
+    // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+    // identity themselves, and neither dereference Rust memory nor transfer ownership.
     ensure!(unsafe { IsWindow(window) } == 0, "Tooltip HWND leaked");
+    // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+    // identity themselves, and neither dereference Rust memory nor transfer ownership.
     ensure!(unsafe { GetForegroundWindow() } == foreground, "Tooltip stole focus");
     Ok(())
 }

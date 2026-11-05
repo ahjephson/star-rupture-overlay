@@ -17,6 +17,9 @@ pub fn colour(rgb: [u8; 3]) -> u32 {
 }
 fn dot_diameter(dc: HDC, dpi: u32) -> i32 {
     let mut metrics = TEXTMETRICW::default();
+    // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match their
+    // lengths. Owned GDI objects are restored/deselected before deletion; stock/system objects
+    // remain borrowed.
     if unsafe { GetTextMetricsW(dc, &mut metrics) } != 0 {
         metrics.tmHeight
     } else {
@@ -43,6 +46,9 @@ pub fn draw_dot(dc: HDC, rect: RECT, rgb: [u8; 3], dpi: u32, background: u32) {
         },
         ..Default::default()
     };
+    // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match their
+    // lengths. Owned GDI objects are restored/deselected before deletion; stock/system objects
+    // remain borrowed.
     unsafe {
         SetDIBitsToDevice(
             dc,
@@ -100,11 +106,16 @@ pub struct MenuHeader {
 }
 impl MenuHeader {
     pub fn new(window: HWND, connection: &Connection, starting: bool) -> Self {
+        // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+        // identity themselves, and neither dereference Rust memory nor transfer ownership.
         let dpi = unsafe { GetDpiForWindow(window) }.max(96);
         let mut metrics = NONCLIENTMETRICSW {
             cbSize: size_of::<NONCLIENTMETRICSW>() as u32,
             ..Default::default()
         };
+        // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match their
+        // lengths. Owned GDI objects are restored/deselected before deletion; stock/system objects
+        // remain borrowed.
         let font = if unsafe {
             SystemParametersInfoForDpi(
                 SPI_GETNONCLIENTMETRICS,
@@ -115,6 +126,9 @@ impl MenuHeader {
             )
         } != 0
         {
+            // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match
+            // their lengths. Owned GDI objects are restored/deselected before deletion;
+            // stock/system objects remain borrowed.
             unsafe { CreateFontIndirectW(&metrics.lfMenuFont) }
         } else {
             std::ptr::null_mut()
@@ -123,6 +137,9 @@ impl MenuHeader {
         let font = if owned_font {
             font
         } else {
+            // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native
+            // handle identity themselves, and neither dereference Rust memory nor transfer
+            // ownership.
             unsafe { GetStockObject(DEFAULT_GUI_FONT) }
         };
         let text = wide(if starting {
@@ -130,9 +147,13 @@ impl MenuHeader {
         } else {
             connection.label()
         });
+        // SAFETY: The HWND is borrowed (or null for the screen); each acquired DC is released with
+        // the same target and is not deleted as an owned compatible DC.
         let dc = unsafe { GetDC(window) };
         let mut extent = SIZE::default();
         if !dc.is_null() {
+            // SAFETY: The HWND is borrowed (or null for the screen); each acquired DC is released
+            // with the same target and is not deleted as an owned compatible DC.
             unsafe {
                 let old = SelectObject(dc, font);
                 GetTextExtentPoint32W(dc, text.as_ptr(), (text.len() - 1) as i32, &mut extent);
@@ -160,6 +181,9 @@ impl MenuHeader {
         }
     }
     pub fn append(&self, menu: HMENU) {
+        // SAFETY: The popup/menu header are retained by this UI-thread owner; text and MENUITEMINFO
+        // buffers are initialized and live through each call, and the menu is destroyed before its
+        // item-data owner.
         unsafe {
             AppendMenuW(menu, MF_OWNERDRAW | MF_GRAYED, 0, (self as *const Self).cast());
         }
@@ -168,6 +192,9 @@ impl MenuHeader {
         let dc = item.hDC;
         let inset = (12 * self.dpi as i32 + 48) / 96;
         let mut rect = item.rcItem;
+        // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match their
+        // lengths. Owned GDI objects are restored/deselected before deletion; stock/system objects
+        // remain borrowed.
         unsafe {
             FillRect(dc, &rect, GetSysColorBrush(COLOR_MENU));
             let saved = SaveDC(dc);
@@ -199,6 +226,9 @@ impl MenuHeader {
 impl Drop for MenuHeader {
     fn drop(&mut self) {
         if self.owned_font {
+            // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match
+            // their lengths. Owned GDI objects are restored/deselected before deletion;
+            // stock/system objects remain borrowed.
             unsafe {
                 DeleteObject(self.font);
             }
@@ -213,20 +243,28 @@ impl Drop for MenuHeader {
 pub unsafe fn menu_message(message: u32, l: isize) -> Option<isize> {
     match message {
         WM_MEASUREITEM if l != 0 => {
+            // SAFETY: This owner-draw message supplies the matching live native structure; the
+            // callback only borrows it for the duration of message handling.
             let item = unsafe { &mut *(l as *mut MEASUREITEMSTRUCT) };
             if item.CtlType != ODT_MENU || item.itemID != 0 || item.itemData == 0 {
                 return None;
             }
+            // SAFETY: The owner-drawn menu row stores a pointer to the live MenuHeader; the popup
+            // is destroyed before its owner drops the header.
             let header = unsafe { &*(item.itemData as *const MenuHeader) };
             item.itemWidth = header.width;
             item.itemHeight = header.height;
             Some(1)
         }
         WM_DRAWITEM if l != 0 => {
+            // SAFETY: This owner-draw message supplies the matching live native structure; the
+            // callback only borrows it for the duration of message handling.
             let item = unsafe { &*(l as *const DRAWITEMSTRUCT) };
             if item.CtlType != ODT_MENU || item.itemID != 0 || item.itemData == 0 {
                 return None;
             }
+            // SAFETY: The owner-drawn menu row stores a pointer to the live MenuHeader; the popup
+            // is destroyed before its owner drops the header.
             unsafe { &*(item.itemData as *const MenuHeader) }.draw(item);
             Some(1)
         }
@@ -240,6 +278,9 @@ pub fn self_test(window: HWND) -> anyhow::Result<()> {
     struct Popup(HMENU);
     impl Drop for Popup {
         fn drop(&mut self) {
+            // SAFETY: The popup/menu header are retained by this UI-thread owner; text and
+            // MENUITEMINFO buffers are initialized and live through each call, and the menu is
+            // destroyed before its item-data owner.
             unsafe {
                 DestroyMenu(self.0);
             }
@@ -252,6 +293,9 @@ pub fn self_test(window: HWND) -> anyhow::Result<()> {
     }
     impl Drop for Surface {
         fn drop(&mut self) {
+            // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match
+            // their lengths. Owned GDI objects are restored/deselected before deletion;
+            // stock/system objects remain borrowed.
             unsafe {
                 if !self.old.is_null() {
                     SelectObject(self.dc, self.old);
@@ -287,6 +331,9 @@ pub fn self_test(window: HWND) -> anyhow::Result<()> {
         (&waiting, true, [0xa7, 0x66, 0x04]),
     ] {
         let header = Box::new(MenuHeader::new(window, connection, starting));
+        // SAFETY: The popup/menu header are retained by this UI-thread owner; text and MENUITEMINFO
+        // buffers are initialized and live through each call, and the menu is destroyed before its
+        // item-data owner.
         let menu = Popup(unsafe { CreatePopupMenu() });
         ensure!(!menu.0.is_null(), "No menu fixture");
         header.append(menu.0);
@@ -296,16 +343,23 @@ pub fn self_test(window: HWND) -> anyhow::Result<()> {
             ..Default::default()
         };
         ensure!(
+            // SAFETY: The popup/menu header are retained by this UI-thread owner; text and
+            // MENUITEMINFO buffers are initialized and live through each call, and the menu is
+            // destroyed before its item-data owner.
             unsafe { GetMenuItemInfoW(menu.0, 0, 1, &mut info) } != 0,
             "Menu status row missing"
         );
         ensure!(info.fType & MFT_OWNERDRAW != 0, "Status row lost custom drawing");
+        // SAFETY: The fixture retains its MenuHeader, whose repr(C) accessibility header is the
+        // menu item data pointer returned by GetMenuItemInfoW.
         let accessible = unsafe { &*(info.dwItemData as *const MSAAMENUINFO) };
         ensure!(
             accessible.dwMSAASignature == MSAA_MENU_SIG as u32,
             "Menu status accessibility metadata missing"
         );
         ensure!(
+            // SAFETY: The fixture owns the live MenuHeader and its UTF-16 title; the accessibility
+            // pointer and length refer to that retained title for this synchronous read.
             unsafe {
                 std::slice::from_raw_parts(accessible.pszWText, accessible.cchWText as usize)
             } == &header.text[..header.text.len() - 1],
@@ -317,17 +371,28 @@ pub fn self_test(window: HWND) -> anyhow::Result<()> {
             ..Default::default()
         };
         ensure!(
+            // SAFETY: The message uses a live native menu structure and item data backed by the
+            // retained MenuHeader; the synchronous handler does not retain either pointer.
             unsafe {
                 menu_message(WM_MEASUREITEM, (&mut measure as *mut MEASUREITEMSTRUCT) as isize)
             } == Some(1),
             "Menu status measurement failed"
         );
         ensure!(measure.itemWidth > 32 && measure.itemHeight > 8, "Menu status row is too small");
+        // SAFETY: The HWND is borrowed (or null for the screen); each acquired DC is released with
+        // the same target and is not deleted as an owned compatible DC.
         let source = unsafe { GetDC(window) };
+        // SAFETY: Win32 accepts the borrowed source DC or null; the returned compatible DC is owned
+        // here and is released with DeleteDC after selected objects are restored.
         let dc = unsafe { CreateCompatibleDC(source) };
+        // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match their
+        // lengths. Owned GDI objects are restored/deselected before deletion; stock/system objects
+        // remain borrowed.
         let bitmap = unsafe {
             CreateCompatibleBitmap(source, measure.itemWidth as i32, measure.itemHeight as i32)
         };
+        // SAFETY: The HWND is borrowed (or null for the screen); each acquired DC is released with
+        // the same target and is not deleted as an owned compatible DC.
         unsafe {
             ReleaseDC(window, source);
         }
@@ -337,6 +402,9 @@ pub fn self_test(window: HWND) -> anyhow::Result<()> {
             old: std::ptr::null_mut(),
         };
         ensure!(!dc.is_null() && !bitmap.is_null(), "No menu status drawing surface");
+        // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match their
+        // lengths. Owned GDI objects are restored/deselected before deletion; stock/system objects
+        // remain borrowed.
         surface.old = unsafe { SelectObject(dc, bitmap) };
         let item = DRAWITEMSTRUCT {
             CtlType: ODT_MENU,
@@ -351,6 +419,8 @@ pub fn self_test(window: HWND) -> anyhow::Result<()> {
             ..Default::default()
         };
         ensure!(
+            // SAFETY: The message uses a live native menu structure and item data backed by the
+            // retained MenuHeader; the synchronous handler does not retain either pointer.
             unsafe { menu_message(WM_DRAWITEM, (&item as *const DRAWITEMSTRUCT) as isize) }
                 == Some(1),
             "Menu status drawing failed"
@@ -358,6 +428,9 @@ pub fn self_test(window: HWND) -> anyhow::Result<()> {
         let diameter = measure.itemHeight as i32 - 16 * header.dpi as i32 / 96;
         let x = (12 * header.dpi as i32 + 48) / 96 + diameter / 2;
         ensure!(
+            // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native
+            // handle identity themselves, and neither dereference Rust memory nor transfer
+            // ownership.
             unsafe { GetPixel(dc, x, measure.itemHeight as i32 / 2) } == colour(expected),
             "Menu status dot has the wrong colour"
         );

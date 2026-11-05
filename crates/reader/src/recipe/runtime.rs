@@ -97,7 +97,7 @@ fn u32at(b: &[u8], n: usize) -> u32 {
 fn u64at(b: &[u8], n: usize) -> u64 {
     u64::from_le_bytes(b[n..n + 8].try_into().unwrap())
 }
-async fn class_is(ctx: &Ctx, mut class: u64, wanted: u64) -> Result<bool> {
+pub(crate) async fn class_is(ctx: &Ctx, mut class: u64, wanted: u64) -> Result<bool> {
     for _ in 0..32 {
         if class == wanted {
             return Ok(true);
@@ -110,7 +110,7 @@ async fn class_is(ctx: &Ctx, mut class: u64, wanted: u64) -> Result<bool> {
     }
     anyhow::bail!("Recipe class ancestry bound")
 }
-async fn serial(ctx: &Ctx, object: u64) -> Result<(crate::ObjectStamp, i32)> {
+pub(crate) async fn serial(ctx: &Ctx, object: u64) -> Result<(crate::ObjectStamp, i32)> {
     let s = stamp(ctx, object).await?;
     ensure!(ctx.struct_member("FUObjectItem", "SerialNumber") == 16, "Registry serial layout");
     let arr = Ptr::<FChunkedFixedUObjectArray>::new(
@@ -124,7 +124,7 @@ async fn serial(ctx: &Ctx, object: u64) -> Result<(crate::ObjectStamp, i32)> {
 }
 /// Bulk registry hints avoid repeated chunk-header reads per slot. A hint is
 /// never target evidence: consumers revalidate the selected live allocation.
-pub(super) async fn registered_objects(ctx: &Ctx) -> Result<Vec<(usize, u64)>> {
+pub(crate) async fn registered_objects(ctx: &Ctx) -> Result<Vec<(usize, u64)>> {
     REGISTRY_SCANS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     ensure!(ctx.struct_member("FUObjectItem", "Object") == 0, "Registry object layout");
     let registry = Ptr::<FChunkedFixedUObjectArray>::new(

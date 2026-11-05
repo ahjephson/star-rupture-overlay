@@ -16,6 +16,8 @@ impl Fonts {
             // Win32 writes the installed-face count despite the generated binding's
             // *const annotation. Use writable raw storage, never a shared reference.
             let mut count = 0;
+            // SAFETY: The font byte slice is retained and its bounded length fits DWORD; count is
+            // writable raw storage, and the returned registration is removed only by its owner.
             let handle = unsafe {
                 AddFontMemResourceEx(
                     bytes.as_ptr().cast(),
@@ -37,6 +39,8 @@ impl Fonts {
 }
 fn verify_faces() -> std::io::Result<()> {
     use windows_sys::Win32::Graphics::Gdi::*;
+    // SAFETY: This routine owns its memory DC and created fonts; local UTF-16/metric buffers match
+    // API lengths, and each previous font is restored before deletion and DC teardown.
     unsafe {
         let dc = CreateCompatibleDC(std::ptr::null_mut());
         if dc.is_null() {
@@ -92,6 +96,8 @@ fn verify_faces() -> std::io::Result<()> {
 impl Drop for Fonts {
     fn drop(&mut self) {
         for font in self.0.drain(..) {
+            // SAFETY: This handle is an owned font registration from AddFontMemResourceEx; it is
+            // removed before its backing font storage is dropped.
             unsafe { RemoveFontMemResourceEx(font) };
         }
     }
