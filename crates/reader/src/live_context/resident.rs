@@ -32,6 +32,7 @@ async fn strong_stamp(ctx: &Ctx, address: u64) -> Result<StrongStamp> {
 }
 pub(crate) struct Resident {
     bindings: RuntimeBindings,
+    record: std::sync::Arc<Bindings>,
     ctx: Ctx,
     anchors: Vec<StrongStamp>,
     level: u64,
@@ -42,6 +43,20 @@ pub(crate) struct Resident {
     last_sim: f64,
 }
 impl Resident {
+    pub(crate) fn record(&self) -> std::sync::Arc<Bindings> {
+        self.record.clone()
+    }
+    pub(crate) fn proof(&self) -> Vec<(ObjectStamp, i32, u64)> {
+        self.anchors.iter().map(|s| (s.basic.clone(), s.serial, s.name_bits)).collect()
+    }
+    pub(crate) fn matches_proof(&self, proof: &[(ObjectStamp, i32, u64)]) -> bool {
+        self.anchors.len() == proof.len()
+            && self
+                .anchors
+                .iter()
+                .zip(proof)
+                .all(|(a, b)| a.basic == b.0 && a.serial == b.1 && a.name_bits == b.2)
+    }
     pub(crate) fn world_address(&self) -> u64 {
         self.bindings.world.address
     }
@@ -56,10 +71,20 @@ impl Resident {
         snapshot(process, base, directory).await?;
         let record: Bindings =
             crate::cache::read_json(&directory.join("live-context.json"), 65536)?;
+        Self::from_record(process, base, std::sync::Arc::new(record), true).await
+    }
+    pub(crate) async fn from_record(
+        process: &platform::Process,
+        base: &RuntimeCache,
+        record: std::sync::Arc<Bindings>,
+        timer: bool,
+    ) -> Result<Self> {
         let mut b = RuntimeBindings::new(&record)?;
         b.validate(&process.identity)?;
         let ctx = jmap_dumper::connect_manual(process.clone(), base.config.clone(), None).await?;
-        b.bind_timer(&ctx, base.config.image_base).await?;
+        if timer {
+            b.bind_timer(&ctx, base.config.image_base).await?;
+        }
         let (world, persistent) = world(&ctx, base, &b).await?;
         ensure!(stamp(&ctx, world).await? == b.world, "Resident world changed");
         let level = Ptr::<UObject>::new(base.controller.address, ctx.clone())?
@@ -88,6 +113,7 @@ impl Resident {
         let last_sim = finite(ctx.read::<f64>(world + b.clocks.simulation_seconds).await?)?;
         let mut resident = Self {
             bindings: b,
+            record,
             ctx,
             anchors,
             level,

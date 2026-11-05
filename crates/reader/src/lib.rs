@@ -8,6 +8,7 @@ mod error;
 mod live_context;
 mod live_phase;
 mod live_timer_config;
+mod native_lookup;
 pub mod overlay_stream;
 mod phase_clock;
 mod platform;

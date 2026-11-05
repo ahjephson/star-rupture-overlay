@@ -16,6 +16,10 @@
 
 ### Changed
 
+- Keep compass and rupture updates responsive while recipe setup runs in the background.
+- Prepare the compass while menus keep it hidden, reducing the wait when returning to gameplay.
+- Faster compass and recipe startup through targeted lookups and validated metadata reuse.
+
 - Ingredient inventory amounts turn green when your bag holds enough to finish that requirement.
 - More compact Settings and About windows, with aligned sections, standard-sized desktop buttons and a Recipe tracker tab that fits its content.
 - Set the recipe shortcut by pressing the key combination in Settings.

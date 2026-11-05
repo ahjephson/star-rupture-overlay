@@ -9,13 +9,22 @@ Read README.md, docs/ARCHITECTURE.md and docs/BUILDING.md before changes.
 - Use the local [Rust skills](.agents/skills/rust-skills/SKILL.md) when writing, reviewing or refactoring first-party Rust. Read the relevant rule files as needed. Apply the guidance within this project's read-only game-access, resource-lifetime, toolchain and architecture requirements.
 
 - Use query/read process permissions exclusively and run with standard user privileges. Keep game memory and save files unchanged.
-- Keep memory reads on the embedded worker thread and rendering in the application's own native window. Preserve bounded observation envelopes, sequence/process/build/generation/freshness guards, per-read cancellation/time budgets and joined shutdown.
+- Keep memory reads on the embedded feature workers and rendering in the application's own native window. Preserve bounded observation envelopes, sequence/process/build/generation/freshness guards, per-read cancellation/time budgets and joined shutdown.
 - Fast menu observations control position only. Timer observations independently establish simulation time and pause evidence. Advance countdowns only from validated simulation observations.
 - Preserve unavailable states, native timing limits, the Oxanium design, stage colours and labels, background transparency, digit proportions and responsive play/menu layout.
 - Preserve configuration acceptance, serialized fields, numeric behaviour, read ordering and resource lifetimes during maintenance. Scope functional changes explicitly.
 - Confine project changes and build/runtime output to this repository or an explicitly selected external toolchain.
 - Use synthetic test data in source control. Keep caches, captures, settings, saves, generated configuration and binaries in ignored local storage.
 - Preserve vendored source, licence notices and asset hashes. Format first-party Rust with scripts/Format.ps1.
+
+## Discovery and efficient runtime access
+
+- Broad discovery scans are research and recovery tools, not the finished runtime access path. Once discovery establishes how to reach a value, replace the exploratory scan with an efficient, validated lookup before considering the feature complete.
+- Use owned player/controller/world references, bounded class/property lookups and validated cached layouts. Known-build startup, menu reopening, shortcuts and regular polling must not repeatedly enumerate the full object registry, walk unrelated objects or rescan executable images to retrieve already understood data.
+- Resolve common metadata once and share immutable results across feature workers. Do not duplicate discovery scans or large caches when adding a worker. Keep feature-specific buffers and mutable observations local to their worker.
+- Scope cached layouts and lookup hints to the appropriate executable/build, process and world identities. Revalidate ownership, allocation/serial identities, field bounds and freshness on use; never reuse raw process addresses across launches or remove integrity checks to improve speed.
+- Allow a broad scan only in explicit diagnostics or bounded recovery when a validated direct lookup or cache cannot be used. Give recovery a clear trigger, retry/time/memory limits and diagnostic visibility. Never silently repeat it on each startup of an already understood build, UI action or poll. Document any retained fallback and its justification.
+- Verify discovery costs as part of acceptance: record scan counts and startup timings for cold and warm caches, confirm normal lookup/polling paths perform no broad scans, and exercise invalidation and recovery. A successful prototype or parallel initialization does not excuse leaving exploratory scanning in the normal path.
 
 ## Checks and documentation
 

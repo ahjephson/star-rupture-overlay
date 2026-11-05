@@ -52,7 +52,7 @@ const GETTERS: &[&str] = &[
     "GetWorldOriginLocation",
 ];
 #[derive(Serialize, Deserialize)]
-struct Bindings {
+pub(crate) struct Bindings {
     version: u32,
     identity: Identity,
     world: ObjectStamp,

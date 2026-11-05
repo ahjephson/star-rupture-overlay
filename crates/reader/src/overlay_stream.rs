@@ -1,8 +1,11 @@
-//! Embedded read-only engine on the overlay worker thread.
+//! Long-lived feature workers with shared discovery and bounded UI publication.
+mod diagnostics;
+mod workers;
 use crate::{
     Cache, RuntimeCache, cache_matches, discover, live_context, platform, sample, sample_context,
 };
 use anyhow::{Context, Result, ensure};
+pub use diagnostics::self_test as self_test_workers;
 use starrupture_observation_model::overlay_stream::{
     GameIdentity, MenuSample, Message, Payload, Statistics, WorldSample,
 };
@@ -13,6 +16,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+use workers::{EpochControl, Hub, Role};
 // Outside-station clearing and an absent station target have different shortcut
 // semantics: hovering a completed recipe must preserve another pinned recipe.
 enum RecipeRead {
@@ -63,7 +67,8 @@ impl Output<'_> {
 }
 struct Session {
     process: platform::Process,
-    base: RuntimeCache,
+    base: Arc<RuntimeCache>,
+    epoch: u64,
     live: live_context::resident::Resident,
 }
 /// Process presence is independent of whether a world can currently be sampled.
@@ -129,7 +134,8 @@ async fn attach(
     let live = live_context::resident::Resident::open(&process, &base, directory).await?;
     Ok(Session {
         process,
-        base,
+        base: Arc::new(base),
+        epoch: 0,
         live,
     })
 }
@@ -170,12 +176,56 @@ pub fn run_with_assets(
 pub fn run_with_navigation(
     directory: &Path,
     stop: Arc<StopSignal>,
-    mut sink: impl FnMut(Message) -> Result<()>,
-    mut status: impl FnMut(GameStatus),
-    mut tracker: Option<crate::recipe::Tracker>,
-    mut setup: Option<Box<dyn crate::recipe::AssetSetup>>,
+    sink: impl FnMut(Message) -> Result<()>,
+    status: impl FnMut(GameStatus),
+    tracker: Option<crate::recipe::Tracker>,
+    setup: Option<Box<dyn crate::recipe::AssetSetup>>,
     navigation: Option<Arc<starrupture_observation_model::compass::Control>>,
 ) -> Result<()> {
+    workers::run(directory, stop, sink, status, tracker, setup, navigation)
+}
+async fn attach_shared(hub: &Hub, budget: Arc<platform::ReadBudget>) -> Result<Session> {
+    let seed = hub.seed().context(crate::error::WorldNotLoaded)?;
+    let process = platform::reopen(&seed.base.identity, budget)?;
+    let live = live_context::resident::Resident::from_record(
+        &process,
+        &seed.base,
+        seed.live.clone(),
+        false,
+    )
+    .await?;
+    ensure!(
+        live.matches_proof(&seed.proof) && hub.current(seed.epoch),
+        "Shared allocation/session changed during feature attach"
+    );
+    Ok(Session {
+        process,
+        base: seed.base.clone(),
+        live,
+        epoch: seed.epoch,
+    })
+}
+struct Feature {
+    role: Role,
+    hub: Arc<Hub>,
+    tracker: Option<crate::recipe::Tracker>,
+    setup: Option<Box<dyn crate::recipe::AssetSetup>>,
+    navigation: Option<Arc<starrupture_observation_model::compass::Control>>,
+}
+fn run_feature(
+    feature: Feature,
+    directory: &Path,
+    stop: Arc<StopSignal>,
+    mut sink: impl FnMut(Message) -> Result<()>,
+    mut status: impl FnMut(GameStatus),
+) -> Result<()> {
+    let Feature {
+        role,
+        hub,
+        mut tracker,
+        mut setup,
+        navigation,
+    } = feature;
     ensure!(!platform::is_elevated()?, "Do not run overlay elevated");
     ensure!(directory.is_absolute(), "Absolute private cache directory required");
     let cadence = crate::cadence::Cadence::new(50, 250).map_err(anyhow::Error::msg)?;
@@ -194,7 +244,7 @@ pub fn run_with_navigation(
     let mut menu_reads = 0u64;
     let mut world_reads = 0u64;
     let mut menu_max_micros = 0u128;
-    let mut remembered = crate::recipe_pins::Remembered::new(directory);
+
     smol::block_on(async {
         let mut session: Option<Session> = None;
         let mut retry = Instant::now();
@@ -220,13 +270,18 @@ pub fn run_with_navigation(
         let mut recipe_generation = 0;
         let mut recipe_due = Instant::now();
         while !stop.is_requested() {
-            if let Some(t) = &tracker
-                && let Err(e) = remembered.checkpoint(&t.control)
+            if let (Some(t), Some(s)) = (&tracker, &session)
+                && let Some(Err(e)) = hub.recipes(s.epoch, |r| r.checkpoint(&t.control))
             {
                 eprintln!("Recipe choices could not be remembered: {e:#}");
             }
+            if role != Role::Wave && session.as_ref().is_some_and(|s| !hub.current(s.epoch)) {
+                session = None;
+                retry = Instant::now();
+            }
             budget.renew(5000);
-            if Instant::now() >= presence_due
+            if role == Role::Wave
+                && Instant::now() >= presence_due
                 && let Some(process) = &retained
             {
                 presence_due = Instant::now() + Duration::from_secs(1);
@@ -249,10 +304,18 @@ pub fn run_with_navigation(
                     continue;
                 }
                 budget.renew(60000);
-                match attach(directory, &mut retained, budget.clone(), &mut status).await {
-                    Ok(s) => {
-                        output.generation =
-                            output.generation.checked_add(1).context("Generation exhausted")?;
+                let attached = if role == Role::Wave {
+                    attach(directory, &mut retained, budget.clone(), &mut status).await
+                } else {
+                    attach_shared(&hub, budget.clone()).await
+                };
+                match attached {
+                    Ok(mut s) => {
+                        if role == Role::Wave {
+                            s.epoch =
+                                hub.activate(s.base.clone(), s.live.record(), s.live.proof())?;
+                        }
+                        output.generation = s.epoch;
                         output.process = Some(GameIdentity {
                             pid: s.process.identity.pid,
                             creation_ticks: s.process.identity.creation_ticks,
@@ -261,43 +324,13 @@ pub fn run_with_navigation(
                         asset_setup_attempted = false;
                         sessions += 1;
                         failures = 0;
-                        recipe_binding = if tracker.is_some() && setup.is_none() {
-                            budget.renew(60000);
-                            let started = Instant::now();
-                            match crate::recipe::Binding::discover(&s.live.context()).await {
-                                Ok(binding) => {
-                                    eprintln!(
-                                        "Recipe bindings prepared in {} ms.",
-                                        started.elapsed().as_millis()
-                                    );
-                                    Some(binding)
-                                }
-                                Err(error) => {
-                                    eprintln!("Recipe binding preparation unavailable: {error:#}");
-                                    None
-                                }
-                            }
-                        } else {
-                            None
-                        };
+                        recipe_binding = None;
                         compass_binding = None;
                         compass_attempted = false;
                         compass_due = Instant::now();
                         session = Some(s);
-                        recipe_setup_attempts = if tracker.is_some() {
-                            1
-                        } else {
-                            0
-                        };
-                        recipe_setup_retry = Instant::now() + Duration::from_secs(2);
-
-                        if let Some(t) = &tracker {
-                            if let Err(e) = remembered.flush(&t.control) {
-                                eprintln!("Recipe choices could not be remembered: {e:#}");
-                            }
-                            t.control.reset_session();
-                        }
-                        remembered.detach();
+                        recipe_setup_attempts = 0;
+                        recipe_setup_retry = Instant::now();
                         identity_binding = None;
                         identity_attempts = 0;
                         identity_due = Instant::now();
@@ -316,17 +349,35 @@ pub fn run_with_navigation(
                             ))?;
                         }
                         failures = (failures + 1).min(3);
-                        retry = Instant::now() + Duration::from_secs(1 << failures);
+                        retry = Instant::now()
+                            + if role == Role::Wave {
+                                Duration::from_secs(1 << failures)
+                            } else {
+                                Duration::from_millis(100)
+                            };
                         continue;
                     }
                 }
             }
-            if navigation.as_ref().is_some_and(|c| c.enabled()) && !compass_attempted {
+            if navigation.as_ref().is_some_and(|c| c.should_prepare()) && !compass_attempted {
                 compass_attempted = true;
                 budget.renew(60000);
                 let ctx = session.as_ref().unwrap().live.context();
-                match crate::compass::Binding::discover(&ctx).await {
-                    Ok(b) => compass_binding = Some(b),
+                let started = Instant::now();
+                match crate::compass::Binding::discover(
+                    &ctx,
+                    &session.as_ref().unwrap().base,
+                    session.as_ref().unwrap().live.world_address(),
+                )
+                .await
+                {
+                    Ok(b) => {
+                        eprintln!(
+                            "Compass bindings prepared in {} ms.",
+                            started.elapsed().as_millis()
+                        );
+                        compass_binding = Some(b);
+                    }
                     Err(e) => eprintln!("Compass setup unavailable: {e:#}"),
                 }
             }
@@ -365,62 +416,67 @@ pub fn run_with_navigation(
             }
             budget.renew(5000);
             let s = session.as_mut().unwrap();
-            let result: Result<()> = async {
-                if Instant::now() >= pause_due {
-                    let started = clock_ms();
-                    let clock = Instant::now();
-                    if let Some(menu) = s.live.menu(&s.process, &s.base).await? {
-                        menu_reads += 1;
-                        if last_menu != Some(menu)
-                            || menu_sent.elapsed() >= Duration::from_millis(250)
-                        {
-                            output.send(Payload::Menu(MenuSample {
-                                menu_open: menu,
-                                started_ms: started,
-                                finished_ms: clock_ms(),
-                                guards_validated: true,
-                            }))?;
-                            last_menu = Some(menu);
-                            menu_sent = Instant::now();
+            let result: Result<()> = if role == Role::Wave {
+                async {
+                    if Instant::now() >= pause_due {
+                        let started = clock_ms();
+                        let clock = Instant::now();
+                        if let Some(menu) = s.live.menu(&s.process, &s.base).await? {
+                            menu_reads += 1;
+                            if last_menu != Some(menu)
+                                || menu_sent.elapsed() >= Duration::from_millis(250)
+                            {
+                                output.send(Payload::Menu(MenuSample {
+                                    menu_open: menu,
+                                    started_ms: started,
+                                    finished_ms: clock_ms(),
+                                    guards_validated: true,
+                                }))?;
+                                last_menu = Some(menu);
+                                menu_sent = Instant::now();
+                            }
                         }
+                        menu_max_micros = menu_max_micros.max(clock.elapsed().as_micros());
+                        pause_due = Instant::now() + cadence.menu;
                     }
-                    menu_max_micros = menu_max_micros.max(clock.elapsed().as_micros());
-                    pause_due = Instant::now() + cadence.menu;
+                    if Instant::now() >= world_due {
+                        let cycle = Instant::now();
+                        let started = clock_ms();
+                        sample_context(&s.process, &s.base, s.live.context()).await?;
+                        let live = s.live.snapshot(&s.process, &s.base).await?;
+                        let mut sample =
+                            sample_context(&s.process, &s.base, s.live.context()).await?;
+                        sample.observed_at_ms = clock_ms();
+                        let process =
+                            output.process.clone().context("Missing active process identity")?;
+                        output.send(Payload::World(Box::new(WorldSample {
+                            read_started_unix_ms: started as i64,
+                            raw: RawObservation {
+                                schema_version: 1,
+                                contract_version: READER_CONTRACT_VERSION,
+                                source_is_live_memory: true,
+                                game_memory_writes: false,
+                                process,
+                                sample,
+                                live,
+                            },
+                            statistics: Statistics {
+                                menu_reads,
+                                world_reads: world_reads + 1,
+                                sessions,
+                                world_read_millis: cycle.elapsed().as_millis() as u64,
+                                menu_max_micros: menu_max_micros as u64,
+                            },
+                        })))?;
+                        world_reads += 1;
+                        world_due = cycle + cadence.world;
+                    }
+                    Ok(())
                 }
-                if Instant::now() >= world_due {
-                    let cycle = Instant::now();
-                    let started = clock_ms();
-                    sample_context(&s.process, &s.base, s.live.context()).await?;
-                    let live = s.live.snapshot(&s.process, &s.base).await?;
-                    let mut sample = sample_context(&s.process, &s.base, s.live.context()).await?;
-                    sample.observed_at_ms = clock_ms();
-                    let process =
-                        output.process.clone().context("Missing active process identity")?;
-                    output.send(Payload::World(Box::new(WorldSample {
-                        read_started_unix_ms: started as i64,
-                        raw: RawObservation {
-                            schema_version: 1,
-                            contract_version: READER_CONTRACT_VERSION,
-                            source_is_live_memory: true,
-                            game_memory_writes: false,
-                            process,
-                            sample,
-                            live,
-                        },
-                        statistics: Statistics {
-                            menu_reads,
-                            world_reads: world_reads + 1,
-                            sessions,
-                            world_read_millis: cycle.elapsed().as_millis() as u64,
-                            menu_max_micros: menu_max_micros as u64,
-                        },
-                    })))?;
-                    world_reads += 1;
-                    world_due = cycle + cadence.world;
-                }
+                .await
+            } else {
                 Ok(())
-            }
-            .await;
+            };
             if let Err(e) = result {
                 if crate::error::is_retryable(&e) {
                     // Discard a torn wave read, preserving no new timestamp. The
@@ -479,7 +535,13 @@ pub fn run_with_navigation(
                 }
             }
             if let (Some(t), Some(s)) = (&tracker, session.as_mut()) {
-                let request = t.control.request();
+                hub.register_control(s.epoch, &t.control);
+                let control = EpochControl {
+                    hub: &hub,
+                    epoch: s.epoch,
+                    inner: &t.control,
+                };
+                let request = control.request();
                 // Recovery belongs to connection setup, never to a shortcut or
                 // menu opening. Limit retries instead of repeatedly rescanning.
                 if recipe_binding.is_none()
@@ -489,13 +551,25 @@ pub fn run_with_navigation(
                 {
                     recipe_setup_attempts += 1;
                     budget.renew(60000);
-                    match crate::recipe::Binding::discover(&s.live.context()).await {
+                    let began = Instant::now();
+                    let scans_before = crate::recipe::registry_scans();
+                    match crate::recipe::Binding::from_lookup(
+                        &s.live.context(),
+                        &s.base,
+                        &hub.definitions,
+                    )
+                    .await
+                    {
                         Ok(binding) => {
                             recipe_binding = Some(binding);
                             if let Some(preparation) = setup.as_mut() {
                                 preparation.ready();
                             }
-                            eprintln!("Recipe connection setup recovered.");
+                            eprintln!(
+                                "Recipe connection setup recovered in {} ms ({} registry recovery scans).",
+                                began.elapsed().as_millis(),
+                                crate::recipe::registry_scans() - scans_before
+                            );
                         }
                         Err(error) => {
                             eprintln!("Recipe connection setup retry unavailable: {error:#}")
@@ -507,7 +581,9 @@ pub fn run_with_navigation(
                     recipe_generation = request.generation;
                     recipe_due = Instant::now();
                 }
-                if recipe_binding.is_some() && !remembered.bound() && Instant::now() >= identity_due
+                if recipe_binding.is_some()
+                    && !hub.recipes(s.epoch, |r| r.bound()).unwrap_or(true)
+                    && Instant::now() >= identity_due
                 {
                     identity_due = Instant::now() + Duration::from_secs(5);
                     budget.renew(60000);
@@ -540,7 +616,9 @@ pub fn run_with_navigation(
                     .await;
                     match result {
                         Ok(world) => {
-                            remembered.begin(world)?;
+                            if let Some(result) = hub.recipes(s.epoch, |r| r.begin(world)) {
+                                result?;
+                            }
                             identity_error = None;
                         }
                         Err(e) => {
@@ -552,7 +630,8 @@ pub fn run_with_navigation(
                         }
                     }
                 }
-                if let Some((restore_request, ids)) = remembered.desired(&t.control)
+                if let Some((restore_request, ids)) =
+                    hub.recipes(s.epoch, |r| r.desired(&t.control)).flatten()
                     && let Some(binding) = &recipe_binding
                 {
                     budget.renew(5000);
@@ -583,7 +662,9 @@ pub fn run_with_navigation(
                     .await;
                     match result {
                         Ok(snapshots) => {
-                            remembered.restored(&t.control, restore_request, snapshots)
+                            hub.recipes(s.epoch, |r| {
+                                r.restored(&t.control, restore_request, snapshots)
+                            });
                         }
                         Err(e) => eprintln!("Recipe restoration deferred: {e:#}"),
                     }
@@ -649,17 +730,20 @@ pub fn run_with_navigation(
                             started.elapsed().as_millis()
                         );
                         match read {
-                            Ok(read) => read.apply(&t.control, request, true),
+                            Ok(read) => {
+                                hub.with_epoch(s.epoch, || read.apply(&t.control, request, true));
+                            }
                             Err(e) => {
                                 eprintln!("Recipe shortcut ignored: {e:#}");
-                                t.control.captured(request, None);
+                                control.captured(request, None);
                             }
                         }
                     } else {
                         match read {
-                            Ok(read) => read.apply(&t.control, request, false),
-                            Err(e) => t
-                                .control
+                            Ok(read) => {
+                                hub.with_epoch(s.epoch, || read.apply(&t.control, request, false));
+                            }
+                            Err(e) => control
                                 .unavailable(request, format!("{e:#}").chars().take(220).collect()),
                         }
                     }
@@ -696,10 +780,8 @@ pub fn run_with_navigation(
                         }
                         .await;
                         match read {
-                            Ok(sample) => {
-                                t.control.publish_for(request, &id, sample, String::new())
-                            }
-                            Err(error) => t.control.unavailable_for(
+                            Ok(sample) => control.publish_for(request, &id, sample, String::new()),
+                            Err(error) => control.unavailable_for(
                                 request,
                                 &id,
                                 format!("{error:#}").chars().take(220).collect(),
@@ -710,21 +792,17 @@ pub fn run_with_navigation(
                 }
             }
             let navigation_active = navigation.as_ref().is_some_and(|c| c.enabled());
-            let deadline = pause_due.min(world_due).min(if navigation_active {
-                compass_due
-            } else {
-                world_due
-            });
+            let deadline = match role {
+                Role::Wave => pause_due.min(world_due),
+                Role::Compass if navigation_active => compass_due,
+                Role::Compass => Instant::now() + Duration::from_millis(100),
+                Role::Recipe => Instant::now() + Duration::from_millis(50),
+            };
             if navigation_active && let Some(wait) = &navigation_wait {
                 wait.until(&stop, deadline);
             } else {
                 stop.wait_until(deadline);
             }
-        }
-        if let Some(t) = &tracker
-            && let Err(e) = remembered.flush(&t.control)
-        {
-            eprintln!("Recipe choices could not be remembered: {e:#}");
         }
         Ok::<(), anyhow::Error>(())
     })?;

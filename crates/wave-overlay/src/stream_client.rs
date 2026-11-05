@@ -1,4 +1,4 @@
-//! Embedded wave reader and validated observations, in the GUI's worker thread.
+//! Validated feature observations delivered through the GUI's reader coordinator.
 use serde::Serialize;
 use starrupture_observation_model::observation::{Observation, OverlaySession};
 use starrupture_observation_model::overlay_stream::{Payload, Statistics, Validator};
@@ -90,7 +90,7 @@ pub fn run_with_navigation(
         world_reads: sink.world_reads,
         menu_updates: sink.menu_updates,
         last_statistics: sink.statistics,
-        reader_mode: "embedded_worker",
+        reader_mode: "embedded_feature_workers",
         child_processes: 0,
     })
 }

@@ -86,6 +86,13 @@ impl ReadBudget {
     }
 }
 fn open(pid: u32, budget: Arc<ReadBudget>) -> Result<Process> {
+    open_checked(pid, budget, None)
+}
+/// Reopen an already discovered process with a thread-owned read handle and budget.
+pub(crate) fn reopen(expected: &Identity, budget: Arc<ReadBudget>) -> Result<Process> {
+    open_checked(expected.pid, budget, Some(expected))
+}
+fn open_checked(pid: u32, budget: Arc<ReadBudget>, expected: Option<&Identity>) -> Result<Process> {
     budget.check()?;
     // Only query/read permissions. No debug privilege adjustment, writes or remote threads.
     // SAFETY: Only query/read or synchronization rights are requested; Win32 validates the scalar
@@ -117,23 +124,34 @@ fn open(pid: u32, budget: Arc<ReadBudget>) -> Result<Process> {
     // locals with no aliases during the synchronous query.
     checked(unsafe { GetProcessTimes(raw, &mut created, &mut exited, &mut kernel, &mut user) })?;
     let creation_ticks = ((created.dwHighDateTime as u64) << 32) | created.dwLowDateTime as u64;
-    let mut file = File::open(&executable)?;
-    let mut hash = Sha256::new();
-    let mut buffer = [0; 65536];
-    loop {
-        budget.check()?;
-        let n = file.read(&mut buffer)?;
-        if n == 0 {
-            break;
+    let executable_sha256 = if let Some(expected) = expected {
+        ensure!(
+            expected.pid == pid
+                && expected.creation_ticks == creation_ticks
+                && expected.executable == executable,
+            "Shared process identity changed"
+        );
+        expected.executable_sha256.clone()
+    } else {
+        let mut file = File::open(&executable)?;
+        let mut hash = Sha256::new();
+        let mut buffer = [0; 65536];
+        loop {
+            budget.check()?;
+            let n = file.read(&mut buffer)?;
+            if n == 0 {
+                break;
+            }
+            hash.update(&buffer[..n]);
         }
-        hash.update(&buffer[..n]);
-    }
+        format!("{:x}", hash.finalize())
+    };
     let p = Process {
         identity: Identity {
             pid,
             creation_ticks,
             executable,
-            executable_sha256: format!("{:x}", hash.finalize()),
+            executable_sha256,
         },
         handle,
         budget,

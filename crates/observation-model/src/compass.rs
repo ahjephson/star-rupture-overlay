@@ -2,13 +2,23 @@
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 #[derive(Default)]
-pub struct Control(AtomicBool);
+pub struct Control {
+    configured: AtomicBool,
+    sampling: AtomicBool,
+}
 impl Control {
+    /// Prepare metadata while configured, independently of gameplay visibility.
+    pub fn configure(&self, enabled: bool) {
+        self.configured.store(enabled, Ordering::Relaxed);
+    }
+    pub fn should_prepare(&self) -> bool {
+        self.configured.load(Ordering::Relaxed) || self.enabled()
+    }
     pub fn set(&self, enabled: bool) {
-        self.0.store(enabled, Ordering::Relaxed);
+        self.sampling.store(enabled, Ordering::Relaxed);
     }
     pub fn enabled(&self) -> bool {
-        self.0.load(Ordering::Relaxed)
+        self.sampling.load(Ordering::Relaxed)
     }
 }
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -77,6 +87,23 @@ impl Arrival {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn configured_compass_prepares_while_gameplay_sampling_is_hidden() {
+        let control = Control::default();
+        assert!(!control.should_prepare());
+        control.configure(true);
+        assert!(control.should_prepare());
+        assert!(!control.enabled());
+        control.set(true);
+        assert!(control.enabled());
+        control.set(false);
+        assert!(control.should_prepare());
+        control.configure(false);
+        assert!(!control.should_prepare());
+        // Existing finite diagnostics can request sampling directly.
+        control.set(true);
+        assert!(control.should_prepare());
+    }
     #[test]
     fn arrival_has_hysteresis_and_resets_for_replaced_or_missing_pins() {
         let mut a = Arrival::default();

@@ -941,6 +941,24 @@ pub fn run() -> Result<()> {
             }
             return Ok(starrupture_overlay_reader::recipe_pins::self_test(&directory)?);
         }
+        if first == "--self-test-feature-workers" {
+            let directory =
+                PathBuf::from(args.next().ok_or("Worker diagnostic directory required")?);
+            if args.next().is_some() {
+                return Err("Unexpected worker diagnostic argument".into());
+            }
+            return Ok(starrupture_overlay_reader::overlay_stream::self_test_workers(
+                &directory,
+                &crate::recipe_tracker::diagnostic_catalogue()?,
+            )?);
+        }
+        if first == "--self-test-compass-warmup" {
+            let directory = PathBuf::from(args.next().ok_or("Compass warmup directory required")?);
+            if args.next().is_some() {
+                return Err("Unexpected compass warmup argument".into());
+            }
+            return Ok(starrupture_overlay_reader::compass::self_test_warmup(&directory)?);
+        }
         if first == "--self-test-compass-reader" {
             let directory =
                 PathBuf::from(args.next().ok_or("Compass diagnostic directory required")?);
@@ -1276,6 +1294,9 @@ unsafe fn compass_tick(window: HWND) {
     let Ok(r) = a.shared.try_lock() else {
         return;
     };
+    r.navigation.configure(
+        a.dialog_context.preferences.get().compass_enabled && !a.hidden && a.preview.is_none(),
+    );
     r.navigation.set(enabled);
     let sample = if !r.no_world {
         r.compass

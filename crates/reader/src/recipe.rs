@@ -180,7 +180,10 @@ pub fn self_test_recipe(directory: &Path, catalogue_file: &Path, recipe_id: &str
         .await?;
         let ctx = live.context();
         let binding_started = std::time::Instant::now();
-        let binding = Binding::discover(&ctx).await?;
+        let startup_scans_before = runtime::registry_scans();
+        let lookup = crate::native_lookup::Lookup::new(&directory.join("cache"));
+        let binding = Binding::from_lookup(&ctx, &base, &lookup).await?;
+        let startup_registry_scans = runtime::registry_scans() - startup_scans_before;
         let binding_millis = binding_started.elapsed().as_millis();
         let registry_before = runtime::registry_scans();
         budget.renew(5000);
@@ -242,7 +245,7 @@ pub fn self_test_recipe(directory: &Path, catalogue_file: &Path, recipe_id: &str
         #[cfg(not(debug_assertions))]
         let widget_diagnostic = serde_json::Value::Null;
         Ok::<_, anyhow::Error>(
-            json!({"readOnly":true,"gameCodeInvoked":false,"process":process.identity,"samples":samples,"bagInventory":inventory,"bindingDiscoveryMillis":binding_millis,"inRecipeStation":in_station,"repeatedInRecipeStation":station_again,"twoStationChecksMillis":station_check_millis,"captureScanMillis":capture_millis,"captureProbe":capture_probe,"warmCaptureMillis":warm_capture_millis,"warmCaptureProbe":warm_probe,"hotPathRegistryScans":hot_path_registry_scans,"hoverCaptureVerified":false,"mouseCaptureProbe":mouse_capture_probe,"mouseCaptureMillis":mouse_capture_millis,"widgetDiagnostic":widget_diagnostic}),
+            json!({"readOnly":true,"gameCodeInvoked":false,"process":process.identity,"samples":samples,"bagInventory":inventory,"bindingDiscoveryMillis":binding_millis,"startupRegistryScans":startup_registry_scans,"inRecipeStation":in_station,"repeatedInRecipeStation":station_again,"twoStationChecksMillis":station_check_millis,"captureScanMillis":capture_millis,"captureProbe":capture_probe,"warmCaptureMillis":warm_capture_millis,"warmCaptureProbe":warm_probe,"hotPathRegistryScans":hot_path_registry_scans,"hoverCaptureVerified":false,"mouseCaptureProbe":mouse_capture_probe,"mouseCaptureMillis":mouse_capture_millis,"widgetDiagnostic":widget_diagnostic}),
         )
     })?;
     stop.request();
@@ -252,5 +255,5 @@ pub fn self_test_recipe(directory: &Path, catalogue_file: &Path, recipe_id: &str
     )?;
     Ok(())
 }
-pub(crate) use runtime::registered_objects;
 pub(crate) use runtime::serial as allocation;
+pub(crate) use runtime::{definition_paths, registered_objects, registry_scans};

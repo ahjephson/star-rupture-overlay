@@ -1,4 +1,5 @@
 //! Reflected camera/marker bindings, resolved once per resident session. Read-only.
+mod lookup;
 use crate::{RuntimeCache, recipe, stamp};
 use anyhow::{Context, Result, ensure};
 use jmap_dumper::{
@@ -45,10 +46,10 @@ pub(crate) struct Binding {
     custom_flag: u64,
 }
 impl Binding {
-    pub(crate) async fn discover(ctx: &Ctx) -> Result<Self> {
+    pub(crate) async fn discover(ctx: &Ctx, base: &RuntimeCache, world: u64) -> Result<Self> {
         let mut fields = BTreeMap::new();
         let mut native_guard = None;
-        for (index, address) in recipe::registered_objects(ctx).await? {
+        for (index, address) in lookup::objects(ctx, base, world).await? {
             let obj = Ptr::<UObject>::new(address, ctx.clone())?;
             if obj.internal_index().read().await.ok() != Some(index as i32) {
                 continue;
@@ -378,6 +379,13 @@ pub(crate) async fn origin(ctx: &Ctx, at: u64) -> Result<[i32; 3]> {
 }
 /// Finite read-only live diagnostic; never starts a normal overlay or mutates the game.
 pub fn self_test(directory: &std::path::Path) -> Result<()> {
+    diagnostic(directory, false)
+}
+/// Prepare with gameplay sampling disabled, then measure readiness on enabling it.
+pub fn self_test_warmup(directory: &std::path::Path) -> Result<()> {
+    diagnostic(directory, true)
+}
+fn diagnostic(directory: &std::path::Path, warmup: bool) -> Result<()> {
     use starrupture_observation_model::{
         compass::Control, overlay_stream::Payload, shutdown::StopSignal,
     };
@@ -391,15 +399,34 @@ pub fn self_test(directory: &std::path::Path) -> Result<()> {
         deadline.request();
     });
     let enabled = Arc::new(Control::default());
-    enabled.set(true);
+    enabled.configure(true);
+    enabled.set(!warmup);
+    let mut ready_at: Option<Instant> = None;
+    let mut enabled_at = None;
+    let mut first_sample_after_enable_ms = None;
     let mut samples = Vec::new();
     let mut unavailable = 0;
     let result = crate::overlay_stream::run_with_navigation(
         directory,
         stop.clone(),
         |m| {
+            if matches!(m.payload, Payload::Ready) {
+                ready_at = Some(Instant::now());
+            }
+            if warmup
+                && enabled_at.is_none()
+                && ready_at.is_some_and(|t| t.elapsed() >= Duration::from_secs(8))
+            {
+                enabled_at = Some(Instant::now());
+                enabled.set(true);
+            }
             if let Payload::Compass(value) = m.payload {
                 if let Some(value) = value {
+                    if warmup {
+                        let at =
+                            enabled_at.context("Compass sampled before gameplay was enabled")?;
+                        first_sample_after_enable_ms.get_or_insert(at.elapsed().as_millis());
+                    }
                     samples.push(value);
                     if samples.len() >= 90 {
                         stop.request();
@@ -413,7 +440,7 @@ pub fn self_test(directory: &std::path::Path) -> Result<()> {
         |_| {},
         None,
         None,
-        Some(enabled),
+        Some(enabled.clone()),
     );
     stop.request();
     let _ = timer.join();
@@ -423,10 +450,14 @@ pub fn self_test(directory: &std::path::Path) -> Result<()> {
         samples.len() >= 90,
         "No current compass observations; load a world and check diagnostic log"
     );
+    ensure!(
+        !warmup || first_sample_after_enable_ms.is_some_and(|ms| ms < 250),
+        "Compass metadata was not ready when gameplay sampling enabled"
+    );
     let durations: Vec<_> = samples.iter().map(|s| s.finished_ms - s.started_ms).collect();
     println!(
         "{}",
-        serde_json::json!({"status":"passed","samples":samples.len(),"unavailable":unavailable,
+        serde_json::json!({"status":"passed","featureRegistryScans":recipe::registry_scans(),"warmupWhileHidden":warmup,"firstSampleAfterEnableMs":first_sample_after_enable_ms,"samples":samples.len(),"unavailable":unavailable,
         "maxReadMs":durations.iter().max(),"meanReadMs":durations.iter().sum::<u64>() as f64/durations.len() as f64,
         "pinKnown":samples.iter().filter(|s|s.pin_known).count(),"pinPresent":samples.iter().filter(|s|s.pin.is_some()).count(),
         "pausedSamples":samples.iter().filter(|s|s.menu_open).count(),"gameMemoryWrites":false,"workerJoined":true})

@@ -15,10 +15,17 @@ mod bag;
 mod diagnostics;
 mod ui;
 static REGISTRY_SCANS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-pub(super) fn registry_scans() -> u64 {
+pub(crate) fn registry_scans() -> u64 {
     REGISTRY_SCANS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+pub(crate) fn definition_paths() -> BTreeSet<String> {
+    FIELDS
+        .iter()
+        .map(|(p, _, _, _)| (*p).to_owned())
+        .chain(SIZES.iter().map(|(p, _)| (*p).to_owned()))
+        .collect()
+}
 const FIELDS: &[(&str, &str, usize, i32)] = &[
     ("/Script/Chimera.CrGameStateBase", "CraftingRecipeOwner", 8, 840),
     ("/Script/Chimera.CrCraftingRecipeOwner", "UnlockableRecipesContainer", 288, 864),
@@ -263,7 +270,19 @@ impl Binding {
         );
         Ok(root_active)
     }
+    /// Explicit diagnostic recovery; production calls from_lookup.
+    #[cfg(debug_assertions)]
     pub(crate) async fn discover(ctx: &Ctx) -> Result<Self> {
+        Self::bind(ctx, registered_objects(ctx).await?).await
+    }
+    pub(crate) async fn from_lookup(
+        ctx: &Ctx,
+        base: &RuntimeCache,
+        lookup: &crate::native_lookup::Lookup,
+    ) -> Result<Self> {
+        Self::bind(ctx, lookup.resolve(ctx, base)?).await
+    }
+    async fn bind(ctx: &Ctx, objects: Vec<(usize, u64)>) -> Result<Self> {
         let wanted: BTreeSet<_> = FIELDS
             .iter()
             .map(|(p, _, _, _)| p.rsplit('.').next().unwrap())
@@ -275,7 +294,7 @@ impl Binding {
         let mut player_context_verified = false;
         let mut sizes = BTreeSet::new();
         let mut managers = Vec::new();
-        for (i, address) in registered_objects(ctx).await? {
+        for (i, address) in objects {
             let o = Ptr::<UObject>::new(address, ctx.clone())?;
             if o.internal_index().read().await.ok() != Some(i as i32) {
                 continue;
