@@ -4,6 +4,9 @@
 
 ### Added
 
+- Visual waypoint arrival cue near your personal pin.
+- Remember pinned recipes separately for each local world and refresh their progress when you return.
+
 - Floating compass with a personal-pin marker, horizontal distance and a setting to turn it off; hidden during pause.
 
 - Update 3 PTB compatibility for rupture timing and recipe tracking, including Rarely, Normal and Often fire-wave frequency settings.

@@ -38,6 +38,8 @@ The app is unsigned. If Windows shows **Windows protected your PC**, only choose
 
 ## Local data
 
+Remembered recipe choices are stored in `cache/pinned-recipes`, separately for each matched local world folder. Clearing this folder forgets your selections; it does not change research progress in the game. If choices do not return, check that the supported local world is loaded. Duplicate world names across Steam accounts or save namespaces can prevent a unique match; manual pinning remains available.
+
 Preferences and caches are stored under `%LOCALAPPDATA%/StarRuptureWaveOverlay`. Recipe assets, native type schemas and cache receipts are kept in `recipe-cache`. The app reads the running game and its installed archives without changing game memory, files or saves.
 
 Before deleting local data, exit the overlay. Removing the recipe cache means the next setup prepares the assets again from your installed game. See the [README](../README.md#updating-or-removing-the-app) for removal and shortcut instructions.

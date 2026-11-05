@@ -22,6 +22,7 @@ pub struct Sample {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub struct Pin {
+    pub position: [f64; 2],
     pub bearing: f64,
     pub metres: f64,
 }
@@ -35,7 +36,8 @@ impl Sample {
             && (0.0..360.0).contains(&self.heading)
             && (self.pin_known || self.pin.is_none())
             && self.pin.is_none_or(|p| {
-                p.bearing.is_finite()
+                p.position.iter().all(|v| v.is_finite() && v.abs() < 1e7)
+                    && p.bearing.is_finite()
                     && (0.0..360.0).contains(&p.bearing)
                     && p.metres.is_finite()
                     && (0.0..=300000.0).contains(&p.metres)
@@ -48,8 +50,63 @@ pub fn relative(bearing: f64, heading: f64) -> f64 {
 pub fn bearing(dx: f64, dy: f64) -> f64 {
     (dy.atan2(dx).to_degrees() + 90.0).rem_euclid(360.0)
 }
+/// Proximity latch: arrive at 10 m, leave beyond 15 m. A changed target resets it.
+#[derive(Clone, Copy, Default)]
+pub struct Arrival {
+    target: Option<[u64; 2]>,
+    arrived: bool,
+}
+impl Arrival {
+    pub fn update(&mut self, pin: Option<Pin>) -> bool {
+        let Some(pin) = pin.filter(|p| p.metres.is_finite() && p.metres >= 0.) else {
+            *self = Self::default();
+            return false;
+        };
+        let key = pin.position.map(f64::to_bits);
+        if self.target != Some(key) {
+            self.arrived = false;
+            self.target = Some(key);
+        }
+        self.arrived = if self.arrived {
+            pin.metres <= 15.
+        } else {
+            pin.metres <= 10.
+        };
+        self.arrived
+    }
+}
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn arrival_has_hysteresis_and_resets_for_replaced_or_missing_pins() {
+        let mut a = Arrival::default();
+        let pin = Pin {
+            position: [1., 2.],
+            bearing: 0.,
+            metres: 10.,
+        };
+        assert!(a.update(Some(pin)));
+        assert!(a.update(Some(Pin {
+            metres: 14.,
+            ..pin
+        })));
+        assert!(!a.update(Some(Pin {
+            metres: 16.,
+            ..pin
+        })));
+        assert!(!a.update(Some(Pin {
+            metres: 12.,
+            ..pin
+        })));
+        assert!(a.update(Some(pin)));
+        assert!(!a.update(Some(Pin {
+            position: [3., 4.],
+            metres: 12.,
+            ..pin
+        })));
+        assert!(a.update(Some(pin)));
+        assert!(!a.update(None));
+    }
     use super::*;
     #[test]
     fn compass_wraps_and_cardinal_axes_match_world() {
@@ -90,6 +147,7 @@ mod tests {
         assert!(
             !Sample {
                 pin: Some(Pin {
+                    position: [0., 0.],
                     bearing: 0.,
                     metres: -1.
                 }),

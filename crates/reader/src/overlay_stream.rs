@@ -194,6 +194,7 @@ pub fn run_with_navigation(
     let mut menu_reads = 0u64;
     let mut world_reads = 0u64;
     let mut menu_max_micros = 0u128;
+    let mut remembered = crate::recipe_pins::Remembered::new(directory);
     smol::block_on(async {
         let mut session: Option<Session> = None;
         let mut retry = Instant::now();
@@ -209,12 +210,21 @@ pub fn run_with_navigation(
         let mut presence_due = Instant::now();
         let mut asset_setup_attempted = false;
         let mut recipe_binding = None;
+        let mut identity_binding = None;
+        let mut identity_due = Instant::now();
+        let mut identity_attempts = 0;
+        let mut identity_error = None;
         let mut recipe_setup_attempts = 0u8;
         let mut recipe_setup_retry = Instant::now();
 
         let mut recipe_generation = 0;
         let mut recipe_due = Instant::now();
         while !stop.is_requested() {
+            if let Some(t) = &tracker
+                && let Err(e) = remembered.checkpoint(&t.control)
+            {
+                eprintln!("Recipe choices could not be remembered: {e:#}");
+            }
             budget.renew(5000);
             if Instant::now() >= presence_due
                 && let Some(process) = &retained
@@ -282,8 +292,16 @@ pub fn run_with_navigation(
                         recipe_setup_retry = Instant::now() + Duration::from_secs(2);
 
                         if let Some(t) = &tracker {
-                            t.control.clear();
+                            if let Err(e) = remembered.flush(&t.control) {
+                                eprintln!("Recipe choices could not be remembered: {e:#}");
+                            }
+                            t.control.reset_session();
                         }
+                        remembered.detach();
+                        identity_binding = None;
+                        identity_attempts = 0;
+                        identity_due = Instant::now();
+                        identity_error = None;
                         output.send(Payload::Ready)?;
                         last_menu = None;
                         pause_due = Instant::now();
@@ -489,6 +507,87 @@ pub fn run_with_navigation(
                     recipe_generation = request.generation;
                     recipe_due = Instant::now();
                 }
+                if recipe_binding.is_some() && !remembered.bound() && Instant::now() >= identity_due
+                {
+                    identity_due = Instant::now() + Duration::from_secs(5);
+                    budget.renew(60000);
+                    let result: Result<_> = async {
+                        s.live.menu(&s.process, &s.base).await?;
+                        if identity_binding.is_none() && identity_attempts < 3 {
+                            identity_attempts += 1;
+                            identity_binding = Some(
+                                crate::recipe_pins::Binding::discover(
+                                    &s.live.context(),
+                                    &s.base,
+                                    s.live.world_address(),
+                                )
+                                .await?,
+                            );
+                        }
+                        let identity = identity_binding
+                            .as_ref()
+                            .context("Recipe persistence identity setup unavailable")?;
+                        let world = identity
+                            .current(
+                                &s.live.context(),
+                                s.live.world_address(),
+                                Path::new(&s.process.identity.executable),
+                            )
+                            .await?;
+                        s.live.menu(&s.process, &s.base).await?;
+                        Ok(world)
+                    }
+                    .await;
+                    match result {
+                        Ok(world) => {
+                            remembered.begin(world)?;
+                            identity_error = None;
+                        }
+                        Err(e) => {
+                            let message = format!("{e:#}");
+                            if identity_error.as_ref() != Some(&message) {
+                                eprintln!("Recipe persistence unavailable: {message}");
+                                identity_error = Some(message);
+                            }
+                        }
+                    }
+                }
+                if let Some((restore_request, ids)) = remembered.desired(&t.control)
+                    && let Some(binding) = &recipe_binding
+                {
+                    budget.renew(5000);
+                    let result: Result<_> = async {
+                        let mut snapshots = Vec::new();
+                        for id in ids {
+                            if !t.catalogue.recipes.contains_key(&id) {
+                                continue;
+                            }
+                            s.live.menu(&s.process, &s.base).await?;
+                            if let Some(snapshot) = binding
+                                .sample(
+                                    &s.live.context(),
+                                    &s.base,
+                                    s.live.world_address(),
+                                    &id,
+                                    &t.catalogue,
+                                    restore_request.generation,
+                                )
+                                .await?
+                            {
+                                snapshots.push(snapshot);
+                            }
+                            s.live.menu(&s.process, &s.base).await?;
+                        }
+                        Ok(snapshots)
+                    }
+                    .await;
+                    match result {
+                        Ok(snapshots) => {
+                            remembered.restored(&t.control, restore_request, snapshots)
+                        }
+                        Err(e) => eprintln!("Recipe restoration deferred: {e:#}"),
+                    }
+                }
                 if request.active && request.cursor.is_some() && Instant::now() >= recipe_due {
                     budget.renew(5000);
                     let selection = request.cursor.is_some();
@@ -621,6 +720,11 @@ pub fn run_with_navigation(
             } else {
                 stop.wait_until(deadline);
             }
+        }
+        if let Some(t) = &tracker
+            && let Err(e) = remembered.flush(&t.control)
+        {
+            eprintln!("Recipe choices could not be remembered: {e:#}");
         }
         Ok::<(), anyhow::Error>(())
     })?;

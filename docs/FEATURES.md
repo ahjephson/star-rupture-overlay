@@ -18,6 +18,8 @@ Borderless, windowed and the supported fullscreen mode are covered in [compatibi
 
 A floating compass at the top centre follows your viewing direction. The fixed centre notch marks straight ahead. If you have a personal map pin, a cyan diamond shows its bearing and the distance beneath it. A side arrow guides you toward a pin outside the visible compass range. Distance is horizontal and straight-line, not a walking route or elevation measurement.
 
+Within 10 metres of your personal pin, its marker turns green and the distance changes to **ARRIVED**. The cue clears when you move more than 15 metres away, move the pin or remove it. Arrival uses horizontal distance, so check elevation yourself.
+
 The compass remains available without a pin. It hides when the game loses focus, during pause, while the game UI cursor is visible, and when current navigation readings are unavailable. In **Settings > General > Navigation**, turn **Show compass and personal pin** on or off.
 
 ## Recipe research sidebar
@@ -31,6 +33,8 @@ With the game focused, open the recipe station and pin up to three unfinished re
 | Fourth unfinished recipe | Keep the existing three pins |
 | Outside the recipe station | Clear all pins |
 | Completed recipe or empty space inside the station | Keep the current selection |
+
+Your pinned recipes are remembered separately for each local world and restored when you return. Progress is read fresh before panels appear; completed recipes stay closed. Removing a panel or clearing your pins updates that world's remembered choices. If the app cannot identify one matching local world folder, manual pinning still works but choices are not restored.
 
 Double-click pinning works on recipe icons and names, away from ingredient tiles and INSERT buttons. It leaves the game's normal clicks intact. Double-clicks outside the station do not clear pins. In **Settings > Recipe tracker**, turn double-click pinning on or off.
 

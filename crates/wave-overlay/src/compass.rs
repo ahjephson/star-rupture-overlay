@@ -1,5 +1,5 @@
 //! Small, click-through compass surface. Owns reusable GDI buffers on the UI thread.
-use starrupture_observation_model::compass::{Sample, relative};
+use starrupture_observation_model::compass::{Arrival, Sample, relative};
 use std::{
     mem::size_of,
     ptr::{null, null_mut},
@@ -9,12 +9,19 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain([0]).collect()
 }
+#[derive(Clone, Copy, PartialEq)]
+struct Rendered {
+    heading: i32,
+    pin: Option<(i32, u32)>,
+    arrived: bool,
+}
 #[derive(Default)]
 pub(crate) struct Panel {
+    arrival: std::cell::Cell<Arrival>,
     window: HWND,
     surface: Option<Surface>,
     last: Option<(i32, i32, i32, i32)>,
-    rendered: Option<(i32, Option<(i32, u32)>)>,
+    rendered: Option<Rendered>,
 }
 impl Drop for Panel {
     fn drop(&mut self) {
@@ -28,6 +35,7 @@ impl Drop for Panel {
 }
 impl Panel {
     pub(crate) fn hide(&self) {
+        self.arrival.set(Arrival::default());
         if !self.window.is_null() {
             // SAFETY: The retained HWND is owned by this panel on the current UI thread.
             unsafe {
@@ -134,18 +142,22 @@ impl Panel {
             self.rendered = None;
         }
         // Quantize sub-pixel motion, never extrapolate beyond validated evidence.
-        let key = (
-            (sample.heading * 10.).round() as i32,
-            sample.pin.map(|p| {
+        let mut arrival = self.arrival.get();
+        let arrived = arrival.update(sample.pin);
+        self.arrival.set(arrival);
+        let key = Rendered {
+            heading: (sample.heading * 10.).round() as i32,
+            pin: sample.pin.map(|p| {
                 (
                     (relative(p.bearing, sample.heading) * 10.).round() as i32,
                     p.metres.round() as u32,
                 )
             }),
-        );
+            arrived,
+        };
         if self.rendered != Some(key) {
             let surface = self.surface.as_mut().unwrap();
-            surface.draw(sample);
+            surface.draw(sample, arrived);
             let size = SIZE {
                 cx: width,
                 cy: height,
@@ -368,12 +380,16 @@ impl Surface {
             }
         }
     }
-    fn draw(&mut self, s: Sample) {
+    fn draw(&mut self, s: Sample, arrived: bool) {
         self.pixels.fill(0);
         let scale = self.width as f64 / 560.;
         let mid = self.width / 2;
         let y = (43. * scale) as i32;
-        let cyan = [121, 219, 225];
+        let cyan = if arrived {
+            [141, 219, 154]
+        } else {
+            [121, 219, 225]
+        };
         let white = [235, 240, 240];
         let span = self.width - 36;
         for x in 12..self.width - 12 {
@@ -442,10 +458,18 @@ impl Surface {
                 );
             }
             self.text(
-                &format!("{:.0} m", pin.metres),
+                &if arrived {
+                    "ARRIVED".into()
+                } else {
+                    format!("{:.0} m", pin.metres)
+                },
                 x.clamp(65, self.width - 65),
                 (60. * scale) as i32,
-                white,
+                if arrived {
+                    cyan
+                } else {
+                    white
+                },
             );
         }
         // SAFETY: The selected top-down DIB owns exactly pixels.len() bytes; all GDI access is
@@ -474,19 +498,24 @@ pub(crate) fn self_test(directory: &std::path::Path) -> Result<()> {
     for (name, heading, pin) in [
         ("no-pin", 0., None),
         ("ahead", 0., Some((0., 420.))),
+        ("arrived", 0., Some((0., 5.))),
         ("right", 350., Some((20., 420.))),
         ("left", 10., Some((340., 420.))),
         ("behind", 0., Some((180., 420.))),
         ("wrap", 359., Some((1., 8.))),
     ] {
-        surface.draw(Sample {
-            heading,
-            pin: pin.map(|(bearing, metres)| starrupture_observation_model::compass::Pin {
-                bearing,
-                metres,
-            }),
-            ..sample
-        });
+        surface.draw(
+            Sample {
+                heading,
+                pin: pin.map(|(bearing, metres)| starrupture_observation_model::compass::Pin {
+                    position: [0., 0.],
+                    bearing,
+                    metres,
+                }),
+                ..sample
+            },
+            name == "arrived",
+        );
         if surface.bits != allocation
             || surface.pixels.as_chunks::<4>().0.iter().any(|p| p[..3].iter().any(|v| *v > p[3]))
         {
@@ -638,10 +667,13 @@ pub(crate) fn self_test(directory: &std::path::Path) -> Result<()> {
     }
     let started = std::time::Instant::now();
     for i in 0..120 {
-        surface.draw(Sample {
-            heading: i as f64 * 3.,
-            ..sample
-        });
+        surface.draw(
+            Sample {
+                heading: i as f64 * 3.,
+                ..sample
+            },
+            false,
+        );
     }
     println!(
         "{}",

@@ -241,6 +241,7 @@ impl Binding {
             let dx = p[0] - location[0];
             let dy = p[1] - location[1];
             Pin {
+                position: p,
                 bearing: bearing(dx, dy),
                 metres: dx.hypot(dy) / 100.,
             }

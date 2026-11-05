@@ -10,9 +10,9 @@ This unofficial Windows companion adds a rupture countdown, compass and optional
 
 ## What it does
 
-- Adds a floating compass showing the direction and distance to your personal map pin.
+- Adds a floating compass showing the direction and distance to your personal map pin, with a visual arrival cue.
 - Shows the current rupture stage and time remaining, with a countdown that follows the game's simulation and pauses with it.
-- Pins up to three recipes in compact panels, showing submitted materials, required amounts and completion.
+- Pins up to three recipes in compact panels, remembers your choices per local world, and shows fresh research progress.
 - Shows which recipe materials you have in your bag and how many you carry.
 - Offers controls for positioning, recipe scale, keyboard shortcut, starting with Windows and launching the game.
 

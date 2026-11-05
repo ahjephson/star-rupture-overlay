@@ -933,6 +933,14 @@ pub fn run() -> Result<()> {
             }
             return Ok(crate::dialogs::self_test(std::path::Path::new(&directory))?);
         }
+        if first == "--self-test-recipe-identity" {
+            let directory =
+                PathBuf::from(args.next().ok_or("Identity diagnostic directory required")?);
+            if args.next().is_some() {
+                return Err("Unexpected identity diagnostic argument".into());
+            }
+            return Ok(starrupture_overlay_reader::recipe_pins::self_test(&directory)?);
+        }
         if first == "--self-test-compass-reader" {
             let directory =
                 PathBuf::from(args.next().ok_or("Compass diagnostic directory required")?);

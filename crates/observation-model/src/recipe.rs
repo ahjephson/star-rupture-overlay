@@ -121,6 +121,7 @@ pub struct Request {
 }
 #[derive(Default)]
 struct State {
+    edited: bool,
     request: Request,
     pins: Vec<View>,
     notice: String,
@@ -164,12 +165,55 @@ impl Control {
         state.request.active = true;
         state.request.cursor = cursor;
         state.request.clear_outside = clear_outside;
+        state.edited = true;
     }
     pub fn clear(&self) {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         state.advance();
         state.pins.clear();
+        state.edited = true;
         state.settle();
+    }
+    /// Clear volatile observations at a new session, leaving restoration eligible.
+    pub fn reset_session(&self) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.advance();
+        state.pins.clear();
+        state.edited = false;
+        state.settle();
+    }
+    pub fn restoration_request(&self) -> Option<Request> {
+        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        (!state.edited && state.pins.is_empty() && !state.request.active).then_some(state.request)
+    }
+    /// Only fresh guarded snapshots may be restored, and never over a user's action.
+    pub fn restore(&self, request: Request, snapshots: Vec<Snapshot>) -> bool {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut ids = BTreeSet::new();
+        if state.edited
+            || state.request != request
+            || !state.pins.is_empty()
+            || state.request.active
+            || snapshots.len() > MAX_PINS
+            || snapshots.iter().any(|s| s.recipe_id.is_empty() || !ids.insert(&s.recipe_id))
+        {
+            return false;
+        }
+        state.advance();
+        state.edited = true;
+        for mut snapshot in
+            snapshots.into_iter().filter(|s| s.ingredients.iter().any(|i| i.remaining > 0))
+        {
+            snapshot.generation = state.request.generation;
+            let generation = state.request.generation;
+            state.pins.push(View {
+                snapshot: Some(snapshot),
+                message: String::new(),
+                generation,
+            });
+        }
+        state.settle();
+        true
     }
     pub fn remove(&self, id: &str) {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -293,6 +337,25 @@ impl Control {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn restoration_refreshes_generation_and_respects_manual_actions() {
+        let c = Control::default();
+        let request = c.restoration_request().unwrap();
+        assert!(c.restore(request, vec![sample("A", 10), sample("Done", 0)]));
+        assert_eq!(c.views().len(), 1);
+        assert!(c.restoration_request().is_none());
+        let v = c.view();
+        assert_eq!(v.snapshot.unwrap().generation, v.generation);
+        c.reset_session();
+        let request = c.restoration_request().unwrap();
+        c.toggle_at(Some([1, 2]));
+        assert!(!c.restore(request, vec![sample("Old", 10)]));
+        c.reset_session();
+        let request = c.restoration_request().unwrap();
+        c.clear();
+        assert!(!c.restore(request, vec![sample("Old", 10)]));
+        assert!(c.views().is_empty());
+    }
     use super::*;
     fn sample(id: &str, remaining: u32) -> Snapshot {
         Snapshot {
