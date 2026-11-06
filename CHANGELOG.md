@@ -4,6 +4,9 @@
 
 ### Added
 
+- Separate General, Wave timer, Compass and Recipe tracker settings tabs, with independent feature enable controls.
+- Configurable waypoint arrival and departure distances, defaulting to 25 and 35 metres, and an option to disable the arrival cue.
+
 - Visual waypoint arrival cue near your personal pin.
 - Remember pinned recipes separately for each local world and refresh their progress when you return.
 
@@ -15,6 +18,8 @@
 - Hover feedback for recipe close buttons and materials, with item-name tooltips.
 
 ### Changed
+
+- Release display and reader resources when features are disabled, and skip recipe setup when tracking is off.
 
 - Keep compass and rupture updates responsive while recipe setup runs in the background.
 - Prepare the compass while menus keep it hidden, reducing the wait when returning to gameplay.

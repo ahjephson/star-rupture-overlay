@@ -2,11 +2,17 @@
 
 StarRupture Overlay shows a compass, rupture timing and pinned recipe research progress while you play. It reads the supported game without changing game memory, files or saves.
 
+## Settings and feature controls
+
+**General** contains app startup, game-close behaviour and the desktop shortcut. **Wave timer**, **Compass** and **Recipe tracker** each have their own enable checkbox and settings. Switch a feature off to release its reader state and display resources; its options remain saved for next time. Disabled recipe tracking does not prepare or load recipe assets. Local caches remain on disk for reuse. With all features disabled, the app stays in the tray without a game reader. General launch and game-close controls still work.
+
+Save applies feature changes without restarting the app. The overlays may briefly hide while their readers reconnect.
+
 ## Rupture countdown
 
 The countdown shows the current rupture stage: STABLE, PRE-WAVE, APPROACHING, INCINERATING, COOLING or GROWBACK. It follows the game's simulation and pauses with verified game pause. Unavailable or stale readings show `--:--`.
 
-In **Settings > General > Countdown format**, choose hours when needed (`1:20:00`) or total minutes (`80:00`). Both choices keep the panel width fixed. Below an hour, the display uses `MM:SS`.
+In **Settings > Wave timer > Countdown format**, choose hours when needed (`1:20:00`) or total minutes (`80:00`). Both choices keep the panel width fixed. Below an hour, the display uses `MM:SS`.
 
 The wave panel hides while the game reports waves stopped, including the observed tutorial state. INCINERATING lasts seven seconds before the display changes to COOLING.
 
@@ -18,9 +24,9 @@ Borderless, windowed and the supported fullscreen mode are covered in [compatibi
 
 A floating compass at the top centre follows your viewing direction. The fixed centre notch marks straight ahead. If you have a personal map pin, a cyan diamond shows its bearing and the distance beneath it. A side arrow guides you toward a pin outside the visible compass range. Distance is horizontal and straight-line, not a walking route or elevation measurement.
 
-Within 10 metres of your personal pin, its marker turns green and the distance changes to **ARRIVED**. The cue clears when you move more than 15 metres away, move the pin or remove it. Arrival uses horizontal distance, so check elevation yourself.
+Within 25 metres of your personal pin by default, its marker turns green and the distance changes to **ARRIVED**. The cue clears beyond 35 metres, or when you move or remove the pin. In **Settings > Compass**, change both distances or turn the arrival cue off. The departure distance must exceed the arrival distance to prevent flickering near the boundary. Arrival uses horizontal distance, so check elevation yourself.
 
-The compass remains available without a pin. It hides when the game loses focus, during pause, while the game UI cursor is visible, and when current navigation readings are unavailable. In **Settings > General > Navigation**, turn **Show compass and personal pin** on or off.
+The compass remains available without a pin. It hides when the game loses focus, during pause, while the game UI cursor is visible, and when current navigation readings are unavailable. In **Settings > Compass**, turn the compass on or off.
 
 ## Recipe research sidebar
 

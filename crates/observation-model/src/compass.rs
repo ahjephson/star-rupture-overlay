@@ -60,7 +60,7 @@ pub fn relative(bearing: f64, heading: f64) -> f64 {
 pub fn bearing(dx: f64, dy: f64) -> f64 {
     (dy.atan2(dx).to_degrees() + 90.0).rem_euclid(360.0)
 }
-/// Proximity latch: arrive at 10 m, leave beyond 15 m. A changed target resets it.
+/// Horizontal proximity latch with separate arrival/departure thresholds.
 #[derive(Clone, Copy, Default)]
 pub struct Arrival {
     target: Option<[u64; 2]>,
@@ -68,6 +68,13 @@ pub struct Arrival {
 }
 impl Arrival {
     pub fn update(&mut self, pin: Option<Pin>) -> bool {
+        self.update_with(pin, 25., 35.)
+    }
+    pub fn update_with(&mut self, pin: Option<Pin>, arrival: f64, departure: f64) -> bool {
+        if !arrival.is_finite() || !departure.is_finite() || arrival <= 0. || departure <= arrival {
+            *self = Self::default();
+            return false;
+        }
         let Some(pin) = pin.filter(|p| p.metres.is_finite() && p.metres >= 0.) else {
             *self = Self::default();
             return false;
@@ -78,9 +85,9 @@ impl Arrival {
             self.target = Some(key);
         }
         self.arrived = if self.arrived {
-            pin.metres <= 15.
+            pin.metres <= departure
         } else {
-            pin.metres <= 10.
+            pin.metres <= arrival
         };
         self.arrived
     }
@@ -110,25 +117,25 @@ mod tests {
         let pin = Pin {
             position: [1., 2.],
             bearing: 0.,
-            metres: 10.,
+            metres: 25.,
         };
         assert!(a.update(Some(pin)));
         assert!(a.update(Some(Pin {
-            metres: 14.,
+            metres: 34.,
             ..pin
         })));
         assert!(!a.update(Some(Pin {
-            metres: 16.,
+            metres: 36.,
             ..pin
         })));
         assert!(!a.update(Some(Pin {
-            metres: 12.,
+            metres: 26.,
             ..pin
         })));
         assert!(a.update(Some(pin)));
         assert!(!a.update(Some(Pin {
             position: [3., 4.],
-            metres: 12.,
+            metres: 26.,
             ..pin
         })));
         assert!(a.update(Some(pin)));
@@ -182,5 +189,31 @@ mod tests {
             }
             .valid(1010)
         );
+    }
+}
+
+#[cfg(test)]
+mod configurable_arrival_tests {
+    use super::*;
+    #[test]
+    fn configured_boundaries_and_invalid_settings_preserve_safe_latch_behavior() {
+        let mut arrival = Arrival::default();
+        let at = |metres| {
+            Some(Pin {
+                position: [1., 2.],
+                bearing: 0.,
+                metres,
+            })
+        };
+        assert!(!arrival.update_with(at(50.1), 50., 65.));
+        assert!(arrival.update_with(at(50.), 50., 65.));
+        assert!(arrival.update_with(at(65.), 50., 65.));
+        assert!(!arrival.update_with(at(65.1), 50., 65.));
+        assert!(!arrival.update_with(at(60.), 50., 65.));
+        assert!(!arrival.update_with(at(1.), f64::NAN, 65.));
+        assert!(!arrival.update_with(at(1.), 65., 50.));
+        assert!(arrival.update_with(at(25.), 25., 35.));
+        assert!(arrival.update_with(at(35.), 25., 35.));
+        assert!(!arrival.update_with(at(35.1), 25., 35.));
     }
 }

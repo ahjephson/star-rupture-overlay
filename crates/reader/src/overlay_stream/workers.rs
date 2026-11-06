@@ -3,7 +3,7 @@ use super::*;
 use std::sync::Mutex;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Role {
-    Wave,
+    Connection,
     Compass,
     Recipe,
 }
@@ -138,7 +138,7 @@ impl Hub {
         }
         match message.payload {
             Payload::Ready => {}
-            Payload::Unavailable(reason) if role == Role::Wave => {
+            Payload::Unavailable(reason) if role == Role::Connection => {
                 s.reset_recipes();
                 s.seed = None;
                 s.slots = [None, None, None];
@@ -146,7 +146,7 @@ impl Hub {
                 s.no_world = false;
                 s.revision = s.revision.checked_add(1).context("Worker revision exhausted")?;
             }
-            Payload::NoWorld if role == Role::Wave => {
+            Payload::NoWorld if role == Role::Connection => {
                 s.reset_recipes();
                 s.seed = None;
                 s.slots = [None, None, None];
@@ -156,8 +156,8 @@ impl Hub {
             }
             payload if s.seed.is_some() => {
                 let slot = match (&role, &payload) {
-                    (Role::Wave, Payload::Menu(_)) => 0,
-                    (Role::Wave, Payload::World(_)) => 1,
+                    (Role::Connection, Payload::Menu(_)) => 0,
+                    (Role::Connection, Payload::World(_)) => 1,
                     (Role::Compass, Payload::Compass(_)) => 2,
                     _ => return Ok(()),
                 };
@@ -229,6 +229,7 @@ impl EpochControl<'_> {
 }
 
 pub(super) struct Group {
+    wave: bool,
     stop: Arc<StopSignal>,
     handles: Vec<std::thread::JoinHandle<()>>,
 }
@@ -237,6 +238,7 @@ impl Group {
         Self {
             stop,
             handles: Vec::new(),
+            wave: true,
         }
     }
     fn spawn(
@@ -249,12 +251,14 @@ impl Group {
         navigation: Option<Arc<starrupture_observation_model::compass::Control>>,
     ) -> Result<()> {
         let directory = directory.to_path_buf();
+        let wave = self.wave;
         let stop = self.stop.clone();
         self.handles.push(std::thread::Builder::new().name(format!("overlay-{role:?}")).spawn(
             move || {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     super::run_feature(
                         super::Feature {
+                            wave,
                             role,
                             hub: hub.clone(),
                             tracker,
@@ -265,7 +269,7 @@ impl Group {
                         stop.clone(),
                         |message| hub.emit(role, message),
                         |value| {
-                            if role == Role::Wave {
+                            if role == Role::Connection {
                                 hub.status(value)
                             }
                         },
@@ -303,16 +307,24 @@ pub(super) fn run(
     stop: Arc<StopSignal>,
     mut sink: impl FnMut(Message) -> Result<()>,
     mut status: impl FnMut(GameStatus),
-    tracker: Option<crate::recipe::Tracker>,
-    setup: Option<Box<dyn crate::recipe::AssetSetup>>,
-    navigation: Option<Arc<starrupture_observation_model::compass::Control>>,
+    features: super::Features,
 ) -> Result<()> {
+    let super::Features {
+        wave,
+        tracker,
+        setup,
+        navigation,
+    } = features;
+    if !wave && tracker.is_none() && setup.is_none() && navigation.is_none() {
+        return Ok(());
+    }
     ensure!(!platform::is_elevated()?, "Do not run overlay elevated");
     ensure!(directory.is_absolute(), "Absolute private cache directory required");
     std::fs::create_dir_all(directory)?;
     let hub = Arc::new(Hub::new(directory, tracker.as_ref().map(|t| t.control.clone())));
     let mut group = Group::new(stop.clone());
-    group.spawn(Role::Wave, directory, hub.clone(), None, None, None)?;
+    group.wave = wave;
+    group.spawn(Role::Connection, directory, hub.clone(), None, None, None)?;
     if navigation.is_some() {
         group.spawn(Role::Compass, directory, hub.clone(), None, None, navigation)?;
     }
@@ -445,10 +457,11 @@ mod tests {
         );
         let next = hub.activate(base, live, Vec::new()).unwrap();
         hub.emit(Role::Compass, message(epoch, compass(20.))).unwrap();
-        hub.emit(Role::Wave, message(epoch, Payload::Unavailable("old error".into()))).unwrap();
+        hub.emit(Role::Connection, message(epoch, Payload::Unavailable("old error".into())))
+            .unwrap();
         assert!(hub.current(next));
         assert!(hub.batch().slots.iter().all(Option::is_none));
-        hub.emit(Role::Wave, message(next, Payload::NoWorld)).unwrap();
+        hub.emit(Role::Connection, message(next, Payload::NoWorld)).unwrap();
         assert!(hub.seed().is_none());
         hub.emit(Role::Compass, message(next, compass(30.))).unwrap();
         assert!(hub.batch().slots.iter().all(Option::is_none));
@@ -507,7 +520,7 @@ mod tests {
         }
         hub.emit(Role::Compass, message(epoch, compass(90.))).unwrap();
         hub.emit(
-            Role::Wave,
+            Role::Connection,
             message(
                 epoch,
                 Payload::Menu(MenuSample {

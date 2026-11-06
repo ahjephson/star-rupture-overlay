@@ -62,6 +62,7 @@ pub(super) fn window_events_self_test() -> Result<()> {
             connection: crate::connection::Connection::default(),
         }));
         let mut state = Box::new(App {
+            runtime: None,
             compass: crate::compass::Panel::default(),
             recipe: crate::recipe_tracker::Panel::new(),
             dialogs: crate::dialogs::Dialogs::default(),
@@ -303,6 +304,7 @@ pub(super) fn window_self_test() -> Result<()> {
         }
         let stop = Arc::new(StopSignal::default());
         let mut state = Box::new(App {
+            runtime: None,
             compass: crate::compass::Panel::default(),
             recipe: crate::recipe_tracker::Panel::new(),
             dialogs: crate::dialogs::Dialogs::default(),
@@ -368,6 +370,7 @@ pub(super) fn window_self_test() -> Result<()> {
         let shaped = GetWindowRgn(window, region) == COMPLEXREGION;
         DeleteObject(region);
         let invisible = IsWindowVisible(window) == 0;
+        super::runtime::self_test_disabled(&mut state, window)?;
         DestroyWindow(window);
         let destroyed = IsWindow(window) == 0 && stop.is_requested();
         let focus_preserved = foreground == GetForegroundWindow();

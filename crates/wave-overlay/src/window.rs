@@ -11,6 +11,7 @@ use crate::{
 use starrupture_observation_model::shutdown::StopSignal;
 mod diagnostics;
 mod render;
+mod runtime;
 
 use diagnostics::{self_test, window_events_self_test, window_self_test};
 use render::{LayerRenderer, STAGE_TOP_PADDING, panel_points};
@@ -60,6 +61,7 @@ struct Reading {
     connection: Connection,
 }
 struct App {
+    runtime: Option<runtime::Runtime>,
     compass: crate::compass::Panel,
     recipe: crate::recipe_tracker::Panel,
     dialogs: Dialogs,
@@ -155,6 +157,23 @@ unsafe fn tick(window: HWND) {
     // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread access
     // obeys app()'s exclusive-borrow contract and does not let the reference escape.
     unsafe { update_connection(window) };
+    // SAFETY: This timer owns exclusive UI-thread access to its retained App.
+    if let Some(a) = unsafe { app(window) }
+        && let Some(mut runtime) = a.runtime.take()
+    {
+        let ready = runtime.sync(a, window);
+        a.runtime = Some(runtime);
+        if !ready {
+            a.recipe.suspend();
+            a.compass.hide();
+            a.countdown_eligible = false;
+            // SAFETY: Only the owned overlay window is hidden; no Rust borrow crosses dispatch.
+            unsafe {
+                ShowWindow(window, SW_HIDE);
+            }
+            return;
+        }
+    }
     // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread access
     // obeys app()'s exclusive-borrow contract and does not let the reference escape.
     let Some(a) = (unsafe { app(window) }) else {
@@ -228,7 +247,7 @@ unsafe fn tick(window: HWND) {
     );
     *a.dialog_context.recipe_status.borrow_mut() = a.recipe.status.clone();
     a.dialogs.refresh_recipe_status();
-    a.countdown_eligible = visible && !stopped;
+    a.countdown_eligible = visible && !stopped && a.dialog_context.preferences.get().wave_enabled;
     if !a.countdown_eligible {
         // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles;
         // native position/style values are scalar, and referenced menu/state objects remain alive
@@ -443,7 +462,9 @@ unsafe fn paint(window: HWND) {
     // SAFETY: This WM_PAINT handler owns the live window; PAINTSTRUCT is writable local storage and
     // BeginPaint/EndPaint are paired on the same UI thread.
     unsafe {
-        if !a.renderer.render(window, dc, &a.frame) {
+        if (a.preview.is_some() || a.dialog_context.preferences.get().wave_enabled)
+            && !a.renderer.render(window, dc, &a.frame)
+        {
             eprintln!("Overlay: layered frame update failed: {}", std::io::Error::last_os_error());
         }
         EndPaint(window, &ps)
@@ -980,6 +1001,13 @@ pub fn run() -> Result<()> {
             }
             return Ok(crate::icons::self_test()?);
         }
+        if first == "--self-test-idle-presence" {
+            println!(
+                "{:?}",
+                starrupture_overlay_reader::overlay_stream::presence_without_features()
+            );
+            return Ok(());
+        }
         if first == "--self-test-window-events" {
             if args.next().is_some() {
                 return Err("Unexpected event-test argument".into());
@@ -1138,6 +1166,7 @@ pub fn run() -> Result<()> {
         return Err(std::io::Error::last_os_error().into());
     }
     let mut app = Box::new(App {
+        runtime: None,
         compass: crate::compass::Panel::default(),
         recipe: crate::recipe_tracker::Panel::new(),
         dialogs: Dialogs::default(),
@@ -1222,18 +1251,9 @@ pub fn run() -> Result<()> {
     } else {
         None
     };
-    let worker = if app.preview.is_none() {
-        Some(reader(
-            config,
-            app.shared.clone(),
-            stop.clone(),
-            window as usize,
-            app.recipe.tracker(),
-            app.recipe.asset_setup(app.dialog_context.preferences.get().recipe_tracker.enabled),
-        ))
-    } else {
-        None
-    };
+    if app.preview.is_none() {
+        app.runtime = Some(runtime::Runtime::new(config));
+    }
     // SAFETY: These UI-thread APIs use scalar IDs or documented Win32 pseudo-handles;
     // callback/state ownership is retained separately and no Rust pointer is transferred.
     unsafe {
@@ -1266,12 +1286,11 @@ pub fn run() -> Result<()> {
             DispatchMessageW(&message)
         };
     }
+    drop(app.runtime.take());
     drop(app.dialogs);
     drop(window_events);
     stop.request();
-    if let Some(worker) = worker {
-        let _ = worker.join();
-    }
+
     Ok(())
 }
 
@@ -1304,6 +1323,7 @@ unsafe fn compass_tick(window: HWND) {
         None
     };
     drop(r);
+    a.compass.configure(a.dialog_context.preferences.get().compass);
     if let Err(e) = a.compass.update(a.game, sample, enabled) {
         a.compass.hide();
         eprintln!("Compass rendering unavailable: {e}");
@@ -1315,6 +1335,7 @@ fn reader(
     stop: Arc<StopSignal>,
     window: usize,
     tracker: Option<starrupture_overlay_reader::recipe::Tracker>,
+    features: runtime::Mask,
     setup: Option<Box<dyn starrupture_overlay_reader::recipe::AssetSetup>>,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
@@ -1375,13 +1396,16 @@ fn reader(
             }
         };
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            crate::stream_client::run_with_navigation(
+            crate::stream_client::run_with_features(
                 config,
                 stop.clone(),
                 &publish,
-                tracker,
-                setup,
-                Some(navigation),
+                starrupture_overlay_reader::overlay_stream::Features {
+                    wave: features.wave,
+                    tracker,
+                    setup,
+                    navigation: features.compass.then_some(navigation),
+                },
             )
         }));
         match result {

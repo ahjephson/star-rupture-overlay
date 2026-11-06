@@ -76,6 +76,8 @@ Report bugs using version numbers, reproduction steps and redacted diagnostics. 
 
 The optional `scripts/Import-RecipeAssets.ps1` prepares local exported test fixtures. Keep them outside Git and release archives.
 
+`--self-test-idle-presence` checks only OS game-process presence, without starting a memory reader or normal overlay. Feature-setting acceptance also checks four-tab visibility/enablement, numeric threshold rejection and persistence, joined disable cleanup and all-disabled reader suppression using owned native fixtures. Verify wave-off compass/recipe operation and repeated disable/enable in a loaded game separately; offscreen UI checks do not establish live compatibility.
+
 ## Compass diagnostics
 
 `--self-test-compass ABSOLUTE-PRIVATE-DIRECTORY` renders synthetic no-pin, ahead, left, right, behind and north-wrap states; checks transparent premultiplied pixels and buffer reuse; and verifies pause, disabled, unavailable, stale and focus-loss hiding with owned offscreen windows. It also checks repeated unfocused refreshes, focus loss during rendering and recovery on focus return without changing actual foreground focus. Package verification includes this diagnostic. `--self-test-compass-reader ABSOLUTE-PRIVATE-DIRECTORY` performs 90 finite read-only navigation observations against a loaded world, records private samples and read timings, then joins shutdown. It does not start a normal overlay or change the game. Live turning, pin placement/removal, drone view and appearance require separate checks.

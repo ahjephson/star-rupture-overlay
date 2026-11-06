@@ -23,9 +23,40 @@ pub enum GameExit {
 #[serde(rename_all = "camelCase", deny_unknown_fields, default)]
 pub struct Preferences {
     pub compass_enabled: bool,
+    pub wave_enabled: bool,
+    pub compass: CompassSettings,
     pub countdown_format: starrupture_observation_model::wave::CountdownFormat,
     pub game_exit: GameExit,
     pub recipe_tracker: RecipeSettings,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct CompassSettings {
+    pub arrival_enabled: bool,
+    pub arrival_metres: u16,
+    pub departure_metres: u16,
+}
+impl Default for CompassSettings {
+    fn default() -> Self {
+        Self {
+            arrival_enabled: true,
+            arrival_metres: 25,
+            departure_metres: 35,
+        }
+    }
+}
+impl CompassSettings {
+    pub fn validate(self) -> Result<()> {
+        ensure!(
+            (1..=1000).contains(&self.arrival_metres),
+            "Arrival distance must be between 1 and 1,000 metres."
+        );
+        ensure!(
+            self.departure_metres > self.arrival_metres && self.departure_metres <= 1500,
+            "Departure distance must be greater than arrival distance and no more than 1,500 metres."
+        );
+        Ok(())
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields, default)]
@@ -41,6 +72,8 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             compass_enabled: true,
+            wave_enabled: true,
+            compass: CompassSettings::default(),
             countdown_format: Default::default(),
             game_exit: Default::default(),
             recipe_tracker: Default::default(),
@@ -149,10 +182,12 @@ pub fn load(path: &Path) -> Result<Preferences> {
     let preferences: Preferences =
         serde_json::from_slice(&bytes).context("Could not read preferences")?;
     preferences.recipe_tracker.validate()?;
+    preferences.compass.validate()?;
     Ok(preferences)
 }
 pub fn save(path: &Path, preferences: Preferences) -> Result<()> {
     preferences.recipe_tracker.validate()?;
+    preferences.compass.validate()?;
     let parent = path.parent().context("Preferences directory unavailable")?;
     fs::create_dir_all(parent)?;
     let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
@@ -275,5 +310,54 @@ mod tests {
         assert!(load(&path).is_err());
         fs::remove_file(path).unwrap();
         fs::remove_dir(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod feature_preferences_tests {
+    use super::*;
+    #[test]
+    fn legacy_preferences_keep_feature_defaults_and_custom_distances_round_trip() {
+        let old: Preferences = serde_json::from_str(r#"{"compassEnabled":false,"countdownFormat":"minutes","gameExit":"ask","recipeTracker":{"enabled":false,"key":74,"modifiers":3,"position":2,"scale":125}}"#).unwrap();
+        assert!(!old.compass_enabled);
+        assert!(!old.recipe_tracker.enabled);
+        assert!(old.wave_enabled);
+        assert_eq!(old.compass, CompassSettings::default());
+        let configured = Preferences {
+            wave_enabled: false,
+            compass: CompassSettings {
+                arrival_enabled: false,
+                arrival_metres: 50,
+                departure_metres: 65,
+            },
+            ..old
+        };
+        let bytes = serde_json::to_vec(&configured).unwrap();
+        assert_eq!(serde_json::from_slice::<Preferences>(&bytes).unwrap(), configured);
+    }
+    #[test]
+    fn arrival_configuration_rejects_ambiguous_or_unbounded_thresholds() {
+        for (arrival_metres, departure_metres) in
+            [(0, 35), (25, 25), (35, 25), (1001, 1200), (1000, 1501)]
+        {
+            assert!(
+                CompassSettings {
+                    arrival_metres,
+                    departure_metres,
+                    ..Default::default()
+                }
+                .validate()
+                .is_err()
+            );
+        }
+        assert!(
+            CompassSettings {
+                arrival_metres: 1000,
+                departure_metres: 1500,
+                ..Default::default()
+            }
+            .validate()
+            .is_ok()
+        );
     }
 }

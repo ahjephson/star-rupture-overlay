@@ -238,6 +238,11 @@ impl Panel {
             setup_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
         }
     }
+    pub fn suspend(&mut self) {
+        self.hide();
+        self.unregister();
+        self.mouse.configure(std::ptr::null_mut(), std::ptr::null_mut(), false);
+    }
     pub fn tracker(&self) -> Option<starrupture_overlay_reader::recipe::Tracker> {
         self.assets.as_ref().map(|a| starrupture_overlay_reader::recipe::Tracker {
             catalogue: a.catalogue.clone(),
@@ -249,6 +254,9 @@ impl Panel {
         enabled: bool,
     ) -> Option<Box<dyn starrupture_overlay_reader::recipe::AssetSetup>> {
         self.setup_enabled.store(enabled, std::sync::atomic::Ordering::Relaxed);
+        if !enabled {
+            return None;
+        }
         let root = std::env::var_os("LOCALAPPDATA")
             .map(std::path::PathBuf::from)?
             .join("StarRuptureWaveOverlay/recipe-cache");

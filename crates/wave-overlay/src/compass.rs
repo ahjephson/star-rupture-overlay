@@ -18,6 +18,7 @@ struct Rendered {
 #[derive(Default)]
 pub(crate) struct Panel {
     arrival: std::cell::Cell<Arrival>,
+    settings: crate::preferences::CompassSettings,
     window: HWND,
     surface: Option<Surface>,
     last: Option<(i32, i32, i32, i32)>,
@@ -34,6 +35,13 @@ impl Drop for Panel {
     }
 }
 impl Panel {
+    pub(crate) fn configure(&mut self, settings: crate::preferences::CompassSettings) {
+        if self.settings != settings {
+            self.settings = settings;
+            self.arrival.set(Arrival::default());
+            self.rendered = None;
+        }
+    }
     pub(crate) fn hide(&self) {
         self.arrival.set(Arrival::default());
         if !self.window.is_null() {
@@ -143,7 +151,12 @@ impl Panel {
         }
         // Quantize sub-pixel motion, never extrapolate beyond validated evidence.
         let mut arrival = self.arrival.get();
-        let arrived = arrival.update(sample.pin);
+        let arrived = self.settings.arrival_enabled
+            && arrival.update_with(
+                sample.pin,
+                f64::from(self.settings.arrival_metres),
+                f64::from(self.settings.departure_metres),
+            );
         self.arrival.set(arrival);
         let key = Rendered {
             heading: (sample.heading * 10.).round() as i32,

@@ -331,6 +331,59 @@ impl ShortWait {
     }
 }
 
+/// General app controls need only OS process presence when every HUD reader is disabled.
+pub(crate) fn presence_without_features() -> Result<crate::overlay_stream::GameStatus> {
+    use crate::overlay_stream::GameStatus;
+    // SAFETY: Scalar process snapshot flags; the checked returned handle is locally owned.
+    let raw = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    ensure!(raw != INVALID_HANDLE_VALUE, "Cannot enumerate game process presence");
+    let snapshot = OwnedHandle(raw);
+    let mut entry = PROCESSENTRY32W {
+        dwSize: size_of::<PROCESSENTRY32W>() as u32,
+        ..Default::default()
+    };
+    let start = Instant::now();
+    let mut pid = None;
+    let mut count = 0u32;
+    // SAFETY: The owned snapshot and initialized output structure remain live for the call.
+    let mut more = unsafe { Process32FirstW(snapshot.0, &mut entry) };
+    while more != 0 {
+        count += 1;
+        ensure!(
+            count <= 65536 && start.elapsed() <= Duration::from_millis(250),
+            "Process presence enumeration bound"
+        );
+        let length = entry.szExeFile.iter().position(|v| *v == 0).unwrap_or(entry.szExeFile.len());
+        if String::from_utf16_lossy(&entry.szExeFile[..length]).eq_ignore_ascii_case(GAME) {
+            ensure!(pid.is_none(), "Ambiguous game process presence");
+            pid = Some(entry.th32ProcessID);
+        }
+        // SAFETY: The owned snapshot writes only the initialized local output structure.
+        more = unsafe { Process32NextW(snapshot.0, &mut entry) };
+    }
+    let Some(pid) = pid else {
+        return Ok(GameStatus::Waiting);
+    };
+    // SAFETY: Only query-limited rights are requested; no VM read/write or execution rights.
+    let raw = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    ensure!(!raw.is_null(), "Game process presence query unavailable");
+    let process = OwnedHandle(raw);
+    let mut path = vec![0u16; 32768];
+    let mut length = path.len() as u32;
+    // SAFETY: The query-only process handle and bounded writable UTF-16 output remain live.
+    checked(unsafe { QueryFullProcessImageNameW(process.0, 0, path.as_mut_ptr(), &mut length) })?;
+    let executable = String::from_utf16(&path[..length as usize])?;
+    ensure!(supported_filename(&executable), "Game presence filename changed");
+    let mut code = 0u32;
+    // SAFETY: The retained query-only handle writes only the initialized scalar exit-code output.
+    checked(unsafe { GetExitCodeProcess(process.0, &mut code) })?;
+    ensure!(code == 259, "Game exited during presence query");
+    Ok(GameStatus::FeaturesDisabled {
+        pid,
+        executable,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

@@ -14,7 +14,8 @@ This unofficial Windows companion adds a rupture countdown, compass and optional
 - Shows the current rupture stage and time remaining, with a countdown that follows the game's simulation and pauses with it.
 - Pins up to three recipes in compact panels, remembers your choices per local world, and shows fresh research progress.
 - Shows which recipe materials you have in your bag and how many you carry.
-- Offers controls for positioning, recipe scale, keyboard shortcut, starting with Windows and launching the game.
+- Gives each feature its own settings and enable control, with adjustable waypoint arrival distances, recipe placement and scale, keyboard shortcut and countdown format.
+- Offers app controls for starting with Windows, launching the game and desktop shortcuts.
 
 ## Download and start
 

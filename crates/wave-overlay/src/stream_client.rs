@@ -61,6 +61,24 @@ pub fn run_with_navigation(
     setup: Option<Box<dyn starrupture_overlay_reader::recipe::AssetSetup>>,
     navigation: Option<Arc<starrupture_observation_model::compass::Control>>,
 ) -> Result<RunStatistics, String> {
+    run_with_features(
+        config,
+        stop,
+        publish,
+        starrupture_overlay_reader::overlay_stream::Features {
+            wave: true,
+            tracker,
+            setup,
+            navigation,
+        },
+    )
+}
+pub fn run_with_features(
+    config: Config,
+    stop: Arc<StopSignal>,
+    publish: impl FnMut(Update),
+    features: starrupture_overlay_reader::overlay_stream::Features,
+) -> Result<RunStatistics, String> {
     let cache = config.cache_directory.as_ref().ok_or("Private cache directory required")?;
     let publish = std::cell::RefCell::new(publish);
     let mut last_status = None;
@@ -71,7 +89,7 @@ pub fn run_with_navigation(
         statistics: None,
         publish: |event| (publish.borrow_mut())(event),
     };
-    starrupture_overlay_reader::overlay_stream::run_with_navigation(
+    starrupture_overlay_reader::overlay_stream::run_with_features(
         cache,
         stop,
         |message| sink.accept(message).map_err(anyhow::Error::msg),
@@ -81,9 +99,7 @@ pub fn run_with_navigation(
                 (publish.borrow_mut())(Update::Status(status));
             }
         },
-        tracker,
-        setup,
-        navigation,
+        features,
     )
     .map_err(|error| format!("{error:#}"))?;
     Ok(RunStatistics {

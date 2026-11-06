@@ -18,10 +18,17 @@ BEGIN
     LTEXT "No shortcut created", 112, 34, 151, 156, 10
     PUSHBUTTON "Create shortcut", 113, 196, 148, 90, 14
     LTEXT "Starts the overlay and game through Steam. Shortcut changes apply immediately.", 165, 34, 166, 252, 20
-    GROUPBOX "Countdown format", 170, 24, 196, 272, 34
-    COMBOBOX 156, 34, 209, 252, 65, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    GROUPBOX "Navigation", 175, 24, 236, 272, 28
-    CONTROL "Show &compass and personal pin", 174, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 34, 247, 252, 10
+    CONTROL "Enable wave &timer", 180, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 24, 54, 262, 10
+    GROUPBOX "Countdown format", 170, 24, 72, 272, 38
+    COMBOBOX 156, 34, 87, 252, 65, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    CONTROL "Enable &compass", 174, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 24, 54, 262, 10
+    GROUPBOX "Waypoint arrival", 175, 24, 72, 272, 98
+    CONTROL "Show arrival cue", 181, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 34, 86, 252, 10
+    LTEXT "Arrive within (metres)", 182, 34, 107, 170, 10
+    EDITTEXT 183, 214, 104, 72, 14, ES_NUMBER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT "Clear arrival beyond (metres)", 184, 34, 127, 170, 10
+    EDITTEXT 185, 214, 124, 72, 14, ES_NUMBER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT "The gap prevents the cue flickering near your destination.", 186, 34, 146, 252, 18
     CONTROL "Enable recipe &tracker", 150, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 24, 54, 262, 10
     GROUPBOX "Pinning", 172, 24, 72, 272, 86
     LTEXT "Pin / clear shortcut", 166, 34, 85, 94, 10

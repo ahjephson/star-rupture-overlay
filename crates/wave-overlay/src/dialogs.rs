@@ -177,7 +177,7 @@ impl Dialogs {
                 // SAFETY: These synchronous messages target owned UI controls/windows; scalar
                 // parameters or initialized text/message buffers remain live until the call
                 // returns, with no retained Rust pointers.
-                let recipe = unsafe { SendDlgItemMessageW(window, 155, TCM_GETCURSEL, 0, 0) } == 1;
+                let recipe = unsafe { SendDlgItemMessageW(window, 155, TCM_GETCURSEL, 0, 0) } == 3;
                 // SAFETY: These Win32 queries use scalar values or borrowed handles, validate
                 // native handle identity themselves, and neither dereference Rust memory nor
                 // transfer ownership.
@@ -207,12 +207,28 @@ fn settings_message(state: &State, value: &str) {
     text(state.window.get(), 114, value);
     settings_tab(state);
 }
+fn distance_value(window: HWND, id: i32) -> u16 {
+    let mut value = [0u16; 16];
+    // SAFETY: The owned edit control writes at most the declared UTF-16 buffer length.
+    let count = unsafe { GetDlgItemTextW(window, id, value.as_mut_ptr(), value.len() as i32) };
+    String::from_utf16_lossy(&value[..count as usize]).parse().unwrap_or(0)
+}
+fn checked(window: HWND, id: i32) -> bool {
+    // SAFETY: The owned checkbox is queried synchronously with scalar parameters.
+    unsafe { SendDlgItemMessageW(window, id, BM_GETCHECK, 0, 0) as u32 == BST_CHECKED }
+}
 fn selected(state: &State) -> Preferences {
     // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
     // initialized text/message buffers remain live until the call returns, with no retained Rust
     // pointers.
     let choice = unsafe { SendDlgItemMessageW(state.window.get(), 111, CB_GETCURSEL, 0, 0) };
     Preferences {
+        wave_enabled: checked(state.window.get(), 180),
+        compass: preferences::CompassSettings {
+            arrival_enabled: checked(state.window.get(), 181),
+            arrival_metres: distance_value(state.window.get(), 183),
+            departure_metres: distance_value(state.window.get(), 185),
+        },
         // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
         // initialized text/message buffers remain live until the call returns, with no retained
         // Rust pointers.
@@ -322,7 +338,8 @@ fn settings_init(state: &State) {
     unsafe {
         EnableThemeDialogTexture(window, ETDT_ENABLE | ETDT_USETABTEXTURE);
     }
-    for (index, label) in ["General", "Recipe tracker"].iter().enumerate() {
+    for (index, label) in ["General", "Wave timer", "Compass", "Recipe tracker"].iter().enumerate()
+    {
         let mut label = desktop::wide(label);
         let item = TCITEMW {
             mask: TCIF_TEXT,
@@ -381,7 +398,23 @@ fn settings_init(state: &State) {
             0,
         );
     }
-    let recipe = state.context.preferences.get().recipe_tracker;
+    let values = state.context.preferences.get();
+    // SAFETY: These controls belong to this live dialog; messages retain no pointers.
+    unsafe {
+        SendDlgItemMessageW(window, 180, BM_SETCHECK, usize::from(values.wave_enabled), 0);
+        SendDlgItemMessageW(
+            window,
+            181,
+            BM_SETCHECK,
+            usize::from(values.compass.arrival_enabled),
+            0,
+        );
+        SendDlgItemMessageW(window, 183, EM_SETLIMITTEXT, 4, 0);
+        SendDlgItemMessageW(window, 185, EM_SETLIMITTEXT, 4, 0);
+    }
+    text(window, 183, &values.compass.arrival_metres.to_string());
+    text(window, 185, &values.compass.departure_metres.to_string());
+    let recipe = values.recipe_tracker;
     // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
     // initialized text/message buffers remain live until the call returns, with no retained Rust
     // pointers.
@@ -515,49 +548,46 @@ fn recipe_enablement(state: &State) {
 }
 fn settings_tab(state: &State) {
     recipe_enablement(state);
-    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
-    // initialized text/message buffers remain live until the call returns, with no retained Rust
-    // pointers.
-    let recipe = unsafe { SendDlgItemMessageW(state.window.get(), 155, TCM_GETCURSEL, 0, 0) } == 1;
-    for id in [110, 111, 112, 113, 156, 160, 161, 162, 164, 165, 170, 174, 175] {
-        // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles;
-        // native position/style values are scalar, and referenced menu/state objects remain alive
-        // through synchronous dispatch.
-        unsafe {
-            ShowWindow(
-                GetDlgItem(state.window.get(), id),
-                if recipe {
-                    SW_HIDE
-                } else {
-                    SW_SHOW
-                },
-            );
+    let window = state.window.get();
+    // SAFETY: The live tab control is queried synchronously with scalar parameters.
+    let tab = unsafe { SendDlgItemMessageW(window, 155, TCM_GETCURSEL, 0, 0) };
+    let groups = [
+        vec![110, 111, 112, 113, 160, 161, 162, 164, 165],
+        vec![180, 170, 156],
+        vec![174, 175, 181, 182, 183, 184, 185, 186],
+        std::iter::once(150).chain(RECIPE_FIELDS).collect(),
+    ];
+    for (index, ids) in groups.into_iter().enumerate() {
+        for id in ids {
+            // SAFETY: Only owned child HWND visibility and enabled state change on the UI thread.
+            unsafe {
+                ShowWindow(
+                    GetDlgItem(window, id),
+                    if tab == index as isize {
+                        SW_SHOW
+                    } else {
+                        SW_HIDE
+                    },
+                );
+                if index == 1 && id != 180 {
+                    EnableWindow(GetDlgItem(window, id), i32::from(checked(window, 180)));
+                }
+                if index == 2 && id != 174 {
+                    let enabled =
+                        checked(window, 174) && (id == 175 || id == 181 || checked(window, 181));
+                    EnableWindow(GetDlgItem(window, id), i32::from(enabled));
+                }
+            }
         }
     }
-    for id in std::iter::once(150).chain(RECIPE_FIELDS) {
-        // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles;
-        // native position/style values are scalar, and referenced menu/state objects remain alive
-        // through synchronous dispatch.
-        unsafe {
-            ShowWindow(
-                GetDlgItem(state.window.get(), id),
-                if recipe {
-                    SW_SHOW
-                } else {
-                    SW_HIDE
-                },
-            );
-        }
-    }
+    let recipe = tab == 3;
     let has_status = !state.context.recipe_status.borrow().is_empty();
-    let base_height = if recipe {
-        if has_status {
-            264
-        } else {
-            232
-        }
-    } else {
-        300
+    let base_height = match tab {
+        0 => 226,
+        1 => 146,
+        2 => 206,
+        _ if has_status => 264,
+        _ => 232,
     };
     let window = state.window.get();
     // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
@@ -657,6 +687,7 @@ fn save_settings(state: &State) -> Result<()> {
         captured_shortcut(state).validate()?;
     }
     preferences.recipe_tracker.validate()?;
+    preferences.compass.validate()?;
     let desired = checked_startup(state);
     let previous = if state.context.diagnostic {
         None
@@ -704,6 +735,9 @@ fn refresh_about(state: &State) {
             crate::connection::GameStatus::Running {
                 ..
             } => "Waiting for a supported world and validated observations.",
+            crate::connection::GameStatus::FeaturesDisabled {
+                ..
+            } => "Enable a HUD feature in Settings to connect its reader.",
             _ => "The overlay will connect when a supported game starts.",
         },
     );
@@ -1007,13 +1041,15 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
                 return 1;
             }
             match (state.kind, id) {
-                (SETTINGS, 110 | 111 | 150 | 151 | 152 | 153 | 156 | 157 | 174)
-                    if notification == BN_CLICKED
-                        || notification == CBN_SELCHANGE
-                        || notification == EN_CHANGE =>
+                (
+                    SETTINGS,
+                    110 | 111 | 150 | 151 | 152 | 153 | 156 | 157 | 174 | 180 | 181 | 183 | 185,
+                ) if notification == BN_CLICKED
+                    || notification == CBN_SELCHANGE
+                    || notification == EN_CHANGE =>
                 {
-                    if id == 150 {
-                        recipe_enablement(state);
+                    if matches!(id, 150 | 174 | 180 | 181) {
+                        settings_tab(state);
                     }
                     dirty(state);
                 }

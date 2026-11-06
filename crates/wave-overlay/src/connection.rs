@@ -79,6 +79,14 @@ impl Connection {
             }
             self.connected = false;
         }
+        if let GameStatus::FeaturesDisabled {
+            pid,
+            ..
+        } = &status
+        {
+            self.attached = Some(*pid);
+            self.connected = false;
+        }
         self.status = status;
     }
     pub fn ready(&mut self, pid: u32) {
@@ -89,7 +97,7 @@ impl Connection {
         self.connected = false;
     }
     pub fn running(&self) -> bool {
-        matches!(self.status, GameStatus::Running { .. })
+        matches!(self.status, GameStatus::Running { .. } | GameStatus::FeaturesDisabled { .. })
     }
     pub fn can_launch(&self) -> bool {
         self.status == GameStatus::Waiting
@@ -97,6 +105,9 @@ impl Connection {
     pub fn label(&self) -> &'static str {
         match self.status {
             GameStatus::Waiting => "Waiting for StarRupture",
+            GameStatus::FeaturesDisabled {
+                ..
+            } => "StarRupture detected — HUD features disabled",
             GameStatus::Running {
                 supported: false,
                 ..
@@ -113,6 +124,10 @@ impl Connection {
     pub fn location(&self) -> &str {
         match &self.status {
             GameStatus::Running {
+                executable,
+                ..
+            }
+            | GameStatus::FeaturesDisabled {
                 executable,
                 ..
             } => executable,
@@ -186,5 +201,34 @@ mod tests {
         connection.update(GameStatus::Waiting);
         assert_eq!(connection.closed_sessions, 1);
         assert!(!connection.connected);
+    }
+}
+
+#[cfg(test)]
+mod disabled_feature_connection_tests {
+    use super::*;
+    #[test]
+    fn disabled_features_keep_launch_and_confirmed_exit_independent_of_live_readings() {
+        let mut connection = Connection::default();
+        connection.update(GameStatus::Waiting);
+        assert!(connection.can_launch());
+        let detected = GameStatus::FeaturesDisabled {
+            pid: 123,
+            executable: "game.exe".into(),
+        };
+        connection.update(detected.clone());
+        assert!(connection.running());
+        assert!(!connection.can_launch());
+        assert!(!connection.connected);
+        assert_eq!(connection.location(), "game.exe");
+        connection.update(detected);
+        assert_eq!(connection.closed_sessions, 0);
+        connection.update(GameStatus::Unknown);
+        assert_eq!(connection.closed_sessions, 0);
+        connection.update(GameStatus::Waiting);
+        assert_eq!(connection.closed_sessions, 1);
+        connection.update(GameStatus::Waiting);
+        assert_eq!(connection.closed_sessions, 1);
+        assert!(connection.can_launch());
     }
 }

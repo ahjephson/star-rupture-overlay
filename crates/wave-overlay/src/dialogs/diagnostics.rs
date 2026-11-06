@@ -74,6 +74,7 @@ pub fn self_test(directory: &Path) -> Result<()> {
         SendDlgItemMessageW(window, 174, BM_SETCHECK, BST_CHECKED as usize, 0);
         SendMessageW(window, WM_COMMAND, 174, 0);
     }
+    check_feature_tabs(&dialogs.windows[0].0, directory)?;
     capture(window, &directory.join("settings.bmp"))?;
     let mut general = RECT::default();
     // SAFETY: Win32 validates the borrowed handle where required; every output points to an
@@ -85,7 +86,7 @@ pub fn self_test(directory: &Path) -> Result<()> {
     // initialized text/message buffers remain live until the call returns, with no retained Rust
     // pointers.
     unsafe {
-        SendDlgItemMessageW(window, 155, TCM_SETCURSEL, 1, 0);
+        SendDlgItemMessageW(window, 155, TCM_SETCURSEL, 3, 0);
     }
     settings_tab(&dialogs.windows[0].0);
     capture(window, &directory.join("settings-recipe.bmp"))?;
@@ -177,7 +178,7 @@ pub fn self_test(directory: &Path) -> Result<()> {
     unsafe {
         GetClientRect(window, &mut compact);
     }
-    ensure!(compact.bottom < general.bottom, "Recipe tab did not compact the dialog");
+    ensure!(compact.right == general.right, "Tab changes altered the settings width");
     *context.recipe_status.borrow_mut() =
         "Preparing recipe icons. You can keep playing while setup finishes.".into();
     dialogs.refresh_recipe_status();
@@ -187,8 +188,17 @@ pub fn self_test(directory: &Path) -> Result<()> {
     unsafe {
         GetClientRect(window, &mut with_status);
     }
+    let mut maximum_growth = RECT {
+        bottom: 40,
+        ..Default::default()
+    };
+    // SAFETY: The dialog converts the initialized local rectangle in place.
+    unsafe {
+        MapDialogRect(window, &mut maximum_growth);
+    }
     ensure!(
-        with_status.bottom > compact.bottom && with_status.bottom < general.bottom,
+        with_status.bottom > compact.bottom
+            && with_status.bottom <= compact.bottom + maximum_growth.bottom,
         "Recipe setup status layout is not bounded"
     );
     capture(window, &directory.join("settings-recipe-status.bmp"))?;
@@ -427,8 +437,15 @@ pub fn self_test(directory: &Path) -> Result<()> {
         SendDlgItemMessageW(window, 157, BM_SETCHECK, BST_UNCHECKED as usize, 0);
         SendDlgItemMessageW(window, 152, CB_SETCURSEL, 2, 0);
         SendDlgItemMessageW(window, 153, CB_SETCURSEL, 2, 0);
+        text(window, 183, "50");
+        text(window, 185, "65");
         SendMessageW(window, WM_COMMAND, IDOK as usize, 0);
     }
+    ensure!(
+        preferences::load(&context.preferences_path)?.compass.arrival_metres == 50
+            && context.preferences.get().compass.departure_metres == 65,
+        "Arrival distances did not persist through native controls"
+    );
     ensure!(
         preferences::load(&context.preferences_path)?.game_exit == GameExit::Exit,
         "Save did not persist exit preference"
@@ -713,5 +730,70 @@ fn capture(window: HWND, path: &Path) -> Result<()> {
     let mut file = fs::OpenOptions::new().create_new(true).write(true).open(path)?;
     file.write_all(&header)?;
     file.write_all(pixels)?;
+    Ok(())
+}
+
+fn check_feature_tabs(state: &State, directory: &Path) -> Result<()> {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
+    let window = state.window.get();
+    // SAFETY: Only the diagnostic-owned tab and checkbox controls are synchronously queried/changed.
+    unsafe {
+        ensure!(
+            SendDlgItemMessageW(window, 155, TCM_GETITEMCOUNT, 0, 0) == 4,
+            "Expected four settings tabs"
+        );
+        for (tab, toggle, fields, name) in [
+            (1, 180, &[170, 156][..], "wave"),
+            (2, 174, &[175, 181, 182, 183, 184, 185, 186][..], "compass"),
+        ] {
+            SendDlgItemMessageW(window, 155, TCM_SETCURSEL, tab, 0);
+            settings_tab(state);
+            capture(window, &directory.join(format!("settings-{name}.bmp")))?;
+            SendDlgItemMessageW(window, toggle, BM_SETCHECK, BST_UNCHECKED as usize, 0);
+            SendMessageW(window, WM_COMMAND, toggle as usize, 0);
+            for id in fields {
+                ensure!(
+                    IsWindowEnabled(GetDlgItem(window, *id)) == 0,
+                    "Disabled feature control remained enabled: {id}"
+                );
+            }
+            ensure!(
+                IsWindowEnabled(GetDlgItem(window, toggle)) != 0,
+                "Feature toggle disabled itself"
+            );
+            SendDlgItemMessageW(window, toggle, BM_SETCHECK, BST_CHECKED as usize, 0);
+            SendMessageW(window, WM_COMMAND, toggle as usize, 0);
+            for id in fields {
+                ensure!(
+                    IsWindowEnabled(GetDlgItem(window, *id)) != 0,
+                    "Enabled feature control stayed disabled: {id}"
+                );
+            }
+        }
+    }
+    ensure!(
+        selected(state).compass == preferences::CompassSettings::default(),
+        "Arrival defaults changed"
+    );
+    text(window, 183, "50");
+    text(window, 185, "40");
+    ensure!(save_settings(state).is_err(), "Reversed arrival distances were saved");
+    ensure!(!state.context.preferences_path.exists(), "Invalid arrival changed preferences");
+    text(window, 183, "25");
+    text(window, 185, "35");
+    // SAFETY: The diagnostic owns these native controls; all parameters are scalars.
+    unsafe {
+        SendDlgItemMessageW(window, 181, BM_SETCHECK, BST_UNCHECKED as usize, 0);
+        SendMessageW(window, WM_COMMAND, 181, 0);
+        ensure!(
+            IsWindowEnabled(GetDlgItem(window, 183)) == 0,
+            "Arrival toggle did not disable distances"
+        );
+        SendDlgItemMessageW(window, 181, BM_SETCHECK, BST_CHECKED as usize, 0);
+        SendMessageW(window, WM_COMMAND, 181, 0);
+        SendDlgItemMessageW(window, 155, TCM_SETCURSEL, 0, 0);
+    }
+    settings_tab(state);
+    dirty(state);
     Ok(())
 }

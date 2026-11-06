@@ -75,6 +75,10 @@ struct Session {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GameStatus {
     Waiting,
+    FeaturesDisabled {
+        pid: u32,
+        executable: String,
+    },
     Running {
         pid: u32,
         creation_ticks: u64,
@@ -82,6 +86,10 @@ pub enum GameStatus {
         supported: bool,
     },
     Unknown,
+}
+/// OS process presence only: no memory-reading handle, executable hash or native discovery.
+pub fn presence_without_features() -> GameStatus {
+    platform::presence_without_features().unwrap_or(GameStatus::Unknown)
 }
 async fn attach(
     directory: &Path,
@@ -182,7 +190,34 @@ pub fn run_with_navigation(
     setup: Option<Box<dyn crate::recipe::AssetSetup>>,
     navigation: Option<Arc<starrupture_observation_model::compass::Control>>,
 ) -> Result<()> {
-    workers::run(directory, stop, sink, status, tracker, setup, navigation)
+    run_with_features(
+        directory,
+        stop,
+        sink,
+        status,
+        Features {
+            wave: true,
+            tracker,
+            setup,
+            navigation,
+        },
+    )
+}
+/// Requested feature resources. Absent features do not create workers or load assets.
+pub struct Features {
+    pub wave: bool,
+    pub tracker: Option<crate::recipe::Tracker>,
+    pub setup: Option<Box<dyn crate::recipe::AssetSetup>>,
+    pub navigation: Option<Arc<starrupture_observation_model::compass::Control>>,
+}
+pub fn run_with_features(
+    directory: &Path,
+    stop: Arc<StopSignal>,
+    sink: impl FnMut(Message) -> Result<()>,
+    status: impl FnMut(GameStatus),
+    features: Features,
+) -> Result<()> {
+    workers::run(directory, stop, sink, status, features)
 }
 async fn attach_shared(hub: &Hub, budget: Arc<platform::ReadBudget>) -> Result<Session> {
     let seed = hub.seed().context(crate::error::WorldNotLoaded)?;
@@ -206,6 +241,7 @@ async fn attach_shared(hub: &Hub, budget: Arc<platform::ReadBudget>) -> Result<S
     })
 }
 struct Feature {
+    wave: bool,
     role: Role,
     hub: Arc<Hub>,
     tracker: Option<crate::recipe::Tracker>,
@@ -220,6 +256,7 @@ fn run_feature(
     mut status: impl FnMut(GameStatus),
 ) -> Result<()> {
     let Feature {
+        wave,
         role,
         hub,
         mut tracker,
@@ -275,12 +312,12 @@ fn run_feature(
             {
                 eprintln!("Recipe choices could not be remembered: {e:#}");
             }
-            if role != Role::Wave && session.as_ref().is_some_and(|s| !hub.current(s.epoch)) {
+            if role != Role::Connection && session.as_ref().is_some_and(|s| !hub.current(s.epoch)) {
                 session = None;
                 retry = Instant::now();
             }
             budget.renew(5000);
-            if role == Role::Wave
+            if role == Role::Connection
                 && Instant::now() >= presence_due
                 && let Some(process) = &retained
             {
@@ -304,14 +341,14 @@ fn run_feature(
                     continue;
                 }
                 budget.renew(60000);
-                let attached = if role == Role::Wave {
+                let attached = if role == Role::Connection {
                     attach(directory, &mut retained, budget.clone(), &mut status).await
                 } else {
                     attach_shared(&hub, budget.clone()).await
                 };
                 match attached {
                     Ok(mut s) => {
-                        if role == Role::Wave {
+                        if role == Role::Connection {
                             s.epoch =
                                 hub.activate(s.base.clone(), s.live.record(), s.live.proof())?;
                         }
@@ -350,7 +387,7 @@ fn run_feature(
                         }
                         failures = (failures + 1).min(3);
                         retry = Instant::now()
-                            + if role == Role::Wave {
+                            + if role == Role::Connection {
                                 Duration::from_secs(1 << failures)
                             } else {
                                 Duration::from_millis(100)
@@ -416,7 +453,7 @@ fn run_feature(
             }
             budget.renew(5000);
             let s = session.as_mut().unwrap();
-            let result: Result<()> = if role == Role::Wave {
+            let result: Result<()> = if role == Role::Connection {
                 async {
                     if Instant::now() >= pause_due {
                         let started = clock_ms();
@@ -439,7 +476,7 @@ fn run_feature(
                         menu_max_micros = menu_max_micros.max(clock.elapsed().as_micros());
                         pause_due = Instant::now() + cadence.menu;
                     }
-                    if Instant::now() >= world_due {
+                    if wave && Instant::now() >= world_due {
                         let cycle = Instant::now();
                         let started = clock_ms();
                         sample_context(&s.process, &s.base, s.live.context()).await?;
@@ -793,7 +830,8 @@ fn run_feature(
             }
             let navigation_active = navigation.as_ref().is_some_and(|c| c.enabled());
             let deadline = match role {
-                Role::Wave => pause_due.min(world_due),
+                Role::Connection if wave => pause_due.min(world_due),
+                Role::Connection => pause_due,
                 Role::Compass if navigation_active => compass_due,
                 Role::Compass => Instant::now() + Duration::from_millis(100),
                 Role::Recipe => Instant::now() + Duration::from_millis(50),
