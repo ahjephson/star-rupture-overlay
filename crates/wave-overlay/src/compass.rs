@@ -1,4 +1,5 @@
 //! Small, click-through compass surface. Owns reusable GDI buffers on the UI thread.
+mod marker;
 use starrupture_observation_model::compass::{Arrival, Sample, relative};
 use std::{
     mem::size_of,
@@ -101,7 +102,7 @@ impl Panel {
             return Ok(());
         }
         let width = (rect.right * 560 / 2560).clamp(320, 640);
-        let height = width * 90 / 560;
+        let height = width * 98 / 560;
         let x = point.x + (rect.right - width) / 2;
         let y = point.y + (rect.bottom * 16 / 1440).max(10);
         self.show(game, sample, [x, y, width, height])
@@ -245,6 +246,8 @@ struct Surface {
     width: i32,
     height: i32,
     pixels: Vec<u8>,
+    marker_mask: Vec<u8>,
+    marker_size: usize,
 }
 impl Drop for Surface {
     fn drop(&mut self) {
@@ -327,6 +330,8 @@ impl Surface {
                 width,
                 height,
                 pixels: vec![0; (width * height * 4) as usize],
+                marker_size: (width * 24 / 560).max(14) as usize,
+                marker_mask: marker::mask((width * 24 / 560).max(14) as usize),
             })
         }
     }
@@ -393,15 +398,39 @@ impl Surface {
             }
         }
     }
+    fn waypoint_flag(&mut self, x: i32, y: i32, color: [u8; 3]) {
+        let size = self.marker_size;
+        let left = x - size as i32 / 2;
+        let top = y - size as i32 / 2;
+        for shadow in [true, false] {
+            for yy in 0..size {
+                for xx in 0..size {
+                    let alpha = self.marker_mask[yy * size + xx];
+                    if alpha == 0 {
+                        continue;
+                    }
+                    let x = left + xx as i32;
+                    let y = top + yy as i32;
+                    if shadow {
+                        for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1), (1, 2)] {
+                            self.pixel(x + dx, y + dy, [0, 0, 0], alpha);
+                        }
+                    } else {
+                        self.pixel(x, y, color, alpha);
+                    }
+                }
+            }
+        }
+    }
     fn draw(&mut self, s: Sample, arrived: bool) {
         self.pixels.fill(0);
         let scale = self.width as f64 / 560.;
         let mid = self.width / 2;
-        let y = (43. * scale) as i32;
-        let cyan = if arrived {
-            [141, 219, 154]
-        } else {
+        let y = (51. * scale) as i32;
+        let marker_color = if arrived {
             [121, 219, 225]
+        } else {
+            [193, 243, 0]
         };
         let white = [235, 240, 240];
         let span = self.width - 36;
@@ -450,14 +479,7 @@ impl Surface {
             let delta = relative(pin.bearing, s.heading);
             let x = mid + (delta.clamp(-90., 90.) * span as f64 / 180.).round() as i32;
             if delta.abs() <= 90. {
-                let r = (8. * scale).max(5.) as i32;
-                for thick in 0..2 {
-                    let r = r - thick;
-                    self.line(x, y - r, x + r, y, cyan, 255);
-                    self.line(x + r, y, x, y + r, cyan, 255);
-                    self.line(x, y + r, x - r, y, cyan, 255);
-                    self.line(x - r, y, x, y - r, cyan, 255);
-                }
+                self.waypoint_flag(x, y, marker_color);
             } else {
                 self.text(
                     if delta < 0. {
@@ -466,8 +488,8 @@ impl Surface {
                         ">"
                     },
                     x,
-                    (30. * scale) as i32,
-                    cyan,
+                    (38. * scale) as i32,
+                    marker_color,
                 );
             }
             self.text(
@@ -477,9 +499,9 @@ impl Surface {
                     format!("{:.0} m", pin.metres)
                 },
                 x.clamp(65, self.width - 65),
-                (60. * scale) as i32,
+                (68. * scale) as i32,
                 if arrived {
-                    cyan
+                    marker_color
                 } else {
                     white
                 },
@@ -506,7 +528,7 @@ pub(crate) fn self_test(directory: &std::path::Path) -> Result<()> {
         pin_known: true,
         menu_open: false,
     };
-    let mut surface = Surface::new(560, 90)?;
+    let mut surface = Surface::new(560, 98)?;
     let allocation = surface.bits;
     for (name, heading, pin) in [
         ("no-pin", 0., None),
@@ -538,6 +560,21 @@ pub(crate) fn self_test(directory: &std::path::Path) -> Result<()> {
             return Err("Compass has an opaque background".into());
         }
         write_bmp(&directory.join(format!("{name}.bmp")), &surface)?;
+    }
+    for (name, width) in [("ahead-small", 320), ("ahead-large", 640)] {
+        let mut scaled = Surface::new(width, width * 98 / 560)?;
+        scaled.draw(
+            Sample {
+                pin: Some(starrupture_observation_model::compass::Pin {
+                    position: [0., 0.],
+                    bearing: 0.,
+                    metres: 420.,
+                }),
+                ..sample
+            },
+            false,
+        );
+        write_bmp(&directory.join(format!("{name}.bmp")), &scaled)?;
     }
     let mut panel = Panel::default();
     // SAFETY: STATIC is a system class; the fixture owns the resulting nonactivating HWND,
@@ -589,7 +626,7 @@ pub(crate) fn self_test(directory: &std::path::Path) -> Result<()> {
             return Err("Other-app fixture creation failed".into());
         }
         ShowWindow(game.0, SW_SHOWNOACTIVATE);
-        panel.show_with_foreground(game.0, sample, [-29990, -29990, 560, 90], || game.0)?;
+        panel.show_with_foreground(game.0, sample, [-29990, -29990, 560, 98], || game.0)?;
         if IsWindowVisible(panel.window) == 0 {
             return Err("Compass fixture did not show".into());
         }
@@ -604,17 +641,17 @@ pub(crate) fn self_test(directory: &std::path::Path) -> Result<()> {
         if IsWindowVisible(panel.window) != 0 {
             return Err("Paused compass did not hide".into());
         }
-        panel.show_with_foreground(game.0, sample, [-29990, -29990, 560, 90], || game.0)?;
+        panel.show_with_foreground(game.0, sample, [-29990, -29990, 560, 98], || game.0)?;
         panel.update(game.0, Some(sample), false)?;
         if IsWindowVisible(panel.window) != 0 {
             return Err("Disabled compass did not hide".into());
         }
-        panel.show_with_foreground(game.0, sample, [-29990, -29990, 560, 90], || game.0)?;
+        panel.show_with_foreground(game.0, sample, [-29990, -29990, 560, 98], || game.0)?;
         panel.update(game.0, None, true)?;
         if IsWindowVisible(panel.window) != 0 {
             return Err("Unavailable compass did not hide".into());
         }
-        panel.show_with_foreground(game.0, sample, [-29990, -29990, 560, 90], || game.0)?;
+        panel.show_with_foreground(game.0, sample, [-29990, -29990, 560, 98], || game.0)?;
         panel.update(
             game.0,
             Some(Sample {
@@ -627,7 +664,7 @@ pub(crate) fn self_test(directory: &std::path::Path) -> Result<()> {
         if IsWindowVisible(panel.window) != 0 {
             return Err("Stale compass did not hide".into());
         }
-        panel.show_with_foreground(game.0, sample, [-29990, -29990, 560, 90], || game.0)?;
+        panel.show_with_foreground(game.0, sample, [-29990, -29990, 560, 98], || game.0)?;
         panel.follow_with_foreground(game.0, || other.0);
         if IsWindowVisible(panel.window) != 0 {
             return Err("Focus loss did not hide compass".into());
@@ -641,7 +678,7 @@ pub(crate) fn self_test(directory: &std::path::Path) -> Result<()> {
                     heading: i as f64,
                     ..sample
                 },
-                [-29990, -29990, 560, 90],
+                [-29990, -29990, 560, 98],
                 || other.0,
             )?;
             panel.follow_with_foreground(game.0, || other.0);
@@ -656,7 +693,7 @@ pub(crate) fn self_test(directory: &std::path::Path) -> Result<()> {
                 heading: 45.,
                 ..sample
             },
-            [-29990, -29990, 560, 90],
+            [-29990, -29990, 560, 98],
             || {
                 let n = calls.get();
                 calls.set(n + 1);
@@ -670,7 +707,7 @@ pub(crate) fn self_test(directory: &std::path::Path) -> Result<()> {
         if IsWindowVisible(panel.window) != 0 {
             return Err("Mid-render focus loss exposed compass".into());
         }
-        panel.show_with_foreground(game.0, sample, [-29990, -29990, 560, 90], || game.0)?;
+        panel.show_with_foreground(game.0, sample, [-29990, -29990, 560, 98], || game.0)?;
         if IsWindowVisible(panel.window) == 0 {
             return Err("Returning focus did not restore compass".into());
         }

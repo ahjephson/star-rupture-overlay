@@ -19,6 +19,8 @@
 
 ### Changed
 
+- Show the personal-waypoint flag on the compass, matching the game map marker.
+
 - Release display and reader resources when features are disabled, and skip recipe setup when tracking is off.
 
 - Keep compass and rupture updates responsive while recipe setup runs in the background.

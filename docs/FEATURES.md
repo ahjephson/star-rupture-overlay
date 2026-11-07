@@ -22,9 +22,9 @@ Borderless, windowed and the supported fullscreen mode are covered in [compatibi
 
 ## Compass and personal pin
 
-A floating compass at the top centre follows your viewing direction. The fixed centre notch marks straight ahead. If you have a personal map pin, a cyan diamond shows its bearing and the distance beneath it. A side arrow guides you toward a pin outside the visible compass range. Distance is horizontal and straight-line, not a walking route or elevation measurement.
+A floating compass at the top centre follows your viewing direction. The fixed centre notch marks straight ahead. If you have a personal map pin, a lime personal-waypoint flag shows its bearing and the distance beneath it. A side arrow guides you toward a pin outside the visible compass range. Distance is horizontal and straight-line, not a walking route or elevation measurement.
 
-Within 25 metres of your personal pin by default, its marker turns green and the distance changes to **ARRIVED**. The cue clears beyond 35 metres, or when you move or remove the pin. In **Settings > Compass**, change both distances or turn the arrival cue off. The departure distance must exceed the arrival distance to prevent flickering near the boundary. Arrival uses horizontal distance, so check elevation yourself.
+Within 25 metres of your personal pin by default, its marker turns cyan-blue and the distance changes to **ARRIVED** in the same colour. The cue clears beyond 35 metres, or when you move or remove the pin. In **Settings > Compass**, change both distances or turn the arrival cue off. The departure distance must exceed the arrival distance to prevent flickering near the boundary. Arrival uses horizontal distance, so check elevation yourself.
 
 The compass remains available without a pin. It hides when the game loses focus, during pause, while the game UI cursor is visible, and when current navigation readings are unavailable. In **Settings > Compass**, turn the compass on or off.
 
