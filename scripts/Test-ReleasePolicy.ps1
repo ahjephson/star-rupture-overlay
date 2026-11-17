@@ -51,3 +51,5 @@ try{
     Must-Reject {Confirm-ReleaseTag -Tag v1.1.0-update3.2 -Branch update3};$cases++
 }finally{Pop-Location}
 @{status='passed';cases=$cases;networkUsed=$false;productionRefsChanged=$false}|ConvertTo-Json -Compress
+# Expected Git failures above are assertions, not the script result.
+$global:LASTEXITCODE = 0
