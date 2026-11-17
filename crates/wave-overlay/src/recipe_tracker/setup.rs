@@ -302,7 +302,10 @@ fn self_test_impl(directory: &Path, enabled: bool) -> Result<()> {
             if matches!(message.payload, Payload::World(_)) {
                 worlds += 1;
             }
-            if worlds >= 24 || started.elapsed().as_secs() >= 320 {
+            // World sampling can finish before the independent recipe worker is ready.
+            let setup_complete =
+                !enabled || state.lock().unwrap_or_else(|p| p.into_inner()).ready.is_some();
+            if (worlds >= 24 && setup_complete) || started.elapsed().as_secs() >= 320 {
                 stop.request();
             }
             Ok(())

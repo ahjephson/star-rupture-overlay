@@ -1,53 +1,32 @@
 # Changelog
 
-## Unreleased
+## 1.1.0-update3.1 — 2026-11-17
 
 ### Added
 
-- Separate General, Wave timer, Compass and Recipe tracker settings tabs, with independent feature enable controls.
-- Configurable waypoint arrival and departure distances, defaulting to 25 and 35 metres, and an option to disable the arrival cue.
+- Update 3 PTB support, including Rarely, Normal and Often fire-wave settings.
+- A compass with your personal map pin, distance and a visual arrival cue. Arrival and departure distances are configurable, defaulting to 25 and 35 metres.
+- Up to three pinned recipes, remembered separately for each local world, with optional double-click pinning and individual close buttons.
+- Recipe item hover feedback and name tooltips.
+- Separate Wave timer, Compass and Recipe tracker settings, with independent enable controls.
+- A countdown format choice: hours when needed or total minutes.
 
-- Visual waypoint arrival cue near your personal pin.
-- Remember pinned recipes separately for each local world and refresh their progress when you return.
+### Improved
 
-- Floating compass with a personal-pin marker, horizontal distance and a setting to turn it off; hidden during pause.
-
-- Update 3 PTB compatibility for rupture timing and recipe tracking, including Rarely, Normal and Often fire-wave frequency settings.
-- Countdown format setting for hours when needed or total minutes, with a fixed panel width.
-- Track up to three recipes at once, with optional double-click pinning and individual close buttons.
-- Hover feedback for recipe close buttons and materials, with item-name tooltips.
-
-### Changed
-
-- Show the personal-waypoint flag on the compass, matching the game map marker.
-
-- Release display and reader resources when features are disabled, and skip recipe setup when tracking is off.
-
-- Keep compass and rupture updates responsive while recipe setup runs in the background.
-- Prepare the compass while menus keep it hidden, reducing the wait when returning to gameplay.
-- Faster compass and recipe startup through targeted lookups and validated metadata reuse.
-
-- Ingredient inventory amounts turn green when your bag holds enough to finish that requirement.
-- More compact Settings and About windows, with aligned sections, standard-sized desktop buttons and a Recipe tracker tab that fits its content.
-- Set the recipe shortcut by pressing the key combination in Settings.
-- Hide overlays at the main menu and hide the wave panel while waves are stopped.
-- Show INCINERATING for seven seconds before switching to COOLING.
-- Smaller recipe icons and tighter panel spacing, with a fixed right-edge position and pause-menu scaling only when needed.
-- Recipe panels share a common height, with clear two-line names, larger inset close buttons and adornments on the outer panels.
+- Faster compass and recipe startup, with responsive countdowns during recipe preparation.
+- Disabled features release their resources and skip preparation.
+- Compact recipe panels with aligned heights, readable names and pause-menu scaling that preserves their right-edge position.
+- Green inventory amounts when your bag holds enough to complete a pinned requirement.
+- More compact Settings and About windows, grouped controls and keypress capture for the recipe shortcut.
+- A personal-waypoint flag matching the map marker, with blue arrival text and marker.
 
 ### Fixed
 
-- Keep the compass hidden while typing in another application, and restore it when the game regains focus.
-
-- Keep the wave panel hidden on the main menu and while waves are stopped when switching windows.
-
-- Reject unsupported captured shortcut keys instead of changing them to another key.
-- Allow disabling recipe tracking while a captured shortcut is invalid, keeping the previous valid shortcut.
-- Bound recipe-cache reads before loading their contents and retry failed tooltip/close-button positioning.
-
+- Hide the HUD at the main menu and keep the compass hidden during pause, game menus and use of other applications.
+- Show the Pre-wave countdown before the first rupture, and show INCINERATING for seven seconds.
+- Keep recipe close buttons clear of the border and steady on refresh.
 - Show the supported game version in About and copied support details.
-- Show the Pre-wave countdown before the first rupture start time is set.
-- Keep recipe close buttons clear of the scaled border, steady on refresh and using the game's cursor appearance when available.
+- Preserve valid recipe shortcuts when an unsupported key is pressed.
 
 ## 1.0.0 — 2026-10-28
 

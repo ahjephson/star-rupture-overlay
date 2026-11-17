@@ -49,6 +49,8 @@ jobs:
         run: ./scripts/Format.ps1 -Check
       - name: Verify vendored files
         run: ./scripts/Verify-Vendor.ps1
+      - name: Verify release branch and tag policy
+        run: ./scripts/Test-ReleasePolicy.ps1
       - name: Lint
         run: |
           . ./scripts/Common.ps1

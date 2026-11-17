@@ -19,7 +19,7 @@ This unofficial Windows companion adds a rupture countdown, compass and optional
 
 ## Download and start
 
-The first packaged release is being prepared. No public app download is available yet. When a build is published, it will appear on the [Releases page](https://github.com/ahjephson/star-rupture-overlay/releases).
+Download the app from [Releases](https://github.com/ahjephson/star-rupture-overlay/releases). Choose a release that supports your game branch: stable releases support the main game branch; releases marked **Pre-release** describe their PTB support in the release notes. Unpublished drafts are not available to download.
 
 1. Download the **Windows x64 ZIP** from Releases. The GitHub **Source code** downloads are not the app.
 2. Extract the complete ZIP to a folder you want to keep. Keep the included files together.

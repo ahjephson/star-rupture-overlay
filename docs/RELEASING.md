@@ -29,11 +29,18 @@ GitHub private vulnerability reporting is available for public repositories; see
 
 ## Draft preparation
 
-After reviewing and committing the candidate, create an annotated vMAJOR.MINOR.PATCH tag on that reviewed commit and push it. Tags are created explicitly before dispatch. Verify repository branch protection and private vulnerability reporting as described in the public-repository checks before announcing a public launch.
+After reviewing and committing the candidate, create an annotated version tag on that reviewed commit and push it. Tags must exist before dispatch.
 
-Manually dispatch **Prepare draft release** from main with the existing tag and the live-verification checkbox. It refuses a missing/non-main tag or mismatched app version, builds and tests the tagged source, uploads the candidate and creates an **unpublished draft**. Repeated creation fails when release assets already exist. The ordinary CI workflow has read-only repository permissions; only the final draft job gets contents:write.
+| Release channel | Dispatch branch | Tag format |
+| --- | --- | --- |
+| Stable | main | vMAJOR.MINOR.PATCH |
+| Update 3 preview | update3 | vMAJOR.MINOR.PATCH-update3.N |
 
-Review the downloaded archive, checksums, release notes and supported game hash. Publishing the draft and changing repository visibility each require explicit owner approval.
+Manually dispatch **Prepare draft release** from the appropriate branch with the existing tag and the live-verification checkbox. The workflow rejects missing tags, tags outside that branch's history and mismatched app versions. It builds and tests the tagged source and creates an **unpublished draft**. Update 3 drafts are marked **Pre-release** and cannot replace the latest stable release. The branch and tag rules are covered by the offline Test-ReleasePolicy.ps1 check.
+
+Repeated creation fails when a release already exists. The ordinary CI workflow has read-only repository permissions; only the final draft job gets contents:write.
+
+Review the downloaded archive, checksums, release notes and supported public game version. Include the live checks actually performed and any remaining limitations. Publishing the draft requires explicit owner approval; draft preparation never publishes it.
 
 ## Workflow security
 

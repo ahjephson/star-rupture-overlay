@@ -5,6 +5,7 @@ Push-Location $script:ProjectRoot
 try {
     & (Join-Path $PSScriptRoot 'Format.ps1') -Check
     & (Join-Path $PSScriptRoot 'Verify-Vendor.ps1')
+    & (Join-Path $PSScriptRoot 'Test-ReleasePolicy.ps1')
     $locked = @('--locked'); if ($Offline) { $locked += '--offline' }
     Invoke-Cargo (@('clippy', '--workspace', '--all-targets') + $locked + @('--', '-D', 'warnings'))
     Invoke-Cargo (@('test', '--workspace', '--all-targets') + $locked)

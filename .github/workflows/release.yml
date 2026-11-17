@@ -5,11 +5,11 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing reviewed version tag, for example v0.1.0
+        description: Existing reviewed tag; update3 requires vMAJOR.MINOR.PATCH-update3.N
         required: true
         type: string
       live_verified:
-        description: I verified this tagged build against the supported running game
+        description: This tag's candidate passed the supported-game live checks
         required: true
         default: false
         type: boolean
@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   package:
-    if: github.ref == 'refs/heads/main' && inputs.live_verified
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/update3') && inputs.live_verified
     runs-on: windows-2022
     timeout-minutes: 30
     defaults:
@@ -34,16 +34,14 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Resolve reviewed tag
+      - name: Resolve reviewed tag and release channel
         env:
           RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_BRANCH: ${{ github.ref_name }}
         run: |
-          if ($env:RELEASE_TAG -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$') { throw 'Invalid version tag.' }
-          git rev-parse --verify "refs/tags/$env:RELEASE_TAG"
-          if ($LASTEXITCODE -ne 0) { throw 'Tag must already exist; this workflow never creates tags.' }
-          git merge-base --is-ancestor "refs/tags/$env:RELEASE_TAG" origin/main
-          if ($LASTEXITCODE -ne 0) { throw 'Release tag must be reachable from main.' }
-          git checkout --detach "refs/tags/$env:RELEASE_TAG"
+          . ./scripts/Release-Policy.ps1
+          $policy = Confirm-ReleaseTag -Tag $env:RELEASE_TAG -Branch $env:RELEASE_BRANCH
+          git checkout --detach $policy.Commit
           if ($LASTEXITCODE -ne 0) { throw 'Could not check out release tag.' }
       - name: Install pinned tools
         run: |
@@ -53,11 +51,13 @@ jobs:
       - name: Verify version and release inputs
         env:
           RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_BRANCH: ${{ github.ref_name }}
         run: |
+          . ./scripts/Release-Policy.ps1
           $metadata = cargo metadata --no-deps --locked --format-version 1 | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0) { throw 'Metadata failed.' }
           $version = ($metadata.packages | Where-Object name -eq 'starrupture-overlay').version
-          if ($env:RELEASE_TAG -ne "v$version") { throw 'Tag and app version differ.' }
+          $null = Confirm-ReleaseTag -Tag $env:RELEASE_TAG -Branch $env:RELEASE_BRANCH -Version $version
           ./scripts/Test-PublicContent.ps1
           ./scripts/Test-Dependencies.ps1
       - name: Build and test release archive
@@ -80,6 +80,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: reviewed-release
@@ -90,8 +95,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_BRANCH: ${{ github.ref_name }}
         run: |
-          if ($env:RELEASE_TAG -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$') { throw 'Invalid version tag.' }
+          . ./scripts/Release-Policy.ps1
+          $policy = Confirm-ReleaseTag -Tag $env:RELEASE_TAG -Branch $env:RELEASE_BRANCH
           $assets = @(Get-ChildItem release-files -File | ForEach-Object FullName)
-          gh release create $env:RELEASE_TAG @assets --verify-tag --draft --title "StarRupture Overlay $env:RELEASE_TAG" --notes 'Portable Windows x64 build. Review the changelog, supported game build, live verification and checksums before publishing. Unsigned executable; checksums establish integrity, not publisher identity.'
+          $arguments = @('release', 'create', $policy.Tag) + $assets + @('--verify-tag', '--draft', '--target', $policy.Commit, '--title', "StarRupture Overlay $($policy.Tag)", '--notes', 'Portable Windows x64 candidate. Review the changelog, supported game version, live verification and checksums before publishing. Unsigned executable; checksums establish integrity, not publisher identity.')
+          if ($policy.Prerelease) { $arguments += @('--prerelease', '--latest=false') }
+          gh @arguments
           if ($LASTEXITCODE -ne 0) { throw 'Draft creation failed; existing releases were not overwritten.' }
