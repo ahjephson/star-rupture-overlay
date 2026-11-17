@@ -22,7 +22,7 @@ export async function packageSite(repository, production = false) {
   while (queue.length) {
     const path = queue.shift();
     if (files.has(path)) continue;
-    assert.match(path, /^(?:index\.html|styles\.css|guides\/[a-z-]+\.html|assets\/(?:[a-z0-9-]+\/)*[a-z0-9-]+\.(?:png|jpg|webp|svg))$/, `Unapproved public file: ${path}`);
+    assert.match(path, /^(?:index\.html|styles\.css|guides\/[a-z-]+\.html|assets\/(?:[a-z0-9-]+\/)*[a-z0-9-]+\.(?:png|jpg|webp|svg)|assets\/video\/[a-z0-9-]+\.mp4)$/, `Unapproved public file: ${path}`);
     const file = resolve(source, path);
     assert.ok(relative(source, file) && !relative(source, file).startsWith('..' + sep));
     // Reject symlinked parents as well as linked files.
@@ -41,7 +41,7 @@ export async function packageSite(repository, production = false) {
         queue.push('assets/in-game-overview.webp');
       }
       assert.doesNotMatch(text, /codex-clipboard-|website-screenshot-originals|reference-images|crop-manifest/);
-      const refs = [...text.matchAll(/(?:href|src)="([^"]+)"/g)].map(match => match[1]);
+      const refs = [...text.matchAll(/(?:href|src|poster)="([^"]+)"/g)].map(match => match[1]);
       refs.push(...[...text.matchAll(/url\(['"]?([^)'"\s]+)['"]?\)/g)].map(match => match[1]));
       for (const ref of refs) {
         const target = new URL(ref, new URL(path, virtualOrigin + '/'));

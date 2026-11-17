@@ -24,7 +24,7 @@ for (const path of ['index.html', ...pages.map(page => `guides/${page.slug}.html
   }
   const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map(match => match[1]);
   assert.equal(ids.length, new Set(ids).size, `${path}: IDs must be unique`);
-  for (const [, value] of html.matchAll(/(?:href|src)="([^"]+)"/g)) {
+  for (const [, value] of html.matchAll(/(?:href|src|poster)="([^"]+)"/g)) {
     if (/^https?:/.test(value)) continue;
     const target = new URL(value, url);
     if (target.pathname.endsWith('/')) target.pathname += 'index.html';

@@ -35,6 +35,36 @@ test('display screenshots stay within the image budget and full-size originals r
   }
 });
 
+test('recipe demo uses on-demand playback and a fast-start MP4 within the video budget', async () => {
+  const home = await readFile(new URL('website/index.html', import.meta.url), 'utf8');
+  const player = home.match(/<video\b[\s\S]*?<\/video>/)[0];
+  assert.match(player, /\bcontrols\b/);
+  assert.match(player, /\bplaysinline\b/);
+  assert.match(player, /preload="none"/);
+  assert.doesNotMatch(player, /autoplay/);
+  assert.match(player, /poster="assets\/video\/recipe-tracking-poster.webp"/);
+  assert.match(player, /src="assets\/video\/recipe-tracking-demo.mp4" type="video\/mp4"/);
+  const video = await readFile(new URL('website/assets/video/recipe-tracking-demo.mp4', import.meta.url));
+  assert.ok(video.length < 8_000_000, 'Keep the short demo below 8 MB');
+  assert.ok(video.indexOf(Buffer.from('moov')) < video.indexOf(Buffer.from('mdat')), 'Metadata precedes media for progressive playback');
+});
+
+test('Personal Marker demo has an accessible on-demand player and a fast-start MP4', async () => {
+  const home = await readFile(new URL('website/index.html', import.meta.url), 'utf8');
+  const players = [...home.matchAll(/<video\b[\s\S]*?<\/video>/g)].map(match => match[0]);
+  assert.equal(players.length, 2);
+  const player = players.find(value => value.includes('personal-marker-demo.mp4'));
+  assert.match(player, /\bcontrols\b/);
+  assert.match(player, /\bplaysinline\b/);
+  assert.match(player, /preload="none"/);
+  assert.doesNotMatch(player, /autoplay/);
+  assert.match(player, /poster="assets\/video\/personal-marker-poster.webp"/);
+  assert.match(player, /aria-describedby="marker-demo-caption"/);
+  const video = await readFile(new URL('website/assets/video/personal-marker-demo.mp4', import.meta.url));
+  assert.ok(video.length < 10_000_000, 'Keep the marker demo below 10 MB');
+  assert.ok(video.indexOf(Buffer.from('moov')) < video.indexOf(Buffer.from('mdat')));
+});
+
 test('website publishing requires an explicit manual publish selection', async () => {
   const workflow = (await readFile(new URL('../.github/workflows/website.yml', import.meta.url), 'utf8')).replaceAll('\r\n', '\n');
   assert.match(workflow, /on:\n  workflow_dispatch:/);
@@ -64,6 +94,13 @@ test('publish package excludes unused/private images and cleans stale output', a
     assert.match(output, /content="index,follow"/);
     assert.ok(output.includes(`rel="canonical" href="${publicBase}"`));
     assert.equal(await readFile(join(root, 'site/website/index.html'), 'utf8'), html, 'Preview source stays noindex');
+    await mkdir(join(root, 'site/website/assets/video'));
+    await writeFile(join(root, 'site/website/assets/video/demo.mp4'), 'approved demo');
+    await writeFile(join(root, 'site/website/assets/video/poster.webp'), 'approved poster');
+    await writeFile(join(root, 'site/website/assets/video/unused-take.mp4'), 'private unused take');
+    await writeFile(join(root, 'site/website/index.html'), html.replace('</body>', '<video controls preload="none" poster="assets/video/poster.webp"><source src="assets/video/demo.mp4" type="video/mp4"></video></body>'));
+    const withVideo = await packageSite(root, true);
+    assert.deepEqual(withVideo.filter(file => file.path.startsWith('assets/video/')).map(file => file.path).sort(), ['assets/video/demo.mp4', 'assets/video/poster.webp']);
     await packageSite(root);
     assert.match(await readFile(join(root, 'dist/site/index.html'), 'utf8'), /noindex,nofollow/);
     await writeFile(join(root, 'site/website/index.html'), html.replace('assets/used.png', '../private.png'));

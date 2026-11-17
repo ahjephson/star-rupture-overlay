@@ -18,6 +18,8 @@ Run `node site/package.mjs` to create noindex output in `dist/site/`, or add `--
 
 The builder starts with the five pages and includes only their referenced styles and images. It never copies the site directory wholesale. Private originals, unused captures, duplicate reference images, scripts and the screenshot catalogue are excluded. Full in-game overview and arrival captures remain public assets because the pages show and link them. Settings/tray images use the privacy-cleaned crops. Timer and compass close-ups publish only cropped pixels.
 
+The two silent H.264 demos show recipe tracking (20 seconds, with amber double-click indicators) and setting and following a Personal Marker (22.2 seconds). Their 1080p web copies and WebP posters live in `website/assets/video/` and publish with the product site to GitHub Pages. Each player has native controls, inline playback and `preload="none"`; neither autoplays. Text descriptions explain the actions without relying on audio. Master recordings, unedited takes and rendering files stay outside the publish package. The personal-site proxy must forward `Range` and `If-Range` and preserve partial-response headers for video seeking. Release that proxy change through the existing infrastructure workflow when publishing the demos. No additional hosting service or credentials are required.
+
 ## Manual publishing
 
 The `Product website` workflow in `.github/workflows/website.yml` runs only when manually dispatched. Its `publish` input defaults to false: that builds, tests and saves a Pages artifact without deploying it. Pushes, tags and application releases do not publish the site.

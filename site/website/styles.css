@@ -26,3 +26,8 @@
 .compass-states .marker-state .capture-window img{width:440px!important;height:93px;left:0;top:0}
 .compass-states .arrival-state .capture-window img{width:148px!important;height:53px;left:0;top:0}
 .recipe-visual .capture-window img{width:310px!important;height:550px;left:0;top:0}
+
+.demo-player video{display:block;width:100%;height:auto;aspect-ratio:16/9;background:#080c10}.demo-player figcaption>span:first-child{max-width:850px}.demo-player figcaption>span:last-child{flex-shrink:0}.demo-player figcaption a{color:var(--amber)}.demo-link{display:inline-block;margin-top:18px;color:var(--amber)}
+@media(max-width:700px){.demo-player figcaption{flex-direction:column;gap:8px}}
+
+.demo-player+.demo-player{margin-top:32px}.demo-player{scroll-margin-top:100px}
