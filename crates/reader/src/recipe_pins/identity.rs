@@ -26,7 +26,7 @@ fn label_offset(build: Option<&str>) -> Result<u64> {
     // persistent GUID. Its explicit native-build scope is independent of timer support.
     match build {
         Some("++Earth20+Neon-CL-127004") => Ok(0x290),
-        Some("++Earth20+Kobalt-PTR1-CL-128786") => Ok(0x2a0),
+        Some("++Earth20+Kobalt-PTR1-CL-128786" | "++Earth20+Kobalt-PTR2-CL-129402") => Ok(0x2a0),
         _ => anyhow::bail!("Loaded-session layout is not calibrated for recipe persistence"),
     }
 }
@@ -261,4 +261,20 @@ async fn text(ctx: &Ctx, address: u64) -> Result<(String, TextGuard)> {
             bytes,
         },
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::label_offset;
+
+    #[test]
+    fn session_label_layout_requires_a_calibrated_native_build() -> anyhow::Result<()> {
+        assert_eq!(label_offset(Some("++Earth20+Neon-CL-127004"))?, 0x290);
+        assert_eq!(label_offset(Some("++Earth20+Kobalt-PTR1-CL-128786"))?, 0x2a0);
+        assert_eq!(label_offset(Some("++Earth20+Kobalt-PTR2-CL-129402"))?, 0x2a0);
+        for build in [None, Some("++Earth20+Kobalt-PTR2-CL-129403"), Some("unknown")] {
+            assert!(label_offset(build).is_err());
+        }
+        Ok(())
+    }
 }

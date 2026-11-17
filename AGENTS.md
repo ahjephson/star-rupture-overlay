@@ -43,6 +43,7 @@ Read README.md, docs/ARCHITECTURE.md and docs/BUILDING.md before changes.
 - Build into a fresh ignored output directory and preserve the installed application and rollback copies during preparation.
 - Treat deployment, version tags, release creation, publication and repository visibility changes as separate operations requiring explicit authorization. Keep the repository private until a visibility change is requested.
 - The release workflow is manually dispatched and creates unpublished drafts. Report hosted and live checks only when actually performed.
+- Treat a failed existing feature on the supported game as a release blocker, including draft preparation. Fix it and verify the affected end-to-end behavior; documenting the regression as a limitation is not a substitute. Recipe persistence acceptance includes loaded-world identity, overlay restart and switching local worlds.
 - Review tracked content and history before publication. Preserve Git history.
 
 ## Public documentation and feedback

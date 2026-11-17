@@ -22,6 +22,8 @@
 
 ### Fixed
 
+- Restore per-world recipe pins on Update 3 PTR2, including after restarting the overlay and switching worlds.
+
 - Hide the HUD at the main menu and keep the compass hidden during pause, game menus and use of other applications.
 - Show the Pre-wave countdown before the first rupture, and show INCINERATING for seven seconds.
 - Keep recipe close buttons clear of the border and steady on refresh.

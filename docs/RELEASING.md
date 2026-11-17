@@ -13,6 +13,8 @@ Routine Windows CI checks development builds. Run **Windows package verification
 5. Run the candidate's bounded `--self-test-reader ABSOLUTE-PRIVATE-DIRECTORY` diagnostic against the supported running game. Verify reader, timing and compatibility changes through the relevant live checks. Summarize the supported game build, live checks and untested conditions in the release notes, with links to the candidate's CI results. Keep captures and caches private.
 6. Review public content and all Git history again, including any newly added binary assets. Review the documented maintenance exception in deny.toml. Keep unsigned distribution and its SmartScreen guidance explicit. Verify offline first-run extraction, Rust licence notices, an empty asset cache, cache reuse and setup cancellation before publication.
 
+Recipe persistence must pass the candidate's bounded `--self-test-recipe-identity ABSOLUTE-PRIVATE-DIRECTORY` diagnostic on the supported loaded game, followed by pin restoration through an overlay restart and switching between local worlds. Confirm that each world restores only its own choices and fetches progress fresh. A failed existing feature blocks draft preparation; listing the regression as a limitation does not satisfy this gate.
+
 The build uses locked dependencies, static Visual C++ runtime linkage, thin LTO, one code-generation unit and stripped symbols. It remaps source and cache paths. ZIP entry ordering and timestamps are stable; compiler output can vary across SDK and toolchain environments.
 
 ## Public-repository checks

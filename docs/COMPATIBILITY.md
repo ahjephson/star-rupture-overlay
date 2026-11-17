@@ -16,6 +16,6 @@ Start the game and load your world to use the overlays. Recipe setup completes a
 
 Rupture stages and the return from Growback to Stable have been checked through a Heat wave cycle. Countdown starts have been checked with Rarely, Normal and Often frequency settings. Recipe setup, row selection and research counters have also been checked. Other wave types, modified stage durations and custom time dilation are not verified.
 
-Per-world recipe-pin restoration is not yet calibrated for PTR2 build 129402 and remains unavailable there. Pinning and live recipe progress still work during the current session. Earlier persistence support does not establish compatibility with the newer session layout.
+Per-world recipe-pin restoration has been checked on PTR2 through an overlay restart and switching between local worlds. Each world restores its own choices and refreshes research progress from the running game. A missing or ambiguous local save-folder identity keeps restoration unavailable.
 
 Other PTB builds and game updates may require an overlay update. If readings become unavailable after an update, check for a compatible overlay build.
