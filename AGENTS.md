@@ -35,7 +35,7 @@ Read README.md, docs/ARCHITECTURE.md and docs/BUILDING.md before changes.
 - Describe current behaviour without app-release labels or dated development status. Keep release history in CHANGELOG.md and dependency/toolchain versions in their authoritative manifests; retain licence identifiers and supported-game compatibility details where needed.
 - Write changelog entries for players: describe features, improvements and fixes they receive. Keep implementation tasks, internal refactors and verification notes out of the changelog.
 - Keep each prose paragraph on one source line and let editors/renderers wrap it. Preserve structural line breaks for headings, lists, tables and code blocks.
-- Summarize checks and limitations in change summaries, link CI results and record release-specific live checks in release notes. Keep raw logs and diagnostic output local.
+- Keep public release notes to factual features, improvements and fixes included in that release. Keep verification results, CI links, test counts, acceptance procedures, commit provenance and preparation instructions in internal release records, not user-facing release notes. Record material user-facing requirements and known product limitations in the appropriate compatibility or support documentation.
 
 ## Release preparation
 
