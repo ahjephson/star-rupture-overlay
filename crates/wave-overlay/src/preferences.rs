@@ -19,25 +19,117 @@ pub enum GameExit {
     Ask,
     Exit,
 }
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields, default)]
 pub struct Preferences {
+    pub compass_enabled: bool,
+    pub codex_enabled: bool,
+    pub codex_shortcut: CodexShortcut,
+    pub wave_enabled: bool,
+    pub startup_notification: bool,
+    pub compass: CompassSettings,
+    pub countdown_format: starrupture_observation_model::wave::CountdownFormat,
     pub game_exit: GameExit,
     pub recipe_tracker: RecipeSettings,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct CompassSettings {
+    pub arrival_enabled: bool,
+    pub arrival_metres: u16,
+    pub departure_metres: u16,
+}
+impl Default for CompassSettings {
+    fn default() -> Self {
+        Self {
+            arrival_enabled: true,
+            arrival_metres: 25,
+            departure_metres: 35,
+        }
+    }
+}
+impl CompassSettings {
+    pub fn validate(self) -> Result<()> {
+        ensure!(
+            (1..=1000).contains(&self.arrival_metres),
+            "Arrival distance must be between 1 and 1,000 metres."
+        );
+        ensure!(
+            self.departure_metres > self.arrival_metres && self.departure_metres <= 1500,
+            "Departure distance must be greater than arrival distance and no more than 1,500 metres."
+        );
+        Ok(())
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
 pub struct RecipeSettings {
     pub enabled: bool,
+    pub double_click_pin: bool,
     pub key: u16,
     pub modifiers: u16,
     pub position: u8,
     pub scale: u16,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct CodexShortcut {
+    pub key: u16,
+    pub modifiers: u16,
+}
+impl Default for CodexShortcut {
+    fn default() -> Self {
+        Self {
+            key: u16::from(b'K'),
+            modifiers: 0,
+        }
+    }
+}
+impl CodexShortcut {
+    pub fn validate(self) -> Result<()> {
+        validate_shortcut_key(self.key)?;
+        ensure!(self.modifiers & !7 == 0, "Use Alt, Ctrl or Shift in the shortcut.");
+        Ok(())
+    }
+}
+
+fn validate_shortcut_key(key: u16) -> Result<()> {
+    ensure!(
+        (0x30..=0x39).contains(&key)
+            || (0x41..=0x5a).contains(&key)
+            || (0x70..=0x7a).contains(&key),
+        "Choose a letter, top-row number or F1–F11 shortcut."
+    );
+    Ok(())
+}
+impl Preferences {
+    pub fn codex_shortcut_conflicts(self) -> bool {
+        self.codex_enabled
+            && self.recipe_tracker.enabled
+            && self.codex_shortcut.key == self.recipe_tracker.key
+            && self.codex_shortcut.modifiers == self.recipe_tracker.modifiers
+    }
+}
+impl Default for Preferences {
+    fn default() -> Self {
+        Self {
+            compass_enabled: true,
+            codex_enabled: true,
+            codex_shortcut: CodexShortcut::default(),
+            wave_enabled: true,
+            startup_notification: true,
+            compass: CompassSettings::default(),
+            countdown_format: Default::default(),
+            game_exit: Default::default(),
+            recipe_tracker: Default::default(),
+        }
+    }
+}
 impl Default for RecipeSettings {
     fn default() -> Self {
         Self {
             enabled: true,
+            double_click_pin: true,
             key: 0x58,
             modifiers: 1,
             position: 1,
@@ -65,12 +157,7 @@ impl RecipeSettings {
         parts.join("+")
     }
     pub fn validate(self) -> Result<()> {
-        ensure!(
-            (0x30..=0x39).contains(&self.key)
-                || (0x41..=0x5a).contains(&self.key)
-                || (0x70..=0x7a).contains(&self.key),
-            "Choose a letter, number or F1–F11 shortcut."
-        );
+        validate_shortcut_key(self.key)?;
         ensure!(
             self.modifiers & !7 == 0 && self.modifiers & 3 != 0,
             "Include Alt or Ctrl in the shortcut."
@@ -135,10 +222,14 @@ pub fn load(path: &Path) -> Result<Preferences> {
     let preferences: Preferences =
         serde_json::from_slice(&bytes).context("Could not read preferences")?;
     preferences.recipe_tracker.validate()?;
+    preferences.compass.validate()?;
+    preferences.codex_shortcut.validate()?;
     Ok(preferences)
 }
 pub fn save(path: &Path, preferences: Preferences) -> Result<()> {
     preferences.recipe_tracker.validate()?;
+    preferences.compass.validate()?;
+    preferences.codex_shortcut.validate()?;
     let parent = path.parent().context("Preferences directory unavailable")?;
     fs::create_dir_all(parent)?;
     let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
@@ -150,6 +241,8 @@ pub fn save(path: &Path, preferences: Preferences) -> Result<()> {
         let from: Vec<_> = temporary.as_os_str().encode_wide().chain([0]).collect();
         let to: Vec<_> = path.as_os_str().encode_wide().chain([0]).collect();
         ensure!(
+            // SAFETY: Both paths are terminated UTF-16 buffers retained through the call; flags
+            // operate only on the owned temporary and explicitly selected destination file.
             unsafe {
                 MoveFileExW(
                     from.as_ptr(),
@@ -180,6 +273,10 @@ mod tests {
         }
         let old: Preferences = serde_json::from_str(r#"{"gameExit":"ask"}"#).unwrap();
         assert_eq!(old.recipe_tracker, RecipeSettings::default());
+        assert_eq!(
+            old.countdown_format,
+            starrupture_observation_model::wave::CountdownFormat::Hours
+        );
         assert!(
             RecipeSettings {
                 key: 0x7b,
@@ -202,11 +299,22 @@ mod tests {
                 modifiers: 3,
                 scale: 125,
                 position: 2,
-                enabled: true
+                enabled: true,
+                double_click_pin: true
             }
             .validate()
             .is_ok()
         );
+    }
+    #[test]
+    fn compass_defaults_on_for_existing_preferences_and_can_be_disabled() {
+        assert!(serde_json::from_str::<Preferences>("{}").unwrap().compass_enabled);
+        let p = Preferences {
+            compass_enabled: false,
+            ..Preferences::default()
+        };
+        let bytes = serde_json::to_vec(&p).unwrap();
+        assert_eq!(serde_json::from_slice::<Preferences>(&bytes).unwrap(), p);
     }
     #[test]
     fn preferences_round_trip_and_failures_preserve_previous_file() {
@@ -244,5 +352,54 @@ mod tests {
         assert!(load(&path).is_err());
         fs::remove_file(path).unwrap();
         fs::remove_dir(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod feature_preferences_tests {
+    use super::*;
+    #[test]
+    fn legacy_preferences_keep_feature_defaults_and_custom_distances_round_trip() {
+        let old: Preferences = serde_json::from_str(r#"{"compassEnabled":false,"countdownFormat":"minutes","gameExit":"ask","recipeTracker":{"enabled":false,"key":74,"modifiers":3,"position":2,"scale":125}}"#).unwrap();
+        assert!(!old.compass_enabled);
+        assert!(!old.recipe_tracker.enabled);
+        assert!(old.wave_enabled);
+        assert_eq!(old.compass, CompassSettings::default());
+        let configured = Preferences {
+            wave_enabled: false,
+            compass: CompassSettings {
+                arrival_enabled: false,
+                arrival_metres: 50,
+                departure_metres: 65,
+            },
+            ..old
+        };
+        let bytes = serde_json::to_vec(&configured).unwrap();
+        assert_eq!(serde_json::from_slice::<Preferences>(&bytes).unwrap(), configured);
+    }
+    #[test]
+    fn arrival_configuration_rejects_ambiguous_or_unbounded_thresholds() {
+        for (arrival_metres, departure_metres) in
+            [(0, 35), (25, 25), (35, 25), (1001, 1200), (1000, 1501)]
+        {
+            assert!(
+                CompassSettings {
+                    arrival_metres,
+                    departure_metres,
+                    ..Default::default()
+                }
+                .validate()
+                .is_err()
+            );
+        }
+        assert!(
+            CompassSettings {
+                arrival_metres: 1000,
+                departure_metres: 1500,
+                ..Default::default()
+            }
+            .validate()
+            .is_ok()
+        );
     }
 }

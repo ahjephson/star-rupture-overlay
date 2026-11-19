@@ -26,6 +26,9 @@ fn relevant(event: u32, object: i32, child: i32) -> bool {
         && RANGES.iter().any(|(first, last)| (*first..=*last).contains(&event))
 }
 
+/// # Safety
+/// Windows invokes this registered out-of-context callback; parameters are borrowed scalar
+/// event metadata and the callback must not dereference window user data.
 unsafe extern "system" fn notify(
     _: HWINEVENTHOOK,
     event: u32,
@@ -39,6 +42,8 @@ unsafe extern "system" fn notify(
     if target.is_null() || source == target || !relevant(event, object, child) {
         return;
     }
+    // SAFETY: Only scalar event data/IDs are queued to the retained UI HWND; no pointer to a Rust
+    // stack value or borrow crosses the asynchronous message boundary.
     if !PENDING.swap(true, Ordering::Relaxed) && unsafe { PostMessageW(target, CHANGED, 0, 0) } == 0
     {
         PENDING.store(false, Ordering::Relaxed);
@@ -84,6 +89,9 @@ impl WindowEvents {
                     0
                 };
             let hook =
+                // SAFETY: The callback has the required Win32 ABI and static code lifetime;
+                // registration stays on the owning UI thread and teardown clears delivery state
+                // before unhooking.
                 unsafe { SetWinEventHook(first, last, null_mut(), Some(notify), 0, 0, flags) };
             if hook.is_null() {
                 return Err(std::io::Error::other(format!(
@@ -102,6 +110,8 @@ impl Drop for WindowEvents {
         let _ =
             TARGET.compare_exchange(self.window, null_mut(), Ordering::Relaxed, Ordering::Relaxed);
         for hook in self.hooks.drain(..) {
+            // SAFETY: The hook handle is borrowed from its owner; callback arguments are forwarded
+            // unchanged, and teardown disables stored targets before releasing the hook.
             unsafe {
                 UnhookWinEvent(hook);
             }

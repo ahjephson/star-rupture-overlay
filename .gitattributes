@@ -9,3 +9,7 @@
 # Artwork and generated Windows icons retain exact binary bytes.
 *.png -text
 *.ico -text
+
+# Preserve the embedded Rust skill's upstream bytes and provenance hashes.
+/.agents/skills/rust-skills/** -text
+/.agents/skills/rust-skills/SOURCE.json text eol=lf

@@ -5,15 +5,16 @@ use serde_json::json;
 use starrupture_observation_model::shutdown::StopSignal;
 use std::{path::Path, sync::Arc};
 mod mappings;
-mod runtime;
+pub(crate) mod runtime;
 pub trait AssetSetup: Send {
     fn enabled(&self) -> bool;
-    fn cached(&mut self, executable: &Path) -> Result<Option<Tracker>>;
+    fn cached(&mut self, executable: &Path, game_hash: &str) -> Result<Option<Tracker>>;
     fn preparing(&mut self);
     fn ready(&mut self);
     fn complete(
         &mut self,
         executable: &Path,
+        game_hash: &str,
         mappings: &[u8],
         stop: &StopSignal,
     ) -> Result<Tracker>;
@@ -24,6 +25,8 @@ pub(crate) use runtime::Binding;
 fn foreground_process() -> u32 {
     use windows_sys::Win32::UI::WindowsAndMessaging::*;
     let mut pid = 0;
+    // SAFETY: Win32 validates the borrowed handle where required; every output points to an
+    // initialized local struct or bounded writable slice that stays live for the synchronous query.
     unsafe {
         GetWindowThreadProcessId(GetForegroundWindow(), &mut pid);
     }
@@ -49,6 +52,8 @@ pub(crate) fn cursor_matches(cursor: Option<[i32; 2]>, process: u32) -> Result<(
     use windows_sys::Win32::{Foundation::POINT, UI::WindowsAndMessaging::GetCursorPos};
     let expected = cursor.context("Recipe capture has no cursor position")?;
     let mut point = POINT::default();
+    // SAFETY: Win32 validates the borrowed handle where required; every output points to an
+    // initialized local struct or bounded writable slice that stays live for the synchronous query.
     ensure!(unsafe { GetCursorPos(&mut point) } != 0, "Recipe cursor position unavailable");
     validate_shortcut_context(
         process,
@@ -145,11 +150,15 @@ pub fn self_test_recipe(directory: &Path, catalogue_file: &Path, recipe_id: &str
     let stop = Arc::new(StopSignal::default());
     let budget = platform::ReadBudget::new(stop.clone());
     let process = platform::find_game(budget.clone())?;
-    ensure!(process.identity.executable_sha256 == crate::BUILD_HASH, "Unsupported game executable");
+
     let pack = std::fs::read(catalogue_file)?;
     let catalogue: starrupture_observation_model::recipe::Catalogue =
         serde_json::from_slice(&pack)?;
     catalogue.validate().map_err(anyhow::Error::msg)?;
+    ensure!(
+        catalogue.game_hash == process.identity.executable_sha256,
+        "Recipe catalogue belongs to another game build"
+    );
     ensure!(catalogue.recipes.contains_key(recipe_id), "Unknown diagnostic recipe");
     let cache = std::path::PathBuf::from(std::env::var_os("LOCALAPPDATA").context("App data")?)
         .join("StarRuptureWaveOverlay/cache/session.json");
@@ -171,7 +180,10 @@ pub fn self_test_recipe(directory: &Path, catalogue_file: &Path, recipe_id: &str
         .await?;
         let ctx = live.context();
         let binding_started = std::time::Instant::now();
-        let binding = Binding::discover(&ctx).await?;
+        let startup_scans_before = runtime::registry_scans();
+        let lookup = crate::native_lookup::Lookup::new(&directory.join("cache"));
+        let binding = Binding::from_lookup(&ctx, &base, &lookup).await?;
+        let startup_registry_scans = runtime::registry_scans() - startup_scans_before;
         let binding_millis = binding_started.elapsed().as_millis();
         let registry_before = runtime::registry_scans();
         budget.renew(5000);
@@ -198,6 +210,14 @@ pub fn self_test_recipe(directory: &Path, catalogue_file: &Path, recipe_id: &str
             Ok(id) => json!({"recipe":id,"status":"hovered_row_observed"}),
             Err(e) => json!({"status":"unavailable","reason":format!("{e:#}")}),
         };
+        budget.renew(5000);
+        let mouse_started = std::time::Instant::now();
+        let mouse_capture = binding.capture_mouse(&ctx, &base, &catalogue).await;
+        let mouse_capture_probe = match mouse_capture {
+            Ok(id) => json!({"recipe":id,"status":"hovered_recipe_header_observed"}),
+            Err(error) => json!({"status":"unavailable","reason":format!("{error:#}")}),
+        };
+        let mouse_capture_millis = mouse_started.elapsed().as_millis();
         let mut samples = Vec::new();
         for _ in 0..3 {
             budget.renew(5000);
@@ -225,7 +245,7 @@ pub fn self_test_recipe(directory: &Path, catalogue_file: &Path, recipe_id: &str
         #[cfg(not(debug_assertions))]
         let widget_diagnostic = serde_json::Value::Null;
         Ok::<_, anyhow::Error>(
-            json!({"readOnly":true,"gameCodeInvoked":false,"process":process.identity,"samples":samples,"bagInventory":inventory,"bindingDiscoveryMillis":binding_millis,"inRecipeStation":in_station,"repeatedInRecipeStation":station_again,"twoStationChecksMillis":station_check_millis,"captureScanMillis":capture_millis,"captureProbe":capture_probe,"warmCaptureMillis":warm_capture_millis,"warmCaptureProbe":warm_probe,"hotPathRegistryScans":hot_path_registry_scans,"hoverCaptureVerified":false,"widgetDiagnostic":widget_diagnostic}),
+            json!({"readOnly":true,"gameCodeInvoked":false,"process":process.identity,"samples":samples,"bagInventory":inventory,"bindingDiscoveryMillis":binding_millis,"startupRegistryScans":startup_registry_scans,"inRecipeStation":in_station,"repeatedInRecipeStation":station_again,"twoStationChecksMillis":station_check_millis,"captureScanMillis":capture_millis,"captureProbe":capture_probe,"warmCaptureMillis":warm_capture_millis,"warmCaptureProbe":warm_probe,"hotPathRegistryScans":hot_path_registry_scans,"hoverCaptureVerified":false,"mouseCaptureProbe":mouse_capture_probe,"mouseCaptureMillis":mouse_capture_millis,"widgetDiagnostic":widget_diagnostic}),
         )
     })?;
     stop.request();
@@ -235,3 +255,5 @@ pub fn self_test_recipe(directory: &Path, catalogue_file: &Path, recipe_id: &str
     )?;
     Ok(())
 }
+pub(crate) use runtime::serial as allocation;
+pub(crate) use runtime::{definition_paths, registered_objects, registry_scans};

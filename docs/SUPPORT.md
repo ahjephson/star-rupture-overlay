@@ -2,7 +2,7 @@
 
 ## The overlay does not appear
 
-Check the Windows notification area for the overlay's tray icon, including hidden icons. Start StarRupture and load a world, then right-click the icon and check the display controls. Borderless, windowed and the tested fullscreen mode are supported. In fullscreen, the overlays hide while another app has focus and return when you return to the game. If they do not appear on your configuration, try Borderless. The overlay hides when the game is minimized and may be covered by other windows.
+Check the Windows notification area for the overlay's tray icon, including hidden icons. Start StarRupture and load a world, then right-click the icon and check the display controls. Borderless, windowed and the tested fullscreen mode are supported. In fullscreen, the overlays hide while another app has focus and return when you return to the game. If they do not appear on your configuration, try Borderless. The overlays hide at the main menu and when the game is minimized. The wave panel also hides while waves are stopped, including during the observed tutorial state. Other windows can cover the game and overlays.
 
 Open **About** to check connection status and the supported game version. A game update may need a matching overlay update. See [compatibility](COMPATIBILITY.md).
 
@@ -37,6 +37,10 @@ Replace the filename with the ZIP you downloaded. Compare the displayed hash wit
 The app is unsigned. If Windows shows **Windows protected your PC**, only choose **More info > Run anyway** after checking the source and deciding you trust the download. You do not need to turn off Windows security or run the app as administrator.
 
 ## Local data
+
+Validated native index hints are kept in `cache/native-lookups`. A missing or stale file is rebuilt automatically; you do not need to prepare it yourself.
+
+Remembered recipe choices are stored in `cache/pinned-recipes`, separately for each matched local world folder. Clearing this folder forgets your selections; it does not change research progress in the game. If choices do not return, check that the supported local world is loaded. Duplicate world names across Steam accounts or save namespaces can prevent a unique match; manual pinning remains available.
 
 Preferences and caches are stored under `%LOCALAPPDATA%/StarRuptureWaveOverlay`. Recipe assets, native type schemas and cache receipts are kept in `recipe-cache`. The app reads the running game and its installed archives without changing game memory, files or saves.
 

@@ -45,7 +45,7 @@ fn fixture() -> RawObservation {
         process: GameIdentity {
             pid: 123,
             creation_ticks: 134000000000000000,
-            executable_sha256: GAME_HASH,
+            executable_sha256: GAME_HASH.into(),
         },
         sample: PlayerSample {
             position: Position {
@@ -214,7 +214,7 @@ fn live_identity_frame_window_and_map_suppression_are_independent_of_saves() {
     for case in 0..16 {
         let mut r = fixture();
         match case {
-            0 => r.process.executable_sha256 = "wrong",
+            0 => r.process.executable_sha256 = "wrong".into(),
             1 => r.process.creation_ticks = 0,
             2 => r.sample.observed_at_ms = 1,
             3 => r.live.window.atomic = true,
@@ -245,7 +245,7 @@ fn observation_bound_accounts_for_reserved_string_storage() {
         sequence: 1,
         generation: 1,
         sampled_at_unix_ms: 1780000000000,
-        process: Some(raw.process),
+        process: Some(raw.process.clone()),
         read_only: true,
         game_code_invoked: false,
         payload: Payload::World(Box::new(WorldSample {
@@ -255,4 +255,41 @@ fn observation_bound_accounts_for_reserved_string_storage() {
         })),
     };
     assert!(!m.within_bound());
+}
+
+#[test]
+fn live_observation_accepts_another_well_formed_build_hash() {
+    let mut raw = fixture();
+    let hash = "a".repeat(64);
+    raw.process.executable_sha256 = hash.clone().into();
+    let observed = validate_observation(raw, 1780000000000, 1780000000000).unwrap();
+    assert_eq!(observed.process.executable_sha256.as_ref(), hash);
+}
+
+#[test]
+fn prewave_counts_down_before_the_first_rupture_start_is_set() {
+    for stage in 1..=4 {
+        let mut w = wave(stage, 0.5);
+        let PhaseEvidence::Active(ref mut p) = w.phase else {
+            panic!("Expected phase")
+        };
+        p.wave_start_seconds = f64::MIN;
+        let timing = live_wave_timing(&w, 10000.0);
+        if stage == 1 {
+            assert_eq!(timing.phase, Phase::PreWave);
+            assert_eq!(timing.next_phase_remaining_seconds, Some(60.0));
+            assert_eq!(timing.rupture_remaining_seconds, Some(60.0));
+            assert_eq!(timing.stage_verification, Verification::ProgressEstimate);
+        } else {
+            assert_eq!(timing.next_phase_remaining_seconds, None);
+        }
+    }
+    for invalid in [-1.0, f64::NEG_INFINITY, f64::INFINITY, f64::NAN] {
+        let mut w = wave(1, 0.5);
+        let PhaseEvidence::Active(ref mut p) = w.phase else {
+            panic!("Expected phase")
+        };
+        p.wave_start_seconds = invalid;
+        assert_eq!(live_wave_timing(&w, 10000.0).next_phase_remaining_seconds, None);
+    }
 }

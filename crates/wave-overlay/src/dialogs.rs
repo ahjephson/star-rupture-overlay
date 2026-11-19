@@ -61,6 +61,9 @@ impl Drop for State {
     fn drop(&mut self) {
         let font = self.heading_font.get();
         if !font.is_null() {
+            // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match
+            // their lengths. Owned GDI objects are restored/deselected before deletion;
+            // stock/system objects remain borrowed.
             unsafe {
                 windows_sys::Win32::Graphics::Gdi::DeleteObject(font);
             }
@@ -72,6 +75,8 @@ impl Drop for Dialog {
     fn drop(&mut self) {
         let window = self.0.window.get();
         if !window.is_null() {
+            // SAFETY: Only this UI/fixture owner destroys its HWND; boxed callback state remains
+            // alive until DestroyWindow completes, and stale handles are validated by Win32.
             unsafe {
                 DestroyWindow(window);
             }
@@ -84,16 +89,21 @@ pub struct Dialogs {
 }
 impl Dialogs {
     pub fn open(&mut self, kind: u16, owner: HWND, context: Context) -> Result<()> {
+        // SAFETY: The initialization structure has its exact cbSize and supported class flags;
+        // Windows reads it synchronously and retains no pointer to the local value.
         unsafe {
             InitCommonControlsEx(&INITCOMMONCONTROLSEX {
                 dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
-                dwICC: ICC_TAB_CLASSES,
+                dwICC: ICC_TAB_CLASSES | ICC_HOTKEY_CLASS,
             });
         }
         self.prune();
         if let Some(dialog) = self.windows.iter().find(|dialog| dialog.0.kind == kind) {
             let window = dialog.0.window.get();
             if !dialog.0.context.diagnostic {
+                // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison
+                // handles; native position/style values are scalar, and referenced menu/state
+                // objects remain alive through synchronous dispatch.
                 unsafe {
                     ShowWindow(window, SW_RESTORE);
                     SetForegroundWindow(window);
@@ -111,6 +121,9 @@ impl Dialogs {
             startup_read: Cell::new(false),
             shortcut: Cell::new(desktop::ShortcutState::Missing),
         });
+        // SAFETY: The registered callback has the Win32 ABI, class/title strings remain live during
+        // creation, and any creation-state box stays at a stable address until after the new HWND
+        // is destroyed.
         let window = unsafe {
             CreateDialogParamW(
                 GetModuleHandleW(std::ptr::null()),
@@ -127,6 +140,9 @@ impl Dialogs {
         let diagnostic = state.context.diagnostic;
         self.windows.push(Dialog(state));
         if !diagnostic {
+            // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles;
+            // native position/style values are scalar, and referenced menu/state objects remain
+            // alive through synchronous dispatch.
             unsafe {
                 ShowWindow(window, SW_SHOWNORMAL);
                 SetForegroundWindow(window);
@@ -140,6 +156,9 @@ impl Dialogs {
     pub fn translate(&self, message: &MSG) -> bool {
         self.windows.iter().any(|dialog| {
             let window = dialog.0.window.get();
+            // SAFETY: These synchronous messages target owned UI controls/windows; scalar
+            // parameters or initialized text/message buffers remain live until the call returns,
+            // with no retained Rust pointers.
             !window.is_null() && unsafe { IsDialogMessageW(window, message) } != 0
         })
     }
@@ -154,34 +173,108 @@ impl Dialogs {
         for d in &self.windows {
             if d.0.kind == SETTINGS && !d.0.window.get().is_null() {
                 text(d.0.window.get(), 154, &d.0.context.recipe_status.borrow());
+                let window = d.0.window.get();
+                // SAFETY: These synchronous messages target owned UI controls/windows; scalar
+                // parameters or initialized text/message buffers remain live until the call
+                // returns, with no retained Rust pointers.
+                let recipe = unsafe { SendDlgItemMessageW(window, 155, TCM_GETCURSEL, 0, 0) } == 3;
+                // SAFETY: These Win32 queries use scalar values or borrowed handles, validate
+                // native handle identity themselves, and neither dereference Rust memory nor
+                // transfer ownership.
+                let visible = unsafe { GetWindowLongPtrW(GetDlgItem(window, 154), GWL_STYLE) }
+                    as u32
+                    & WS_VISIBLE
+                    != 0;
+                if recipe && visible != !d.0.context.recipe_status.borrow().is_empty() {
+                    settings_tab(&d.0);
+                }
             }
         }
     }
 }
 fn text(window: HWND, id: i32, value: &str) {
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     unsafe {
         SetDlgItemTextW(window, id, desktop::wide(value).as_ptr());
     }
 }
 fn error(state: &State, error: impl std::fmt::Display) {
-    text(state.window.get(), 114, &error.to_string());
+    settings_message(state, &error.to_string());
+}
+fn settings_message(state: &State, value: &str) {
+    text(state.window.get(), 114, value);
+    settings_tab(state);
+}
+fn distance_value(window: HWND, id: i32) -> u16 {
+    let mut value = [0u16; 16];
+    // SAFETY: The owned edit control writes at most the declared UTF-16 buffer length.
+    let count = unsafe { GetDlgItemTextW(window, id, value.as_mut_ptr(), value.len() as i32) };
+    String::from_utf16_lossy(&value[..count as usize]).parse().unwrap_or(0)
+}
+fn checked(window: HWND, id: i32) -> bool {
+    // SAFETY: The owned checkbox is queried synchronously with scalar parameters.
+    unsafe { SendDlgItemMessageW(window, id, BM_GETCHECK, 0, 0) as u32 == BST_CHECKED }
 }
 fn selected(state: &State) -> Preferences {
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     let choice = unsafe { SendDlgItemMessageW(state.window.get(), 111, CB_GETCURSEL, 0, 0) };
     Preferences {
+        wave_enabled: checked(state.window.get(), 180),
+        startup_notification: checked(state.window.get(), 191),
+        codex_enabled: checked(state.window.get(), 187),
+        codex_shortcut: {
+            let captured = captured_codex_shortcut(state);
+            if captured.validate().is_ok() {
+                captured
+            } else {
+                state.context.preferences.get().codex_shortcut
+            }
+        },
+        compass: preferences::CompassSettings {
+            arrival_enabled: checked(state.window.get(), 181),
+            arrival_metres: distance_value(state.window.get(), 183),
+            departure_metres: distance_value(state.window.get(), 185),
+        },
+        // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+        // initialized text/message buffers remain live until the call returns, with no retained
+        // Rust pointers.
+        compass_enabled: unsafe { SendDlgItemMessageW(state.window.get(), 174, BM_GETCHECK, 0, 0) }
+            as u32
+            == BST_CHECKED,
+        // SAFETY: This synchronous query targets the owned countdown control.
+        countdown_format: if unsafe {
+            SendDlgItemMessageW(state.window.get(), 156, CB_GETCURSEL, 0, 0)
+        } == 1
+        {
+            starrupture_observation_model::wave::CountdownFormat::Minutes
+        } else {
+            starrupture_observation_model::wave::CountdownFormat::Hours
+        },
         game_exit: match choice {
             1 => GameExit::Ask,
             2 => GameExit::Exit,
             _ => GameExit::KeepRunning,
         },
+        // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+        // initialized text/message buffers remain live until the call returns, with no retained
+        // Rust pointers.
         recipe_tracker: unsafe {
-            let (key, modifiers) = preferences::parse_shortcut(&shortcut_text(state))
-                .unwrap_or_else(|_| {
-                    let previous = state.context.preferences.get().recipe_tracker;
-                    (previous.key, previous.modifiers)
-                });
+            let captured = captured_shortcut(state);
+            let valid = if captured.validate().is_ok() {
+                captured
+            } else {
+                state.context.preferences.get().recipe_tracker
+            };
+            let (key, modifiers) = (valid.key, valid.modifiers);
             crate::preferences::RecipeSettings {
                 enabled: SendDlgItemMessageW(state.window.get(), 150, BM_GETCHECK, 0, 0) as u32
+                    == BST_CHECKED,
+                double_click_pin: SendDlgItemMessageW(state.window.get(), 157, BM_GETCHECK, 0, 0)
+                    as u32
                     == BST_CHECKED,
                 key,
                 modifiers,
@@ -200,48 +293,83 @@ fn selected(state: &State) -> Preferences {
     }
 }
 fn checked_startup(state: &State) -> bool {
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     unsafe { SendDlgItemMessageW(state.window.get(), 110, BM_GETCHECK, 0, 0) as u32 == BST_CHECKED }
 }
+fn read_shortcut(window: HWND, id: i32) -> (u16, u16) {
+    // SAFETY: This synchronous message reads a scalar value from an owned hotkey control.
+    let value = unsafe { SendDlgItemMessageW(window, id, HKM_GETHOTKEY, 0, 0) } as u16;
+    let flags = value >> 8;
+    let modifiers = ((flags & HOTKEYF_ALT as u16 != 0) as u16)
+        | (((flags & HOTKEYF_CONTROL as u16 != 0) as u16) << 1)
+        | (((flags & HOTKEYF_SHIFT as u16 != 0) as u16) << 2);
+    (value & 0xff, modifiers)
+}
+fn captured_shortcut(state: &State) -> preferences::RecipeSettings {
+    let (key, modifiers) = read_shortcut(state.window.get(), 151);
+    preferences::RecipeSettings {
+        key,
+        modifiers,
+        ..preferences::RecipeSettings::default()
+    }
+}
+fn captured_codex_shortcut(state: &State) -> preferences::CodexShortcut {
+    let (key, modifiers) = read_shortcut(state.window.get(), 189);
+    preferences::CodexShortcut {
+        key,
+        modifiers,
+    }
+}
 fn shortcut_text(state: &State) -> String {
-    let mut value = [0u16; 64];
-    let n =
-        unsafe { GetDlgItemTextW(state.window.get(), 151, value.as_mut_ptr(), value.len() as i32) };
-    String::from_utf16_lossy(&value[..n as usize])
+    captured_shortcut(state).shortcut_label()
+}
+fn set_shortcut(window: HWND, recipe: preferences::RecipeSettings) {
+    write_shortcut(window, 151, recipe.key, recipe.modifiers);
+}
+fn write_shortcut(window: HWND, id: i32, key: u16, modifiers: u16) {
+    let flags = ((modifiers & 1 != 0) as u16 * HOTKEYF_ALT as u16)
+        | ((modifiers & 2 != 0) as u16 * HOTKEYF_CONTROL as u16)
+        | ((modifiers & 4 != 0) as u16 * HOTKEYF_SHIFT as u16);
+    // SAFETY: This sends a scalar shortcut value to the owned hotkey control.
+    unsafe { SendDlgItemMessageW(window, id, HKM_SETHOTKEY, (key | (flags << 8)) as usize, 0) };
 }
 fn dirty(state: &State) {
     let changed = checked_startup(state) != state.initial_startup.get()
         || selected(state) != state.context.preferences.get()
-        || shortcut_text(state) != state.context.preferences.get().recipe_tracker.shortcut_label();
+        || (selected(state).recipe_tracker.enabled && captured_shortcut(state).validate().is_err())
+        || (selected(state).codex_enabled && captured_codex_shortcut(state).validate().is_err());
+    // SAFETY: The UI/fixture owns the dialog and its resource-template child handles; only scalar
+    // enabled/theme/invalidation state is changed or queried, with no Rust pointer retained.
     unsafe {
         EnableWindow(
             GetDlgItem(state.window.get(), IDOK),
             i32::from(changed && state.startup_read.get()),
         );
     }
-    text(
-        state.window.get(),
-        115,
-        if changed {
-            "Unsaved changes"
-        } else {
-            "No unsaved changes"
-        },
-    );
 }
 fn settings_init(state: &State) {
     let window = state.window.get();
     // Match labels, checkbox backgrounds and the dialog to the native tab surface.
     // Windows owns the theme brush and updates it when the system theme changes.
+    // SAFETY: The UI/fixture owns the dialog and its resource-template child handles; only scalar
+    // enabled/theme/invalidation state is changed or queried, with no Rust pointer retained.
     unsafe {
         EnableThemeDialogTexture(window, ETDT_ENABLE | ETDT_USETABTEXTURE);
     }
-    for (index, label) in ["General", "Recipe tracker"].iter().enumerate() {
+    for (index, label) in
+        ["General", "Wave timer", "Compass", "Recipe tracker", "Codex"].iter().enumerate()
+    {
         let mut label = desktop::wide(label);
         let item = TCITEMW {
             mask: TCIF_TEXT,
             pszText: label.as_mut_ptr(),
             ..Default::default()
         };
+        // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+        // initialized text/message buffers remain live until the call returns, with no retained
+        // Rust pointers.
         unsafe {
             SendDlgItemMessageW(
                 window,
@@ -252,10 +380,71 @@ fn settings_init(state: &State) {
             );
         }
     }
-    let recipe = state.context.preferences.get().recipe_tracker;
+    for label in ["Hours when needed (1:20:00)", "Total minutes (80:00)"] {
+        // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+        // initialized text/message buffers remain live until the call returns, with no retained
+        // Rust pointers.
+        unsafe {
+            SendDlgItemMessageW(
+                window,
+                156,
+                CB_ADDSTRING,
+                0,
+                desktop::wide(label).as_ptr() as isize,
+            );
+        }
+    }
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
+    unsafe {
+        SendDlgItemMessageW(
+            window,
+            156,
+            CB_SETCURSEL,
+            usize::from(
+                state.context.preferences.get().countdown_format
+                    == starrupture_observation_model::wave::CountdownFormat::Minutes,
+            ),
+            0,
+        );
+    }
+    // SAFETY: The checkbox belongs to this live settings dialog; the message retains no pointer.
+    unsafe {
+        SendDlgItemMessageW(
+            window,
+            174,
+            BM_SETCHECK,
+            usize::from(state.context.preferences.get().compass_enabled),
+            0,
+        );
+    }
+    let values = state.context.preferences.get();
+    // SAFETY: These controls belong to this live dialog; messages retain no pointers.
+    unsafe {
+        SendDlgItemMessageW(window, 180, BM_SETCHECK, usize::from(values.wave_enabled), 0);
+        SendDlgItemMessageW(window, 191, BM_SETCHECK, usize::from(values.startup_notification), 0);
+        SendDlgItemMessageW(window, 187, BM_SETCHECK, usize::from(values.codex_enabled), 0);
+        SendDlgItemMessageW(
+            window,
+            181,
+            BM_SETCHECK,
+            usize::from(values.compass.arrival_enabled),
+            0,
+        );
+        SendDlgItemMessageW(window, 183, EM_SETLIMITTEXT, 4, 0);
+        SendDlgItemMessageW(window, 185, EM_SETLIMITTEXT, 4, 0);
+    }
+    text(window, 183, &values.compass.arrival_metres.to_string());
+    text(window, 185, &values.compass.departure_metres.to_string());
+    let recipe = values.recipe_tracker;
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     unsafe {
         SendDlgItemMessageW(window, 150, BM_SETCHECK, usize::from(recipe.enabled), 0);
-        SendDlgItemMessageW(window, 151, EM_SETLIMITTEXT, 48, 0);
+        SendDlgItemMessageW(window, 157, BM_SETCHECK, usize::from(recipe.double_click_pin), 0);
+
         for (id, labels) in [
             (152, vec!["Upper right", "Middle right", "Lower right"]),
             (153, vec!["75%", "100%", "125%", "150%"]),
@@ -280,10 +469,14 @@ fn settings_init(state: &State) {
         );
     }
     text(window, 154, &state.context.recipe_status.borrow());
-    text(window, 151, &recipe.shortcut_label());
+    set_shortcut(window, recipe);
+    write_shortcut(window, 189, values.codex_shortcut.key, values.codex_shortcut.modifiers);
     for label in
         ["Keep running in the tray", "Ask before exiting", "Exit the overlay automatically"]
     {
+        // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+        // initialized text/message buffers remain live until the call returns, with no retained
+        // Rust pointers.
         unsafe {
             SendDlgItemMessageW(
                 window,
@@ -299,6 +492,9 @@ fn settings_init(state: &State) {
         GameExit::Ask => 1,
         GameExit::Exit => 2,
     };
+    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+    // initialized text/message buffers remain live until the call returns, with no retained Rust
+    // pointers.
     unsafe {
         SendDlgItemMessageW(window, 111, CB_SETCURSEL, index, 0);
     }
@@ -311,6 +507,9 @@ fn settings_init(state: &State) {
         Ok(value) => {
             state.initial_startup.set(value.is_some());
             state.startup_read.set(true);
+            // SAFETY: These synchronous messages target owned UI controls/windows; scalar
+            // parameters or initialized text/message buffers remain live until the call returns,
+            // with no retained Rust pointers.
             unsafe {
                 SendDlgItemMessageW(
                     window,
@@ -327,12 +526,18 @@ fn settings_init(state: &State) {
         }
         Err(value) => {
             error(state, value);
+            // SAFETY: The UI/fixture owns the dialog and its resource-template child handles; only
+            // scalar enabled/theme/invalidation state is changed or queried, with no Rust pointer
+            // retained.
             unsafe {
                 EnableWindow(GetDlgItem(window, 110), 0);
             }
         }
     }
     if state.context.diagnostic {
+        // SAFETY: The UI/fixture owns the dialog and its resource-template child handles; only
+        // scalar enabled/theme/invalidation state is changed or queried, with no Rust pointer
+        // retained.
         unsafe {
             EnableWindow(GetDlgItem(window, 113), 0);
         }
@@ -348,31 +553,153 @@ fn settings_init(state: &State) {
     settings_tab(state);
     dirty(state);
 }
-fn settings_tab(state: &State) {
-    let recipe = unsafe { SendDlgItemMessageW(state.window.get(), 155, TCM_GETCURSEL, 0, 0) } == 1;
-    for id in [110, 111, 112, 113, 160, 161, 162, 163, 164, 165] {
+const RECIPE_FIELDS: [i32; 12] = [151, 152, 153, 154, 157, 166, 167, 168, 169, 171, 172, 173];
+fn recipe_enablement(state: &State) {
+    let window = state.window.get();
+    let enabled =
+        // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
+        // initialized text/message buffers remain live until the call returns, with no retained
+        // Rust pointers.
+        unsafe { SendDlgItemMessageW(window, 150, BM_GETCHECK, 0, 0) } as u32 == BST_CHECKED;
+    for id in RECIPE_FIELDS {
+        // SAFETY: The UI/fixture owns the dialog and its resource-template child handles; only
+        // scalar enabled/theme/invalidation state is changed or queried, with no Rust pointer
+        // retained.
         unsafe {
-            ShowWindow(
-                GetDlgItem(state.window.get(), id),
-                if recipe {
-                    SW_HIDE
-                } else {
-                    SW_SHOW
-                },
+            EnableWindow(GetDlgItem(window, id), i32::from(enabled));
+        }
+    }
+}
+fn settings_tab(state: &State) {
+    recipe_enablement(state);
+    let window = state.window.get();
+    // SAFETY: The live tab control is queried synchronously with scalar parameters.
+    let tab = unsafe { SendDlgItemMessageW(window, 155, TCM_GETCURSEL, 0, 0) };
+    let groups = [
+        vec![110, 111, 112, 113, 160, 161, 162, 164, 165, 191],
+        vec![180, 170, 156],
+        vec![174, 175, 181, 182, 183, 184, 185, 186],
+        std::iter::once(150).chain(RECIPE_FIELDS).collect(),
+        vec![187, 188, 189, 190],
+    ];
+    for (index, ids) in groups.into_iter().enumerate() {
+        for id in ids {
+            // SAFETY: Only owned child HWND visibility and enabled state change on the UI thread.
+            unsafe {
+                ShowWindow(
+                    GetDlgItem(window, id),
+                    if tab == index as isize {
+                        SW_SHOW
+                    } else {
+                        SW_HIDE
+                    },
+                );
+                if index == 4 && id != 187 {
+                    EnableWindow(GetDlgItem(window, id), i32::from(checked(window, 187)));
+                }
+                if index == 1 && id != 180 {
+                    EnableWindow(GetDlgItem(window, id), i32::from(checked(window, 180)));
+                }
+                if index == 2 && id != 174 {
+                    let enabled =
+                        checked(window, 174) && (id == 175 || id == 181 || checked(window, 181));
+                    EnableWindow(GetDlgItem(window, id), i32::from(enabled));
+                }
+            }
+        }
+    }
+    let recipe = tab == 3;
+    let has_status = !state.context.recipe_status.borrow().is_empty();
+    let base_height = match tab {
+        0 => 226,
+        1 => 146,
+        2 => 206,
+        4 => 162,
+        _ if has_status => 264,
+        _ => 232,
+    };
+    let window = state.window.get();
+    // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+    // identity themselves, and neither dereference Rust memory nor transfer ownership.
+    let has_message = unsafe { GetWindowTextLengthW(GetDlgItem(window, 114)) } > 0;
+    let height = base_height
+        + if has_message {
+            24
+        } else {
+            0
+        };
+    for (id, x, y, width, height) in [
+        (155, 16, 35, 288, base_height - 64),
+        (114, 16, base_height - 21, 288, 20),
+        (IDCANCEL, 197, height - 21, 50, 14),
+        (IDOK, 254, height - 21, 50, 14),
+    ] {
+        let mut rect = RECT {
+            left: x,
+            top: y,
+            right: x + width,
+            bottom: y + height,
+        };
+        // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles;
+        // native position/style values are scalar, and referenced menu/state objects remain alive
+        // through synchronous dispatch.
+        unsafe {
+            MapDialogRect(window, &mut rect);
+            SetWindowPos(
+                GetDlgItem(window, id),
+                std::ptr::null_mut(),
+                rect.left,
+                rect.top,
+                rect.right - rect.left,
+                rect.bottom - rect.top,
+                SWP_NOZORDER | SWP_NOACTIVATE,
             );
         }
     }
-    for id in [150, 151, 152, 153, 154, 166, 167, 168, 169] {
-        unsafe {
-            ShowWindow(
-                GetDlgItem(state.window.get(), id),
-                if recipe {
-                    SW_SHOW
-                } else {
-                    SW_HIDE
-                },
+    // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles; native
+    // position/style values are scalar, and referenced menu/state objects remain alive through
+    // synchronous dispatch.
+    unsafe {
+        ShowWindow(
+            GetDlgItem(window, 114),
+            if has_message {
+                SW_SHOW
+            } else {
+                SW_HIDE
+            },
+        );
+        ShowWindow(
+            GetDlgItem(window, 154),
+            if recipe && has_status {
+                SW_SHOW
+            } else {
+                SW_HIDE
+            },
+        );
+        let mut desired = RECT {
+            left: 0,
+            top: 0,
+            right: 320,
+            bottom: height,
+        };
+        MapDialogRect(window, &mut desired);
+        let mut outer = RECT::default();
+        let mut client = RECT::default();
+        GetWindowRect(window, &mut outer);
+        GetClientRect(window, &mut client);
+        let wanted = desired.bottom + outer.bottom - outer.top - client.bottom;
+        if outer.bottom - outer.top != wanted {
+            SetWindowPos(
+                window,
+                std::ptr::null_mut(),
+                0,
+                0,
+                outer.right - outer.left,
+                wanted,
+                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
             );
         }
+        windows_sys::Win32::Graphics::Gdi::InvalidateRect(window, std::ptr::null(), 1);
     }
 }
 fn shortcut_labels(state: &State) {
@@ -385,8 +712,18 @@ fn save_settings(state: &State) -> Result<()> {
         "Startup registration could not be read; reopen Settings to retry"
     );
     let preferences = selected(state);
-    preferences::parse_shortcut(&shortcut_text(state))?;
+    if preferences.recipe_tracker.enabled {
+        captured_shortcut(state).validate()?;
+    }
+    if preferences.codex_enabled {
+        captured_codex_shortcut(state).validate()?;
+    }
+    ensure!(
+        !preferences.codex_shortcut_conflicts(),
+        "Choose different shortcuts for the Codex and recipe tracker."
+    );
     preferences.recipe_tracker.validate()?;
+    preferences.compass.validate()?;
     let desired = checked_startup(state);
     let previous = if state.context.diagnostic {
         None
@@ -414,6 +751,8 @@ fn save_settings(state: &State) -> Result<()> {
     state.context.preferences.set(preferences);
     Ok(())
 }
+const SUPPORTED_GAME: &str = "Update 3 PTB";
+const SUPPORTED_GAME_VERSION: &str = "0.4.0 (build 128786)";
 fn refresh_about(state: &State) {
     let window = state.window.get();
     let connection = state.context.connection.borrow();
@@ -428,14 +767,19 @@ fn refresh_about(state: &State) {
             } => "A compatibility update is required for this game build.",
             crate::connection::GameStatus::Running {
                 ..
-            } if connection.connected => "The running game matches the supported build.",
+            } if connection.connected => "Live game readings are available.",
             crate::connection::GameStatus::Running {
                 ..
             } => "Waiting for a supported world and validated observations.",
+            crate::connection::GameStatus::FeaturesDisabled {
+                ..
+            } => "Enable a HUD feature in Settings to connect its reader.",
             _ => "The overlay will connect when a supported game starts.",
         },
     );
     text(window, 124, connection.location());
+    // SAFETY: The UI/fixture owns the dialog and its resource-template child handles; only scalar
+    // enabled/theme/invalidation state is changed or queried, with no Rust pointer retained.
     unsafe {
         windows_sys::Win32::Graphics::Gdi::InvalidateRect(
             GetDlgItem(window, 142),
@@ -446,28 +790,49 @@ fn refresh_about(state: &State) {
 }
 fn support_details(connection: &Connection) -> String {
     format!(
-        "StarRupture Overlay {}\r\nSource revision: {}\r\nConnection: {}\r\nSupported executable SHA256: {}\r\nWindows x64",
+        "StarRupture Overlay {}\r\nSource revision: {}\r\nConnection: {}\r\nSupported game: {} - {}\r\nWindows x64",
         env!("CARGO_PKG_VERSION"),
         env!("OVERLAY_REVISION"),
         connection.label(),
-        starrupture_observation_model::overlay_stream::GAME_HASH
+        SUPPORTED_GAME,
+        SUPPORTED_GAME_VERSION
     )
 }
 fn clipboard(owner: HWND, value: &str) -> Result<()> {
     let value = desktop::wide(value);
+    // SAFETY: The movable allocation is checked before locking and sized for the full UTF-16 text.
+    // The clipboard is opened before transfer; Windows owns the memory only after SetClipboardData
+    // succeeds, otherwise this code frees it.
     let memory = unsafe { GlobalAlloc(GMEM_MOVEABLE, std::mem::size_of_val(value.as_slice())) };
     ensure!(!memory.is_null(), "Clipboard allocation failed");
     let mut transferred = false;
     let result = (|| -> Result<()> {
+        // SAFETY: The movable allocation is checked before locking and sized for the full UTF-16
+        // text. The clipboard is opened before transfer; Windows owns the memory only after
+        // SetClipboardData succeeds, otherwise this code frees it.
         let target = unsafe { GlobalLock(memory) };
         ensure!(!target.is_null(), "Clipboard memory unavailable");
+        // SAFETY: GlobalLock returned writable storage for the complete UTF-16 value; its
+        // allocation is disjoint from the Vec and stays locked through the copy.
         unsafe {
             std::ptr::copy_nonoverlapping(value.as_ptr(), target.cast(), value.len());
             GlobalUnlock(memory);
         }
+        // SAFETY: The movable allocation is checked before locking and sized for the full UTF-16
+        // text. The clipboard is opened before transfer; Windows owns the memory only after
+        // SetClipboardData succeeds, otherwise this code frees it.
         ensure!(unsafe { OpenClipboard(owner) } != 0, "Clipboard is busy; try again");
+        // SAFETY: The movable allocation is checked before locking and sized for the full UTF-16
+        // text. The clipboard is opened before transfer; Windows owns the memory only after
+        // SetClipboardData succeeds, otherwise this code frees it.
         let emptied = unsafe { EmptyClipboard() };
+        // SAFETY: The movable allocation is checked before locking and sized for the full UTF-16
+        // text. The clipboard is opened before transfer; Windows owns the memory only after
+        // SetClipboardData succeeds, otherwise this code frees it.
         let copied = emptied != 0 && !unsafe { SetClipboardData(13, memory) }.is_null();
+        // SAFETY: The movable allocation is checked before locking and sized for the full UTF-16
+        // text. The clipboard is opened before transfer; Windows owns the memory only after
+        // SetClipboardData succeeds, otherwise this code frees it.
         unsafe {
             CloseClipboard();
         }
@@ -476,6 +841,9 @@ fn clipboard(owner: HWND, value: &str) -> Result<()> {
         Ok(())
     })();
     if !transferred {
+        // SAFETY: The movable allocation is checked before locking and sized for the full UTF-16
+        // text. The clipboard is opened before transfer; Windows owns the memory only after
+        // SetClipboardData succeeds, otherwise this code frees it.
         unsafe {
             GlobalFree(memory);
         }
@@ -516,17 +884,32 @@ fn notices() -> Result<String> {
     }
     Ok(output.replace("\r\n", "\n").replace('\n', "\r\n"))
 }
+/// # Safety
+/// Windows must supply valid parameters for this dialog resource; WM_INITDIALOG receives the
+/// stable State box, which its Dialog owner retains until HWND destruction finishes.
 unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isize) -> isize {
     if message == WM_INITDIALOG {
+        // SAFETY: WM_INITDIALOG/user data contains the stable State box retained by Dialog until
+        // after DestroyWindow; the callback borrows it immutably and uses Cell/RefCell for
+        // mutation.
         let state = unsafe { &*(l as *const State) };
         state.window.set(window);
+        // SAFETY: This is an owned window on its UI thread; a stored creation-state pointer remains
+        // boxed through HWND teardown, and changing native style bits does not transfer Rust
+        // ownership.
         unsafe {
             SetWindowLongPtrW(window, GWLP_USERDATA, l);
         }
         if matches!(state.kind, SETTINGS | ABOUT) {
             use windows_sys::Win32::Graphics::Gdi::*;
+            // SAFETY: These synchronous messages target owned UI controls/windows; scalar
+            // parameters or initialized text/message buffers remain live until the call returns,
+            // with no retained Rust pointers.
             let font = unsafe { SendMessageW(window, WM_GETFONT, 0, 0) } as HFONT;
             let mut description = LOGFONTW::default();
+            // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match
+            // their lengths. Owned GDI objects are restored/deselected before deletion;
+            // stock/system objects remain borrowed.
             if unsafe {
                 GetObjectW(
                     font,
@@ -537,9 +920,15 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
             {
                 description.lfHeight = description.lfHeight * 17 / 9;
                 description.lfWeight = 600;
+                // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers
+                // match their lengths. Owned GDI objects are restored/deselected before deletion;
+                // stock/system objects remain borrowed.
                 let heading = unsafe { CreateFontIndirectW(&description) };
                 if !heading.is_null() {
                     state.heading_font.set(heading);
+                    // SAFETY: These synchronous messages target owned UI controls/windows; scalar
+                    // parameters or initialized text/message buffers remain live until the call
+                    // returns, with no retained Rust pointers.
                     unsafe {
                         SendDlgItemMessageW(window, 140, WM_SETFONT, heading as usize, 1);
                     }
@@ -558,9 +947,14 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
                     &format!("Version {} · Development build", env!("CARGO_PKG_VERSION")),
                 );
                 text(window, 123, env!("OVERLAY_REVISION"));
+                text(window, 144, SUPPORTED_GAME);
+                text(window, 145, SUPPORTED_GAME_VERSION);
                 refresh_about(state);
             }
             NOTICES => {
+                // SAFETY: These synchronous messages target owned UI controls/windows; scalar
+                // parameters or initialized text/message buffers remain live until the call
+                // returns, with no retained Rust pointers.
                 unsafe {
                     SendDlgItemMessageW(window, 130, EM_SETLIMITTEXT, 2_100_000, 0);
                 }
@@ -574,6 +968,9 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
             _ => {}
         }
         if state.kind == ABOUT {
+            // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles;
+            // native position/style values are scalar, and referenced menu/state objects remain
+            // alive through synchronous dispatch.
             unsafe {
                 windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus(GetDlgItem(
                     window, IDCANCEL,
@@ -583,13 +980,19 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
         }
         return 1;
     }
+    // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+    // identity themselves, and neither dereference Rust memory nor transfer ownership.
     let pointer = unsafe { GetWindowLongPtrW(window, GWLP_USERDATA) } as *const State;
     if pointer.is_null() {
         return 0;
     }
+    // SAFETY: WM_INITDIALOG/user data contains the stable State box retained by Dialog until after
+    // DestroyWindow; the callback borrows it immutably and uses Cell/RefCell for mutation.
     let state = unsafe { &*pointer };
     match message {
         WM_NOTIFY if state.kind == SETTINGS && l != 0 => {
+            // SAFETY: For WM_NOTIFY, nonzero lParam points to the notification header for this
+            // synchronous callback; only the header is read.
             let notice = unsafe { &*(l as *const NMHDR) };
             if notice.idFrom == 155 && notice.code == TCN_SELCHANGE {
                 settings_tab(state);
@@ -598,10 +1001,21 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
             0
         }
         WM_DRAWITEM if w == 142 && l != 0 => {
+            // SAFETY: This owner-draw message supplies the matching live native structure; the
+            // callback only borrows it for the duration of message handling.
             let item = unsafe { &*(l as *const DRAWITEMSTRUCT) };
+            // SAFETY: These synchronous messages target owned UI controls/windows; scalar
+            // parameters or initialized text/message buffers remain live until the call returns,
+            // with no retained Rust pointers.
             let font = unsafe { SendDlgItemMessageW(window, 121, WM_GETFONT, 0, 0) };
             let previous_font =
+                // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers
+                // match their lengths. Owned GDI objects are restored/deselected before deletion;
+                // stock/system objects remain borrowed.
                 unsafe { windows_sys::Win32::Graphics::Gdi::SelectObject(item.hDC, font as _) };
+            // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match
+            // their lengths. Owned GDI objects are restored/deselected before deletion;
+            // stock/system objects remain borrowed.
             unsafe {
                 windows_sys::Win32::Graphics::Gdi::FillRect(
                     item.hDC,
@@ -615,19 +1029,30 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
                 item.hDC,
                 item.rcItem,
                 state.context.connection.borrow().indicator_colour(),
+                // SAFETY: These Win32 queries use scalar values or borrowed handles, validate
+                // native handle identity themselves, and neither dereference Rust memory nor
+                // transfer ownership.
                 unsafe { windows_sys::Win32::UI::HiDpi::GetDpiForWindow(window) }.max(96),
+                // SAFETY: These Win32 queries use scalar values or borrowed handles, validate
+                // native handle identity themselves, and neither dereference Rust memory nor
+                // transfer ownership.
                 unsafe {
                     windows_sys::Win32::Graphics::Gdi::GetSysColor(
                         windows_sys::Win32::Graphics::Gdi::COLOR_3DFACE,
                     )
                 },
             );
+            // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers match
+            // their lengths. Owned GDI objects are restored/deselected before deletion;
+            // stock/system objects remain borrowed.
             unsafe {
                 windows_sys::Win32::Graphics::Gdi::SelectObject(item.hDC, previous_font);
             }
             1
         }
         WM_DPICHANGED if state.kind == ABOUT => {
+            // SAFETY: Only scalar event data/IDs are queued to the retained UI HWND; no pointer to
+            // a Rust stack value or borrow crosses the asynchronous message boundary.
             unsafe {
                 PostMessageW(window, REFRESH_ICON, 0, 0);
             }
@@ -643,20 +1068,32 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
             let id = (w & 0xffff) as i32;
             let notification = (w >> 16) as u32;
             if id == IDCANCEL {
+                // SAFETY: Only this UI/fixture owner destroys its HWND; boxed callback state
+                // remains alive until DestroyWindow completes, and stale handles are validated by
+                // Win32.
                 unsafe {
                     DestroyWindow(window);
                 }
                 return 1;
             }
             match (state.kind, id) {
-                (SETTINGS, 110 | 111 | 150 | 151 | 152 | 153)
-                    if notification == BN_CLICKED
-                        || notification == CBN_SELCHANGE
-                        || notification == EN_CHANGE =>
+                (
+                    SETTINGS,
+                    110 | 111 | 150 | 151 | 152 | 153 | 156 | 157 | 174 | 180 | 181 | 183 | 185
+                    | 187 | 189 | 191,
+                ) if notification == BN_CLICKED
+                    || notification == CBN_SELCHANGE
+                    || notification == EN_CHANGE =>
                 {
+                    if matches!(id, 150 | 174 | 180 | 181 | 187) {
+                        settings_tab(state);
+                    }
                     dirty(state);
                 }
                 (SETTINGS, IDOK) => match save_settings(state) {
+                    // SAFETY: Only this UI/fixture owner destroys its HWND; boxed callback state
+                    // remains alive until DestroyWindow completes, and stale handles are validated
+                    // by Win32.
                     Ok(()) => unsafe {
                         DestroyWindow(window);
                     },
@@ -671,9 +1108,8 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
                                 desktop::ShortcutState::Missing
                             });
                             shortcut_labels(state);
-                            text(
-                                window,
-                                114,
+                            settings_message(
+                                state,
                                 "Shortcut updated. This action takes effect immediately.",
                             );
                         }
@@ -690,6 +1126,8 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
                         text(window, 122, &value.to_string());
                     }
                 }
+                // SAFETY: Only scalar event data/IDs are queued to the retained UI HWND; no pointer
+                // to a Rust stack value or borrow crosses the asynchronous message boundary.
                 (ABOUT, 127) => unsafe {
                     PostMessageW(state.owner, OPEN_NOTICES, 0, 0);
                 },
@@ -704,6 +1142,8 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
                         Err(value) => text(window, 122, &value.to_string()),
                     }
                 }
+                // SAFETY: Only scalar event data/IDs are queued to the retained UI HWND; no pointer
+                // to a Rust stack value or borrow crosses the asynchronous message boundary.
                 (EXIT_PROMPT, 131) => unsafe {
                     PostMessageW(state.owner, WM_CLOSE, 0, 0);
                     DestroyWindow(window);
@@ -713,6 +1153,8 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
             1
         }
         WM_CLOSE => {
+            // SAFETY: Only this UI/fixture owner destroys its HWND; boxed callback state remains
+            // alive until DestroyWindow completes, and stale handles are validated by Win32.
             unsafe {
                 DestroyWindow(window);
             }
@@ -720,6 +1162,9 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
         }
         WM_NCDESTROY => {
             state.window.set(std::ptr::null_mut());
+            // SAFETY: This is an owned window on its UI thread; a stored creation-state pointer
+            // remains boxed through HWND teardown, and changing native style bits does not transfer
+            // Rust ownership.
             unsafe {
                 SetWindowLongPtrW(window, GWLP_USERDATA, 0);
             }
@@ -745,6 +1190,7 @@ mod tests {
         assert!(!text.contains("Private user"));
         assert!(!text.contains("987654"));
         assert!(!text.contains("123456"));
-        assert!(text.contains(starrupture_observation_model::overlay_stream::GAME_HASH));
+        assert!(text.contains(SUPPORTED_GAME));
+        assert!(text.contains(SUPPORTED_GAME_VERSION));
     }
 }

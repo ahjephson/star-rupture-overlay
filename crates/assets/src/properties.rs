@@ -1,4 +1,5 @@
-//! Bounded reader for the supported cooked-property subset. Format references: CUE4Parse ec6595e4
+//! Bounded cooked-property decoding shared by recipe and codex preparation.
+//! Format references: CUE4Parse ec6595e4
 //! (Apache-2.0) and unreal_asset 0.1.16 (MIT). This is not a general UE parser.
 use anyhow::{Context, Result, bail, ensure};
 use retoc::legacy_asset::{FLegacyPackageHeader, FMinimalName};
@@ -246,7 +247,12 @@ impl<'a> Reader<'a> {
                 let n = self.count()?;
                 let mut v = Vec::new();
                 for _ in 0..n {
-                    v.push(self.value(inner, false, depth + 1)?)
+                    if matches!(inner.as_ref(), T::Enum { .. }) {
+                        // Cooked enum-array elements carry FNames, unlike scalar enum ordinals.
+                        v.push(json!(self.name()?));
+                    } else {
+                        v.push(self.value(inner, false, depth + 1)?)
+                    }
                 }
                 json!(v)
             }
@@ -259,7 +265,13 @@ impl<'a> Reader<'a> {
                 let n = self.count()?;
                 let mut v = Vec::new();
                 for _ in 0..n {
-                    v.push(json!({"Key":self.value(key,false,depth+1)?,"Value":self.value(value,false,depth+1)?}))
+                    // Cooked enum map keys use FNames; struct keys retain their property header.
+                    let k = if matches!(key.as_ref(), T::Enum { .. }) {
+                        json!(self.name()?)
+                    } else {
+                        self.value(key, false, depth + 1)?
+                    };
+                    v.push(json!({"Key":k,"Value":self.value(value,false,depth+1)?}))
                 }
                 json!(v)
             }
@@ -268,6 +280,18 @@ impl<'a> Reader<'a> {
                 let asset = self.name()?;
                 let sub = self.string()?;
                 json!({"package":package,"asset":asset,"subpath":sub})
+            }
+            // UE5 FFieldPath: bounded FName path followed by its serialized owner.
+            // See CUE4Parse UE4/Objects/UObject/FFieldPath.cs (FFieldPathOwnerSerialization).
+            T::FieldPath => {
+                let count = self.count()?;
+                ensure!(count <= 64, "Field path component bound");
+                let mut path = Vec::with_capacity(count);
+                for _ in 0..count {
+                    path.push(self.name()?);
+                }
+                let owner = self.i32()?;
+                json!({"Path":path,"ResolvedOwner":self.reference(owner)?})
             }
             T::Text => {
                 let flags = self.i32()?;
@@ -292,9 +316,15 @@ impl<'a> Reader<'a> {
                     let n = self.count()?;
                     let mut tags = Vec::new();
                     for _ in 0..n {
-                        tags.push(self.properties("GameplayTag", depth + 1)?)
+                        tags.push(json!({"TagName":self.name()?}))
                     }
                     json!(tags)
+                }
+                "Vector" => json!({"X":self.f64()?,"Y":self.f64()?,"Z":self.f64()?}),
+                "Quat" => json!({"X":self.f64()?,"Y":self.f64()?,"Z":self.f64()?,"W":self.f64()?}),
+                "Rotator" => json!({"Pitch":self.f64()?,"Yaw":self.f64()?,"Roll":self.f64()?}),
+                "Box" => {
+                    json!({"min":[self.f64()?,self.f64()?,self.f64()?],"max":[self.f64()?,self.f64()?,self.f64()?],"valid":self.u8()?})
                 }
                 "Guid" => {
                     json!(self.take(16)?.iter().map(|b| format!("{b:02x}")).collect::<String>())
@@ -383,8 +413,9 @@ impl Reader<'_> {
         ensure!(self.i32()? == 1, "Non-simple texture unsupported");
         let format = self.string()?;
         ensure!(
-            format == format_name && (format == "PF_DXT5" || format == "PF_B8G8R8A8"),
-            "Unsupported texture format"
+            format == format_name
+                && matches!(format.as_str(), "PF_DXT5" | "PF_B8G8R8A8" | "PF_FloatRGBA"),
+            "Unsupported texture format {format}"
         );
         ensure!(self.i32()? == 0 && self.i32()? == 1, "Only first single mip supported");
         let index = self.i32()?;
@@ -508,5 +539,231 @@ mod tests {
         let mut mappings = schema(1);
         mappings.structs[0].properties[0].inner = T::Unknown;
         assert!(read(&[0, 3, 0], &mappings).is_err());
+    }
+}
+
+#[cfg(test)]
+mod research_tests {
+    use super::*;
+    use retoc::legacy_asset::FPackageNameMap;
+
+    fn mappings() -> Usmap {
+        Usmap {
+            enums: vec![],
+            structs: vec![],
+            cext: None,
+            ppth: None,
+            eatr: None,
+            envp: None,
+        }
+    }
+
+    #[test]
+    fn enum_map_names_and_field_paths_preserve_following_values() -> Result<()> {
+        let package = FLegacyPackageHeader {
+            name_map: FPackageNameMap::create_from_names(vec!["EPart::Dot".into(), "Ammo".into()]),
+            ..Default::default()
+        };
+        let schemas = mappings();
+        let mut bytes = 0i32.to_le_bytes().to_vec();
+        bytes.extend_from_slice(&1i32.to_le_bytes());
+        bytes.extend_from_slice(&0i32.to_le_bytes());
+        bytes.extend_from_slice(&0i32.to_le_bytes());
+        bytes.extend_from_slice(&7i32.to_le_bytes());
+        bytes.extend_from_slice(&123i32.to_le_bytes());
+        let ty = T::Map {
+            key: Box::new(T::Enum {
+                inner: Box::new(T::Byte),
+                name: "EPart".into(),
+            }),
+            value: Box::new(T::Int),
+        };
+        let mut reader = Reader {
+            bytes: &bytes,
+            pos: 0,
+            package: &package,
+            schemas: &schemas,
+        };
+        assert_eq!(reader.value(&ty, false, 0)?, json!([{"Key":"EPart::Dot","Value":7}]));
+        assert_eq!(reader.i32()?, 123);
+        let mut bytes = 1i32.to_le_bytes().to_vec();
+        bytes.extend_from_slice(&1i32.to_le_bytes());
+        bytes.extend_from_slice(&0i32.to_le_bytes());
+        bytes.extend_from_slice(&0i32.to_le_bytes());
+        for end in 0..bytes.len() {
+            let mut reader = Reader {
+                bytes: &bytes[..end],
+                pos: 0,
+                package: &package,
+                schemas: &schemas,
+            };
+            assert!(reader.value(&T::FieldPath, false, 0).is_err());
+        }
+        bytes.extend_from_slice(&456i32.to_le_bytes());
+        let mut reader = Reader {
+            bytes: &bytes,
+            pos: 0,
+            package: &package,
+            schemas: &schemas,
+        };
+        assert_eq!(
+            reader.value(&T::FieldPath, false, 0)?,
+            json!({"Path":["Ammo"],"ResolvedOwner":null})
+        );
+        assert_eq!(reader.i32()?, 456);
+        Ok(())
+    }
+    #[test]
+    fn gameplay_tag_map_key_keeps_its_struct_header() -> Result<()> {
+        let package = FLegacyPackageHeader {
+            name_map: FPackageNameMap::create_from_names(vec!["Hud.Ammo".into()]),
+            ..Default::default()
+        };
+        let mut schemas = mappings();
+        schemas.structs.push(usmap::Struct {
+            name: "GameplayTag".into(),
+            super_struct: None,
+            properties: vec![usmap::Property {
+                name: "TagName".into(),
+                array_dim: 1,
+                index: 0,
+                inner: T::Name,
+            }],
+        });
+        let mut bytes = 0i32.to_le_bytes().to_vec();
+        bytes.extend_from_slice(&1i32.to_le_bytes());
+        bytes.extend_from_slice(&0x0300u16.to_le_bytes());
+        bytes.extend_from_slice(&0i32.to_le_bytes());
+        bytes.extend_from_slice(&0i32.to_le_bytes());
+        bytes.extend_from_slice(&37i32.to_le_bytes());
+        let ty = T::Map {
+            key: Box::new(T::Struct {
+                name: "GameplayTag".into(),
+            }),
+            value: Box::new(T::Int),
+        };
+        for end in 0..bytes.len() {
+            let mut reader = Reader {
+                bytes: &bytes[..end],
+                pos: 0,
+                package: &package,
+                schemas: &schemas,
+            };
+            assert!(reader.value(&ty, false, 0).is_err());
+        }
+        bytes.extend_from_slice(&99i32.to_le_bytes());
+        let mut reader = Reader {
+            bytes: &bytes,
+            pos: 0,
+            package: &package,
+            schemas: &schemas,
+        };
+        assert_eq!(
+            reader.value(&ty, false, 0)?,
+            json!([{"Key":{"TagName":"Hud.Ammo"},"Value":37}])
+        );
+        assert_eq!(reader.i32()?, 99);
+        Ok(())
+    }
+    #[test]
+    fn native_gameplay_tags_use_names_and_reject_truncation() -> Result<()> {
+        let package = FLegacyPackageHeader {
+            name_map: FPackageNameMap::create_from_names(vec!["Item.Ammo".into()]),
+            ..Default::default()
+        };
+        let schemas = mappings();
+        let mut bytes = 1i32.to_le_bytes().to_vec();
+        bytes.extend_from_slice(&0i32.to_le_bytes());
+        bytes.extend_from_slice(&0i32.to_le_bytes());
+        let ty = T::Struct {
+            name: "GameplayTagContainer".into(),
+        };
+        for end in 0..bytes.len() {
+            let mut reader = Reader {
+                bytes: &bytes[..end],
+                pos: 0,
+                package: &package,
+                schemas: &schemas,
+            };
+            assert!(reader.value(&ty, false, 0).is_err());
+        }
+        bytes.extend_from_slice(&77i32.to_le_bytes());
+        let mut reader = Reader {
+            bytes: &bytes,
+            pos: 0,
+            package: &package,
+            schemas: &schemas,
+        };
+        assert_eq!(reader.value(&ty, false, 0)?, json!([{"TagName":"Item.Ammo"}]));
+        assert_eq!(reader.i32()?, 77);
+        Ok(())
+    }
+    #[test]
+    fn enum_array_uses_names_and_preserves_following_field() -> Result<()> {
+        let package = FLegacyPackageHeader {
+            name_map: FPackageNameMap::create_from_names(vec![
+                "EExample::First".into(),
+                "EExample::Second".into(),
+            ]),
+            ..Default::default()
+        };
+        let mut bytes = 2i32.to_le_bytes().to_vec();
+        for index in [0i32, 1] {
+            bytes.extend_from_slice(&index.to_le_bytes());
+            bytes.extend_from_slice(&0i32.to_le_bytes());
+        }
+        bytes.extend_from_slice(&123i32.to_le_bytes());
+        let schemas = mappings();
+        let mut reader = Reader {
+            bytes: &bytes,
+            pos: 0,
+            package: &package,
+            schemas: &schemas,
+        };
+        let ty = T::Array {
+            inner: Box::new(T::Enum {
+                inner: Box::new(T::Byte),
+                name: "EExample".into(),
+            }),
+        };
+        assert_eq!(reader.value(&ty, false, 0)?, json!(["EExample::First", "EExample::Second"]));
+        assert_eq!(reader.i32()?, 123);
+        assert_eq!(reader.pos, bytes.len());
+        Ok(())
+    }
+
+    #[test]
+    fn native_vector_rejects_truncation_and_nonfinite_values() -> Result<()> {
+        let package = FLegacyPackageHeader::default();
+        let schemas = mappings();
+        let bytes: Vec<_> = [12.0f64, -5.0, 70.0].into_iter().flat_map(f64::to_le_bytes).collect();
+        let ty = T::Struct {
+            name: "Vector".into(),
+        };
+        for end in 0..bytes.len() {
+            let mut reader = Reader {
+                bytes: &bytes[..end],
+                pos: 0,
+                package: &package,
+                schemas: &schemas,
+            };
+            assert!(reader.value(&ty, false, 0).is_err());
+        }
+        let mut reader = Reader {
+            bytes: &bytes,
+            pos: 0,
+            package: &package,
+            schemas: &schemas,
+        };
+        assert_eq!(reader.value(&ty, false, 0)?, json!({"X":12.0,"Y":-5.0,"Z":70.0}));
+        let invalid = f64::NAN.to_le_bytes();
+        let mut reader = Reader {
+            bytes: &invalid,
+            pos: 0,
+            package: &package,
+            schemas: &schemas,
+        };
+        assert!(reader.value(&ty, false, 0).is_err());
+        Ok(())
     }
 }

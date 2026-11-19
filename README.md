@@ -2,7 +2,7 @@
 
 Keep rupture timing and recipe research progress visible while you play StarRupture.
 
-This unofficial Windows companion adds a rupture countdown and an optional recipe tracker over the game. It reads the running game without changing game files, memory or saves.
+This unofficial Windows companion adds a rupture countdown, compass and optional recipe tracker over the game. It reads the running game without changing game files, memory or saves.
 
 ![Example rupture countdown showing STABLE and an illustrative time of 12:34](assets/overlay-preview.png)
 
@@ -10,14 +10,16 @@ This unofficial Windows companion adds a rupture countdown and an optional recip
 
 ## What it does
 
+- Adds a floating compass showing the direction and distance to your personal map pin, with a visual arrival cue.
 - Shows the current rupture stage and time remaining, with a countdown that follows the game's simulation and pauses with it.
-- Pins a recipe's research materials in a narrow sidebar, showing how much you have submitted and how much is required.
+- Pins up to three recipes in compact panels, remembers your choices per local world, and shows fresh research progress.
 - Shows which recipe materials you have in your bag and how many you carry.
-- Offers controls for positioning, recipe scale, keyboard shortcut, starting with Windows and launching the game.
+- Gives each feature its own settings and enable control, with adjustable waypoint arrival distances, recipe placement and scale, keyboard shortcut and countdown format.
+- Offers app controls for starting with Windows, launching the game and desktop shortcuts.
 
 ## Download and start
 
-The first packaged release is being prepared. No public app download is available yet. When a build is published, it will appear on the [Releases page](https://github.com/ahjephson/star-rupture-overlay/releases).
+Download the app from [Releases](https://github.com/ahjephson/star-rupture-overlay/releases). Choose a release that supports your game branch: stable releases support the main game branch; releases marked **Pre-release** describe their PTB support in the release notes. Unpublished drafts are not available to download.
 
 1. Download the **Windows x64 ZIP** from Releases. The GitHub **Source code** downloads are not the app.
 2. Extract the complete ZIP to a folder you want to keep. Keep the included files together.
@@ -40,9 +42,17 @@ The app is unsigned, so Windows may show **Windows protected your PC** when you 
 
 ## Using the overlay
 
-Right-click the notification-area icon for controls, or double-click it to open Settings. To pin research progress, hover over an unfinished recipe in the station and press **Alt+X**. The sidebar closes when the recipe is completed.
+Right-click the notification-area icon for controls, or double-click it to open Settings. To pin research progress, hover over an unfinished recipe in the station and press **Alt+X**, or double-click its icon or name. Pin up to three recipes; each panel closes when its recipe is completed.
 
 The [features guide](docs/FEATURES.md) covers the rupture countdown, recipe counters and shortcuts, positioning, automatic setup and app controls.
+
+### Codex
+
+Press **K** during gameplay to open the Codex. Search Production, Buildings, Interiors, Equipment, or Corporations. Select an entry to see its materials, machine, or unlock requirements. Different recipes for the same output appear as separate entries. The Codex uses the current world's unlocks and marks visible locked entries with a padlock.
+
+The overlay prepares the Codex in the background when it attaches to a loaded world. Press **Esc** or **Tab** in the Codex to close it. Opening a game menu or station also closes it. The Codex stays open when you switch to another app. Change the shortcut or disable the feature in **Settings → Codex**.
+
+Open **Buildings → Base Core** to see and pin the requirements for unlocked levels and the next unlock. You can also pin production recipes and machine upgrades. The Codex and in-game pin controls share the same three pins. A dash in a counter means the submitted amount is unavailable.
 
 ## Updating or removing the app
 

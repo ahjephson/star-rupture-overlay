@@ -18,3 +18,6 @@ repak = { path = "../../third-party/repak/repak", default-features = false }
 usmap = { path = "../../third-party/jmap/usmap" }
 bcdec_rs = "=0.2.1"
 starrupture-observation-model = { path = "../observation-model" }
+
+[lints]
+workspace = true

@@ -1,20 +1,30 @@
 # StarRupture Overlay - Windows x64
 
-A rupture countdown and recipe research sidebar for StarRupture. Extract this complete folder to a location you want to keep and open `starrupture-overlay.exe`. Run normally, without administrator rights, then start StarRupture and load your world.
+A rupture countdown, compass and recipe research sidebar for StarRupture. Extract this complete folder to a location you want to keep and open `starrupture-overlay.exe`. Run normally, without administrator rights, then start StarRupture and load your world.
 
 Right-click the overlay icon in the Windows notification area for Settings, positioning controls, About and Exit. Double-click it to open Settings. The icon may be under the hidden icons arrow. You can start the game from the tray menu or create a Play StarRupture with Overlay desktop shortcut in Settings.
 
+The overlay shows a brief splash at launch and sends a Windows notification when ready. Turn off **Show startup notification** in Settings under **General → Startup**.
+
 ## Recipe tracker
 
-With the game focused, hover over an unfinished recipe in the recipe station and press Alt+X. Press it over a different unfinished recipe to switch, over the same unfinished recipe to clear, or outside the station to clear. A completed recipe or empty space inside the station keeps the current pin.
+With the game focused, hover over an unfinished recipe in the recipe station and press Alt+X, or double-click its icon or name. Pin up to three recipes. Selecting an already pinned recipe unpins it; pressing the shortcut outside the station clears all pins. Each panel also has a close button and closes automatically when research completes. Your pins are remembered separately for each local world.
 
-The tracker prepares its icons, font and recipe definitions automatically from your installed game. Setup works offline using the built-in Rust asset reader. Progress appears in Settings > Recipe tracker; later launches reuse the local cache. No manual extraction or separate SDK is required.
+The tracker prepares its icons, names and font automatically from your installed game. Start the game and load a world to complete setup. Setup works offline, with no extra tools or downloads. Later launches reuse the local cache. Settings > Recipe tracker shows setup progress.
 
-Counters show submitted/required research amounts. White text means you have some material in your bag, and the orange number shows that quantity. A tick marks a completed requirement. Submit materials in the game.
+Counters show submitted/required research amounts. Bag quantities show what you carry and turn green when you hold enough to finish that requirement. A tick marks a completed requirement. Hover over a material for its name. Submit materials in the game.
+
+## Compass and settings
+
+The compass shows your heading and the direction and distance to your personal map pin. It works without a pin too. The marker and text turn blue when you arrive. Arrival defaults to 25 metres and clears beyond 35 metres; change either distance or turn off the cue in Settings > Compass.
+
+The compass hides during pause and game menus. Recipe panels shrink when needed to fit beside the pause menu. The HUD hides while another application has focus.
+
+Settings has a General tab and a tab for each feature. Turn features on or off independently and adjust the countdown format, compass arrival distances, recipe shortcut, placement and scale.
 
 ## Requirements and help
 
-Windows 10/11 x64, the supported Steam game build, and borderless, windowed or the supported fullscreen mode. The app finds the running game automatically. Game updates may require an overlay compatibility update. About shows connection and version information; Copy support details prepares information for a bug report.
+Windows 10/11 x64, a supported Steam game version (check the release notes for main-branch or PTB support), and borderless, windowed or the supported fullscreen mode. The app finds the running game automatically. Game updates may require an overlay compatibility update. About shows connection and version information; Copy support details prepares information for a bug report.
 
 The countdown follows game time and pauses when simulation pause is verified. It shows `--:--` when timing is unavailable. The overlay hides with a minimized or closed game, and other windows can cover it.
 

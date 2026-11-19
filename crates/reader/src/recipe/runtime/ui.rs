@@ -103,7 +103,26 @@ fn local_layout(records: &[u8], player: u64) -> Result<u64> {
 }
 
 impl Binding {
-    async fn menu_screen(
+    pub(super) async fn mouse_target(&self, ctx: &Ctx, row: u64) -> Result<bool> {
+        let mut read = Read::default();
+        read.object(ctx, row, Some(self.rows_class)).await?;
+        let mut hovered = false;
+        for offset in [976, 984] {
+            let widget = read.pointer(ctx, row + offset).await?;
+            if widget == 0 {
+                continue;
+            }
+            let allocation = read.object(ctx, widget, Some(self.widget_class)).await?;
+            if self.attached_to(ctx, widget, row, &mut read).await?
+                && self.native_hovered(ctx, widget, allocation).await?
+            {
+                hovered = true;
+            }
+        }
+        read.finish(ctx).await?;
+        Ok(hovered)
+    }
+    async fn displayed_screen(
         &self,
         ctx: &Ctx,
         base: &RuntimeCache,
@@ -151,6 +170,26 @@ impl Binding {
         if screen == 0 {
             return Ok(None);
         }
+        read.object(ctx, screen, Some(self.user_widget_class)).await?;
+        Ok(Some(screen))
+    }
+
+    pub(crate) async fn gameplay(&self, ctx: &Ctx, base: &RuntimeCache) -> Result<bool> {
+        let mut read = Read::default();
+        let screen = self.displayed_screen(ctx, base, &mut read).await?;
+        read.finish(ctx).await?;
+        Ok(screen.is_none())
+    }
+
+    async fn menu_screen(
+        &self,
+        ctx: &Ctx,
+        base: &RuntimeCache,
+        read: &mut Read,
+    ) -> Result<Option<u64>> {
+        let Some(screen) = self.displayed_screen(ctx, base, read).await? else {
+            return Ok(None);
+        };
         let screen_stamp = read.object(ctx, screen, Some(self.user_widget_class)).await?;
         if !class_is(ctx, screen_stamp.0.class, self.inventory_screen_class).await? {
             return Ok(None);

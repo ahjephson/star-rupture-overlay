@@ -153,6 +153,10 @@ impl TryFrom<u8> for NativeStage {
     }
 }
 impl NativeStage {
+    /// Before the first rupture, the game keeps its start clock at the unset sentinel.
+    pub fn accepts_wave_start(self, start: f64) -> bool {
+        start.is_finite() && (start >= 0.0 || self == Self::PreWave && start == f64::MIN)
+    }
     pub const fn phase(self) -> Phase {
         match self {
             Self::PreWave => Phase::PreWave,

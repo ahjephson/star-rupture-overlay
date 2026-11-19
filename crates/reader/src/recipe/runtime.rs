@@ -15,10 +15,17 @@ mod bag;
 mod diagnostics;
 mod ui;
 static REGISTRY_SCANS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-pub(super) fn registry_scans() -> u64 {
+pub(crate) fn registry_scans() -> u64 {
     REGISTRY_SCANS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+pub(crate) fn definition_paths() -> BTreeSet<String> {
+    FIELDS
+        .iter()
+        .map(|(p, _, _, _)| (*p).to_owned())
+        .chain(SIZES.iter().map(|(p, _)| (*p).to_owned()))
+        .collect()
+}
 const FIELDS: &[(&str, &str, usize, i32)] = &[
     ("/Script/Chimera.CrGameStateBase", "CraftingRecipeOwner", 8, 840),
     ("/Script/Chimera.CrCraftingRecipeOwner", "UnlockableRecipesContainer", 288, 864),
@@ -29,6 +36,8 @@ const FIELDS: &[(&str, &str, usize, i32)] = &[
     ("/Script/Chimera.CrCountItem", "Item", 8, 0),
     ("/Script/Chimera.CrCountItem", "Count", 4, 8),
     ("/Script/ChimeraUI.CrUW_RecipeTableRecipe", "Recipe", 8, 1024),
+    ("/Script/ChimeraUI.CrUW_RecipeTableRecipe", "RecipeName", 8, 976),
+    ("/Script/ChimeraUI.CrUW_RecipeTableRecipe", "RecipeImage", 8, 984),
     ("/Script/UMG.Widget", "Visibility", 1, 252),
     ("/Script/UMG.UserWidget", "WidgetTree", 8, 824),
     ("/Script/UMG.Widget", "Slot", 8, 48),
@@ -95,7 +104,7 @@ fn u32at(b: &[u8], n: usize) -> u32 {
 fn u64at(b: &[u8], n: usize) -> u64 {
     u64::from_le_bytes(b[n..n + 8].try_into().unwrap())
 }
-async fn class_is(ctx: &Ctx, mut class: u64, wanted: u64) -> Result<bool> {
+pub(crate) async fn class_is(ctx: &Ctx, mut class: u64, wanted: u64) -> Result<bool> {
     for _ in 0..32 {
         if class == wanted {
             return Ok(true);
@@ -108,7 +117,7 @@ async fn class_is(ctx: &Ctx, mut class: u64, wanted: u64) -> Result<bool> {
     }
     anyhow::bail!("Recipe class ancestry bound")
 }
-async fn serial(ctx: &Ctx, object: u64) -> Result<(crate::ObjectStamp, i32)> {
+pub(crate) async fn serial(ctx: &Ctx, object: u64) -> Result<(crate::ObjectStamp, i32)> {
     let s = stamp(ctx, object).await?;
     ensure!(ctx.struct_member("FUObjectItem", "SerialNumber") == 16, "Registry serial layout");
     let arr = Ptr::<FChunkedFixedUObjectArray>::new(
@@ -122,7 +131,7 @@ async fn serial(ctx: &Ctx, object: u64) -> Result<(crate::ObjectStamp, i32)> {
 }
 /// Bulk registry hints avoid repeated chunk-header reads per slot. A hint is
 /// never target evidence: consumers revalidate the selected live allocation.
-pub(super) async fn registered_objects(ctx: &Ctx) -> Result<Vec<(usize, u64)>> {
+pub(crate) async fn registered_objects(ctx: &Ctx) -> Result<Vec<(usize, u64)>> {
     REGISTRY_SCANS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     ensure!(ctx.struct_member("FUObjectItem", "Object") == 0, "Registry object layout");
     let registry = Ptr::<FChunkedFixedUObjectArray>::new(
@@ -261,7 +270,19 @@ impl Binding {
         );
         Ok(root_active)
     }
+    /// Explicit diagnostic recovery; production calls from_lookup.
+    #[cfg(debug_assertions)]
     pub(crate) async fn discover(ctx: &Ctx) -> Result<Self> {
+        Self::bind(ctx, registered_objects(ctx).await?).await
+    }
+    pub(crate) async fn from_lookup(
+        ctx: &Ctx,
+        base: &RuntimeCache,
+        lookup: &crate::native_lookup::Lookup,
+    ) -> Result<Self> {
+        Self::bind(ctx, lookup.resolve(ctx, base)?).await
+    }
+    async fn bind(ctx: &Ctx, objects: Vec<(usize, u64)>) -> Result<Self> {
         let wanted: BTreeSet<_> = FIELDS
             .iter()
             .map(|(p, _, _, _)| p.rsplit('.').next().unwrap())
@@ -273,7 +294,7 @@ impl Binding {
         let mut player_context_verified = false;
         let mut sizes = BTreeSet::new();
         let mut managers = Vec::new();
-        for (i, address) in registered_objects(ctx).await? {
+        for (i, address) in objects {
             let o = Ptr::<UObject>::new(address, ctx.clone())?;
             if o.internal_index().read().await.ok() != Some(i as i32) {
                 continue;
@@ -413,6 +434,16 @@ impl Binding {
     async fn widget_hovered(&self, ctx: &Ctx, row: u64, base: &RuntimeCache) -> Result<bool> {
         let s = serial(ctx, row).await?;
         self.widget_owner(ctx, row, base).await?;
+        let hovered = self.native_hovered(ctx, row, s).await?;
+        self.widget_owner(ctx, row, base).await?;
+        Ok(hovered)
+    }
+    async fn native_hovered(
+        &self,
+        ctx: &Ctx,
+        row: u64,
+        s: (crate::ObjectStamp, i32),
+    ) -> Result<bool> {
         let visibility = ctx.read::<u8>(row + 252).await?;
         if visibility == 1 || visibility == 2 {
             return Ok(false);
@@ -444,7 +475,9 @@ impl Binding {
                     && ctx.read::<i32>(c + 8).await? > 0
                     && ctx.read::<u8>(p + 0x3b).await? == hovered
                     && serial(ctx, row).await? == s
-                    && self.widget_owner(ctx, row, base).await.is_ok(),
+                    && ctx.read::<u8>(row + 252).await? == visibility
+                    && ctx.read::<u64>(row).await? == vt
+                    && ctx.read::<u64>(vt + 0x2c8).await? == self.hover,
                 "Hovered widget changed during capture"
             );
             return Ok(hovered == 1);
@@ -502,6 +535,10 @@ impl Binding {
         base: &RuntimeCache,
         catalogue: &Catalogue,
     ) -> Result<String> {
+        ensure!(
+            catalogue.game_hash == base.identity.executable_sha256,
+            "Recipe catalogue belongs to another game build"
+        );
         let mut hovered = Vec::new();
         for row in self.current_rows(ctx, base).await? {
             if self.hovered(ctx, row.0.address, base).await? {
@@ -513,6 +550,30 @@ impl Binding {
             "Hover over one recipe row in the recipe station, then try again."
         );
         self.capture_row(ctx, base, catalogue, hovered[0]).await
+    }
+    pub(crate) async fn capture_mouse(
+        &self,
+        ctx: &Ctx,
+        base: &RuntimeCache,
+        catalogue: &Catalogue,
+    ) -> Result<String> {
+        let mut hovered = Vec::new();
+        for row in self.current_rows(ctx, base).await? {
+            if self.hovered(ctx, row.0.address, base).await? {
+                hovered.push(row.0.address);
+            }
+        }
+        ensure!(hovered.len() == 1, "Double-click a recipe icon or name.");
+        ensure!(
+            self.mouse_target(ctx, hovered[0]).await?,
+            "Double-click the recipe icon or name, away from ingredients and Insert."
+        );
+        let id = self.capture_row(ctx, base, catalogue, hovered[0]).await?;
+        ensure!(
+            self.mouse_target(ctx, hovered[0]).await?,
+            "Recipe icon hover changed during capture"
+        );
+        Ok(id)
     }
     async fn capture_row(
         &self,
@@ -554,6 +615,10 @@ impl Binding {
         catalogue: &Catalogue,
         generation: u64,
     ) -> Result<Option<Snapshot>> {
+        ensure!(
+            catalogue.game_hash == base.identity.executable_sha256,
+            "Recipe catalogue belongs to another game build"
+        );
         ensure!(catalogue.recipes.contains_key(id), "Unknown pinned recipe reference");
         let world_s = serial(ctx, world).await?;
         let gs = ctx.read::<u64>(world + 0x1b0).await?;

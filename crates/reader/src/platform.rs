@@ -41,6 +41,8 @@ impl std::error::Error for GameNotRunning {}
 struct OwnedHandle(HANDLE);
 impl Drop for OwnedHandle {
     fn drop(&mut self) {
+        // SAFETY: This guard owns the non-shared Win32 handle returned by its creation/open API and
+        // closes it once without transferring Rust memory.
         unsafe {
             CloseHandle(self.0);
         }
@@ -84,40 +86,72 @@ impl ReadBudget {
     }
 }
 fn open(pid: u32, budget: Arc<ReadBudget>) -> Result<Process> {
+    open_checked(pid, budget, None)
+}
+/// Reopen an already discovered process with a thread-owned read handle and budget.
+pub(crate) fn reopen(expected: &Identity, budget: Arc<ReadBudget>) -> Result<Process> {
+    open_checked(expected.pid, budget, Some(expected))
+}
+fn open_checked(pid: u32, budget: Arc<ReadBudget>, expected: Option<&Identity>) -> Result<Process> {
     budget.check()?;
     // Only query/read permissions. No debug privilege adjustment, writes or remote threads.
+    // SAFETY: Only query/read or synchronization rights are requested; Win32 validates the scalar
+    // PID, and a successful handle is retained by an RAII owner.
     let raw = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, 0, pid) };
     ensure!(!raw.is_null(), "Cannot open game read-only: {}", std::io::Error::last_os_error());
     // Process handles stay on the reader thread; only cancellation is shared.
     let handle = Rc::new(OwnedHandle(raw));
     let mut chars = vec![0u16; 32768];
     let mut count = chars.len() as u32;
+    // SAFETY: The retained process handle is query-only; the UTF-16 output slice is writable for
+    // count elements, and its length is used only after a successful call.
     checked(unsafe { QueryFullProcessImageNameW(raw, 0, chars.as_mut_ptr(), &mut count) })?;
     let executable = String::from_utf16(&chars[..count as usize])?;
     ensure!(supported_filename(&executable), "Unexpected game executable filename");
+    // SAFETY: This Win32 output structure contains only integer and raw-pointer fields; an all-zero
+    // value is valid before the API fills it.
     let mut created = unsafe { zeroed() };
+    // SAFETY: This Win32 output structure contains only integer and raw-pointer fields; an all-zero
+    // value is valid before the API fills it.
     let mut exited = unsafe { zeroed() };
+    // SAFETY: This Win32 output structure contains only integer and raw-pointer fields; an all-zero
+    // value is valid before the API fills it.
     let mut kernel = unsafe { zeroed() };
+    // SAFETY: This Win32 output structure contains only integer and raw-pointer fields; an all-zero
+    // value is valid before the API fills it.
     let mut user = unsafe { zeroed() };
+    // SAFETY: The process handle is retained and all four FILETIME outputs are initialized writable
+    // locals with no aliases during the synchronous query.
     checked(unsafe { GetProcessTimes(raw, &mut created, &mut exited, &mut kernel, &mut user) })?;
     let creation_ticks = ((created.dwHighDateTime as u64) << 32) | created.dwLowDateTime as u64;
-    let mut file = File::open(&executable)?;
-    let mut hash = Sha256::new();
-    let mut buffer = [0; 65536];
-    loop {
-        budget.check()?;
-        let n = file.read(&mut buffer)?;
-        if n == 0 {
-            break;
+    let executable_sha256 = if let Some(expected) = expected {
+        ensure!(
+            expected.pid == pid
+                && expected.creation_ticks == creation_ticks
+                && expected.executable == executable,
+            "Shared process identity changed"
+        );
+        expected.executable_sha256.clone()
+    } else {
+        let mut file = File::open(&executable)?;
+        let mut hash = Sha256::new();
+        let mut buffer = [0; 65536];
+        loop {
+            budget.check()?;
+            let n = file.read(&mut buffer)?;
+            if n == 0 {
+                break;
+            }
+            hash.update(&buffer[..n]);
         }
-        hash.update(&buffer[..n]);
-    }
+        format!("{:x}", hash.finalize())
+    };
     let p = Process {
         identity: Identity {
             pid,
             creation_ticks,
             executable,
-            executable_sha256: format!("{:x}", hash.finalize()),
+            executable_sha256,
         },
         handle,
         budget,
@@ -128,13 +162,19 @@ fn open(pid: u32, budget: Arc<ReadBudget>) -> Result<Process> {
 impl Process {
     pub(crate) fn main_module(&self) -> Result<(u64, usize)> {
         self.ensure_alive()?;
+        // SAFETY: Snapshot flags and process IDs are scalar inputs; the returned handle is checked
+        // before use and closed by its owning guard.
         let raw = unsafe {
             CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, self.identity.pid)
         };
         ensure!(raw != INVALID_HANDLE_VALUE, "Cannot enumerate game module");
         let snapshot = OwnedHandle(raw);
+        // SAFETY: This Win32 output structure contains only integer and raw-pointer fields; an all-
+        // zero value is valid before the API fills it.
         let mut module: MODULEENTRY32W = unsafe { zeroed() };
         module.dwSize = size_of::<MODULEENTRY32W>() as u32;
+        // SAFETY: The snapshot handle is retained, and the initialized entry has dwSize set to its
+        // C-structure size; the API writes only that local entry.
         checked(unsafe { Module32FirstW(snapshot.0, &mut module) })?;
         let n = module.szExePath.iter().position(|v| *v == 0).unwrap_or(module.szExePath.len());
         ensure!(
@@ -148,12 +188,16 @@ impl Process {
     pub(crate) fn has_exited(&self) -> Result<bool> {
         self.budget.check()?;
         let mut code = 0;
+        // SAFETY: The process handle remains owned for this query, and the exit-status output is an
+        // initialized writable local.
         checked(unsafe { GetExitCodeProcess(self.handle.0, &mut code) })?;
         Ok(code != 259)
     }
     pub fn ensure_alive(&self) -> Result<()> {
         self.budget.check()?;
         let mut code = 0;
+        // SAFETY: The process handle remains owned for this query, and the exit-status output is an
+        // initialized writable local.
         checked(unsafe { GetExitCodeProcess(self.handle.0, &mut code) })?;
         ensure!(code == 259, "Game process exited");
         Ok(())
@@ -161,12 +205,18 @@ impl Process {
 }
 pub fn find_game(budget: Arc<ReadBudget>) -> Result<Process> {
     budget.check()?;
+    // SAFETY: Snapshot flags and process IDs are scalar inputs; the returned handle is checked
+    // before use and closed by its owning guard.
     let raw = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
     ensure!(raw != INVALID_HANDLE_VALUE, "Cannot enumerate processes");
     let snapshot = OwnedHandle(raw);
+    // SAFETY: This Win32 output structure contains only integer and raw-pointer fields; an all-zero
+    // value is valid before the API fills it.
     let mut entry: PROCESSENTRY32W = unsafe { zeroed() };
     entry.dwSize = size_of::<PROCESSENTRY32W>() as u32;
     let mut ids = vec![];
+    // SAFETY: The snapshot handle is retained, and the initialized entry has dwSize set to its
+    // C-structure size; the API writes only that local entry.
     let mut ok = unsafe { Process32FirstW(snapshot.0, &mut entry) };
     while ok != 0 {
         budget.check()?;
@@ -174,6 +224,8 @@ pub fn find_game(budget: Arc<ReadBudget>) -> Result<Process> {
         if String::from_utf16_lossy(&entry.szExeFile[..n]).eq_ignore_ascii_case(GAME) {
             ids.push(entry.th32ProcessID);
         }
+        // SAFETY: The snapshot handle is retained, and the initialized entry has dwSize set to its
+        // C-structure size; the API writes only that local entry.
         ok = unsafe { Process32NextW(snapshot.0, &mut entry) };
     }
     if ids.is_empty() {
@@ -192,6 +244,9 @@ impl Mem for Process {
         );
         address.checked_add(buf.len() as u64).context("Address overflow")?;
         let mut got = 0;
+        // SAFETY: The retained handle has query/read access only; the checked remote range is
+        // copied into the exclusively borrowed output slice with its exact capacity, and the byte-
+        // count output is writable. Windows reports an unreadable remote range as failure.
         checked(unsafe {
             ReadProcessMemory(
                 self.handle.0,
@@ -208,10 +263,16 @@ impl Mem for Process {
 }
 pub fn is_elevated() -> Result<bool> {
     let mut raw = std::ptr::null_mut();
+    // SAFETY: The current-process/token handle is retained; output structs and returned-size
+    // storage are initialized with matching byte lengths. The token is closed by its owning guard.
     checked(unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut raw) })?;
     let h = OwnedHandle(raw);
+    // SAFETY: This Win32 output structure contains only integer and raw-pointer fields; an all-zero
+    // value is valid before the API fills it.
     let mut e: TOKEN_ELEVATION = unsafe { zeroed() };
     let mut returned = 0;
+    // SAFETY: The current-process/token handle is retained; output structs and returned-size
+    // storage are initialized with matching byte lengths. The token is closed by its owning guard.
     checked(unsafe {
         GetTokenInformation(
             h.0,
@@ -224,8 +285,119 @@ pub fn is_elevated() -> Result<bool> {
     Ok(e.TokenIsElevated != 0)
 }
 
+/// One unnamed high-resolution timer for short navigation deadlines only. Long
+/// waits keep the existing interruptible stop signal; no system timer period changes.
+pub(crate) struct ShortWait(Option<OwnedHandle>);
+impl ShortWait {
+    pub(crate) fn new() -> Self {
+        // SAFETY: Null security/name create an unnamed, non-inheritable owned timer;
+        // it has no callback and the returned handle is closed by OwnedHandle.
+        let handle = unsafe {
+            CreateWaitableTimerExW(
+                std::ptr::null(),
+                std::ptr::null(),
+                CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+                TIMER_ALL_ACCESS,
+            )
+        };
+        Self((!handle.is_null()).then_some(OwnedHandle(handle)))
+    }
+    pub(crate) fn until(&self, stop: &StopSignal, deadline: Instant) {
+        if stop.is_requested() {
+            return;
+        }
+        let delay = deadline.saturating_duration_since(Instant::now());
+        if delay.is_zero() {
+            return;
+        }
+        if delay <= Duration::from_millis(50)
+            && let Some(timer) = &self.0
+        {
+            // delay is bounded above, so nanoseconds/100 fits i64. A strictly
+            // negative due time is relative; no APC, power request or game handle.
+            let due = -(i64::try_from(delay.as_nanos() / 100).unwrap_or(500000).max(1));
+            // SAFETY: The worker owns this timer and the scalar due-time remains
+            // live for the synchronous setter. The native wait is capped at 50 ms,
+            // bounding cancellation latency even if the timer cannot be signalled.
+            let completed = unsafe {
+                SetWaitableTimer(timer.0, &due, 0, None, std::ptr::null(), 0) != 0
+                    && WaitForSingleObject(timer.0, 50) == WAIT_OBJECT_0
+            };
+            if completed {
+                return;
+            }
+        }
+        stop.wait_until(deadline);
+    }
+}
+
+/// General app controls need only OS process presence when every HUD reader is disabled.
+pub(crate) fn presence_without_features() -> Result<crate::overlay_stream::GameStatus> {
+    use crate::overlay_stream::GameStatus;
+    // SAFETY: Scalar process snapshot flags; the checked returned handle is locally owned.
+    let raw = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    ensure!(raw != INVALID_HANDLE_VALUE, "Cannot enumerate game process presence");
+    let snapshot = OwnedHandle(raw);
+    let mut entry = PROCESSENTRY32W {
+        dwSize: size_of::<PROCESSENTRY32W>() as u32,
+        ..Default::default()
+    };
+    let start = Instant::now();
+    let mut pid = None;
+    let mut count = 0u32;
+    // SAFETY: The owned snapshot and initialized output structure remain live for the call.
+    let mut more = unsafe { Process32FirstW(snapshot.0, &mut entry) };
+    while more != 0 {
+        count += 1;
+        ensure!(
+            count <= 65536 && start.elapsed() <= Duration::from_millis(250),
+            "Process presence enumeration bound"
+        );
+        let length = entry.szExeFile.iter().position(|v| *v == 0).unwrap_or(entry.szExeFile.len());
+        if String::from_utf16_lossy(&entry.szExeFile[..length]).eq_ignore_ascii_case(GAME) {
+            ensure!(pid.is_none(), "Ambiguous game process presence");
+            pid = Some(entry.th32ProcessID);
+        }
+        // SAFETY: The owned snapshot writes only the initialized local output structure.
+        more = unsafe { Process32NextW(snapshot.0, &mut entry) };
+    }
+    let Some(pid) = pid else {
+        return Ok(GameStatus::Waiting);
+    };
+    // SAFETY: Only query-limited rights are requested; no VM read/write or execution rights.
+    let raw = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    ensure!(!raw.is_null(), "Game process presence query unavailable");
+    let process = OwnedHandle(raw);
+    let mut path = vec![0u16; 32768];
+    let mut length = path.len() as u32;
+    // SAFETY: The query-only process handle and bounded writable UTF-16 output remain live.
+    checked(unsafe { QueryFullProcessImageNameW(process.0, 0, path.as_mut_ptr(), &mut length) })?;
+    let executable = String::from_utf16(&path[..length as usize])?;
+    ensure!(supported_filename(&executable), "Game presence filename changed");
+    let mut code = 0u32;
+    // SAFETY: The retained query-only handle writes only the initialized scalar exit-code output.
+    checked(unsafe { GetExitCodeProcess(process.0, &mut code) })?;
+    ensure!(code == 259, "Game exited during presence query");
+    Ok(GameStatus::FeaturesDisabled {
+        pid,
+        executable,
+    })
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn short_wait_obeys_deadline_and_already_requested_shutdown() {
+        let wait = super::ShortWait::new();
+        let stop = super::StopSignal::default();
+        let deadline = super::Instant::now() + super::Duration::from_millis(2);
+        wait.until(&stop, deadline);
+        assert!(super::Instant::now() >= deadline);
+        stop.request();
+        let start = super::Instant::now();
+        wait.until(&stop, start + super::Duration::from_secs(1));
+        assert!(start.elapsed() < super::Duration::from_millis(100));
+    }
     use super::*;
     #[test]
     fn executable_filename_is_independent_of_install_directory() {

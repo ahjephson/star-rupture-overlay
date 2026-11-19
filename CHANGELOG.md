@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.1.0-update3.1 — 2026-11-17
+
+### Added
+
+- Update 3 PTB support, including Rarely, Normal and Often fire-wave settings.
+- A compass with your personal map pin, distance and a visual arrival cue. Arrival and departure distances are configurable, defaulting to 25 and 35 metres.
+- Up to three pinned recipes, remembered separately for each local world, with optional double-click pinning and individual close buttons.
+- Recipe item hover feedback and name tooltips.
+- Separate Wave timer, Compass and Recipe tracker settings, with independent enable controls.
+- A countdown format choice: hours when needed or total minutes.
+
+### Improved
+
+- Faster compass and recipe startup, with responsive countdowns during recipe preparation.
+- Disabled features release their resources and skip preparation.
+- Compact recipe panels with aligned heights, readable names and pause-menu scaling that preserves their right-edge position.
+- Green inventory amounts when your bag holds enough to complete a pinned requirement.
+- More compact Settings and About windows, grouped controls and keypress capture for the recipe shortcut.
+- A personal-waypoint flag matching the map marker, with blue arrival text and marker.
+
+### Fixed
+
+- Restore per-world recipe pins on Update 3 PTR2, including after restarting the overlay and switching worlds.
+
+- Hide the HUD at the main menu and keep the compass hidden during pause, game menus and use of other applications.
+- Show the Pre-wave countdown before the first rupture, and show INCINERATING for seven seconds.
+- Keep recipe close buttons clear of the border and steady on refresh.
+- Show the supported game version in About and copied support details.
+- Preserve valid recipe shortcuts when an unsupported key is pressed.
+
 ## 1.0.0 — 2026-10-28
 
 ### Features

@@ -8,10 +8,13 @@ mod error;
 mod live_context;
 mod live_phase;
 mod live_timer_config;
+mod native_lookup;
 pub mod overlay_stream;
+mod phase_clock;
 mod platform;
 mod process_image;
 pub mod recipe;
+mod timer_layout;
 
 use anyhow::{Context, Result, ensure};
 use bindings::RuntimeCache;
@@ -22,10 +25,9 @@ use jmap_dumper::{
     objects::{FUObjectArray, UObject},
 };
 use serde::{Deserialize, Serialize};
-use starrupture_observation_model::{
-    observation::{PlayerSample, Position},
-    overlay_stream::GAME_HASH as BUILD_HASH,
-};
+use starrupture_observation_model::observation::{PlayerSample, Position};
+#[cfg(test)]
+use starrupture_observation_model::overlay_stream::GAME_HASH as BUILD_HASH;
 use std::{
     collections::{BTreeMap, HashSet},
     time::{SystemTime, UNIX_EPOCH},
@@ -206,6 +208,11 @@ async fn sample_context(
         reader_is_elevated: platform::is_elevated()?,
     })
 }
+/// Capture bounded native wave-layout evidence without invoking game code.
+pub fn self_test_wave_layout(directory: &std::path::Path) -> Result<()> {
+    live_context::probe::run(directory)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,3 +311,8 @@ mod tests {
         assert!(smol::block_on(jmap_dumper::mem::Mem::read_buf(&reader, 0, &mut actual)).is_err());
     }
 }
+pub mod compass;
+pub mod recipe_pins;
+
+pub mod codex;
+mod schema;

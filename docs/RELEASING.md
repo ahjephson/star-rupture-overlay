@@ -10,8 +10,10 @@ Routine Windows CI checks development builds. Run **Windows package verification
 2. Use a clean checkout with the pinned Rust toolchain. Run Install-QualityTools.ps1, Test-Dependencies.ps1 and Test-PublicContent.ps1.
 3. Run Build.ps1 into a new output folder. This checks formatting, Clippy with warnings denied, all first-party tests and vendor hashes before the release build.
 4. Run Package-Release.ps1 and Test-Release.ps1. Verify the executable, eight native stage renders (including both FADEOUT display substages and unknown timing), native icon extraction/loading/window assignment, dialog defaults/Save/Cancel/error handling, licence inventory, extraction guards and install/upgrade/rollback regressions.
-5. Run the candidate's bounded `--self-test-reader ABSOLUTE-PRIVATE-DIRECTORY` diagnostic against the supported running game. Verify reader, timing and compatibility changes through the relevant live checks. Summarize the supported game build, live checks and untested conditions in the release notes, with links to the candidate's CI results. Keep captures and caches private.
+5. Run the candidate's bounded `--self-test-reader ABSOLUTE-PRIVATE-DIRECTORY` diagnostic against the supported running game. Verify reader, timing and compatibility changes through the relevant live checks. Record the supported game build, live checks, untested conditions and CI links in the internal release acceptance record. Keep captures and caches private.
 6. Review public content and all Git history again, including any newly added binary assets. Review the documented maintenance exception in deny.toml. Keep unsigned distribution and its SmartScreen guidance explicit. Verify offline first-run extraction, Rust licence notices, an empty asset cache, cache reuse and setup cancellation before publication.
+
+Recipe persistence must pass the candidate's bounded `--self-test-recipe-identity ABSOLUTE-PRIVATE-DIRECTORY` diagnostic on the supported loaded game, followed by pin restoration through an overlay restart and switching between local worlds. Confirm that each world restores only its own choices and fetches progress fresh. A failed existing feature blocks draft preparation; listing the regression as a limitation does not satisfy this gate.
 
 The build uses locked dependencies, static Visual C++ runtime linkage, thin LTO, one code-generation unit and stripped symbols. It remaps source and cache paths. ZIP entry ordering and timestamps are stable; compiler output can vary across SDK and toolchain environments.
 
@@ -21,7 +23,7 @@ Review the current tracked files and every reachable branch and tag before makin
 
 Check the retained-source inventory, licence declarations, notice export, bundled font hashes and artwork permission. Keep source and asset provenance in [PROVENANCE.md](PROVENANCE.md). The app ZIP contains the executable, its player README, licence notices and dependency/file inventories; maintenance guides and local audit reports do not belong in it.
 
-The public README must describe the download that actually exists. Check the final committed source through both Windows CI and Windows package verification, and include their results with the release-specific live checks. Keep raw test logs and acceptance notes out of the public documentation.
+The public README must describe the download that actually exists. Check the final committed source through both Windows CI and Windows package verification, and retain their results with the release-specific live checks in the internal acceptance record. Keep test logs and acceptance notes out of public documentation and release notes.
 
 Check main-branch protection and private vulnerability reporting through the authenticated repository settings. Protect against unintended force pushes and deletion; select any required status checks to fit the owner's maintenance workflow. Do not require external pull requests as a release prerequisite. Protection availability depends on the repository plan and visibility; see [GitHub protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches).
 
@@ -29,11 +31,18 @@ GitHub private vulnerability reporting is available for public repositories; see
 
 ## Draft preparation
 
-After reviewing and committing the candidate, create an annotated vMAJOR.MINOR.PATCH tag on that reviewed commit and push it. Tags are created explicitly before dispatch. Verify repository branch protection and private vulnerability reporting as described in the public-repository checks before announcing a public launch.
+After reviewing and committing the candidate, create an annotated version tag on that reviewed commit and push it. Tags must exist before dispatch.
 
-Manually dispatch **Prepare draft release** from main with the existing tag and the live-verification checkbox. It refuses a missing/non-main tag or mismatched app version, builds and tests the tagged source, uploads the candidate and creates an **unpublished draft**. Repeated creation fails when release assets already exist. The ordinary CI workflow has read-only repository permissions; only the final draft job gets contents:write.
+| Release channel | Dispatch branch | Tag format |
+| --- | --- | --- |
+| Stable | main | vMAJOR.MINOR.PATCH |
+| Update 3 preview | update3 | vMAJOR.MINOR.PATCH-update3.N |
 
-Review the downloaded archive, checksums, release notes and supported game hash. Publishing the draft and changing repository visibility each require explicit owner approval.
+Manually dispatch **Prepare draft release** from the appropriate branch with the existing tag and the live-verification checkbox. The workflow rejects missing tags, tags outside that branch's history and mismatched app versions. It builds and tests the tagged source and creates an **unpublished draft**. Update 3 drafts are marked **Pre-release** and cannot replace the latest stable release. The branch and tag rules are covered by the offline Test-ReleasePolicy.ps1 check.
+
+Repeated creation fails when a release already exists. The ordinary CI workflow has read-only repository permissions; only the final draft job gets contents:write.
+
+Review the downloaded archive, checksums, release notes and supported public game version. Public release notes describe the features, improvements and fixes included in the release. Keep verification results, CI links, test counts, commit provenance and preparation instructions in the internal acceptance record. Put material user-facing requirements and known product limitations in the compatibility or support documentation. Publishing the draft requires explicit owner approval; draft preparation never publishes it.
 
 ## Workflow security
 

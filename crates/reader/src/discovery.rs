@@ -15,16 +15,22 @@ pub(super) async fn discover(process: &platform::Process) -> Result<Cache> {
         let memory = crate::discovery_memory::DiscoveryMemory::new(process.clone());
         jmap_dumper::resolve_config(&memory, &image, &ConfigOverrides::default()).await?
     };
+    eprintln!(
+        "Resolved Unreal {:?}, game build {:?}.",
+        config.engine_version, config.build_change_list
+    );
     let memory = crate::discovery_memory::DiscoveryMemory::new(process.clone());
     ensure!(
-        config.engine_version == (5, 6)
-            && config.build_change_list.as_deref() == Some("++Earth20+Neon-CL-127004"),
-        "Unsupported engine/build"
+        config.engine_version == (5, 6),
+        "Unsupported Unreal engine {:?} (game build {:?})",
+        config.engine_version,
+        config.build_change_list
     );
     let ctx = jmap_dumper::connect_manual(memory, config.clone(), None).await?;
     let array = Ptr::<FUObjectArray>::new(ctx.uobjectarray, ctx.clone())?;
     let count = array.num_elements().await?;
     ensure!((1..=2_000_000).contains(&count), "Invalid Unreal registry size");
+    eprintln!("Resolving required fields in {count} Unreal objects.");
     let wanted: HashSet<&str> =
         FIELDS.iter().map(|(c, _, _)| c.rsplit('.').next().unwrap()).collect();
     let mut offsets = BTreeMap::new();
@@ -72,6 +78,7 @@ pub(super) async fn discover(process: &platform::Process) -> Result<Cache> {
         }
     }
     validate_offsets(&offsets).context("Resolving required native fields")?;
+    eprintln!("Required native fields resolved; validating local controller.");
     let mut locals = vec![];
     for address in candidates {
         let player: u64 = ctx
@@ -81,20 +88,18 @@ pub(super) async fn discover(process: &platform::Process) -> Result<Cache> {
             let reverse: u64 = ctx
                 .read(player + offsets[&key("/Script/Engine.Player", "PlayerController")] as u64)
                 .await?;
+            ensure!(reverse == address, "Controller/player ownership inconsistent");
             if reverse == address {
                 locals.push(address);
             }
         }
     }
-    ensure!(
-        locals.len() == 1,
-        "Expected exactly one local controller; world not loaded or ambiguous"
-    );
+    let controller = crate::error::local_controller(&locals)?;
     Ok(Cache {
         version: 1,
         identity: process.identity.clone(),
         config,
-        controller: stamp(&ctx, locals[0]).await.context("Validating discovered controller")?,
+        controller: stamp(&ctx, controller).await.context("Validating discovered controller")?,
         offsets,
     })
 }

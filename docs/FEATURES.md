@@ -1,31 +1,58 @@
 # Features
 
-StarRupture Overlay shows rupture timing and pinned recipe research progress while you play. It reads the supported game without changing game memory, files or saves.
+StarRupture Overlay shows a compass, rupture timing and pinned recipe research progress while you play. It reads the supported game without changing game memory, files or saves.
+
+## Settings and feature controls
+
+**General** contains app startup, game-close behaviour and the desktop shortcut. **Wave timer**, **Compass** and **Recipe tracker** each have their own enable checkbox and settings. Switch a feature off to release its reader state and display resources; its options remain saved for next time. Disabled recipe tracking does not prepare or load recipe assets. Local caches remain on disk for reuse. With all features disabled, the app stays in the tray without a game reader. General launch and game-close controls still work.
+
+Save applies feature changes without restarting the app. The overlays may briefly hide while their readers reconnect.
 
 ## Rupture countdown
 
 The countdown shows the current rupture stage: STABLE, PRE-WAVE, APPROACHING, INCINERATING, COOLING or GROWBACK. It follows the game's simulation and pauses with verified game pause. Unavailable or stale readings show `--:--`.
 
+In **Settings > Wave timer > Countdown format**, choose hours when needed (`1:20:00`) or total minutes (`80:00`). Both choices keep the panel width fixed. Below an hour, the display uses `MM:SS`.
+
+The wave panel hides while the game reports waves stopped, including the observed tutorial state. INCINERATING lasts seven seconds before the display changes to COOLING.
+
 The display moves below the pause-menu border. To position it yourself, choose **Unlock to move** from the tray menu, drag it, then **Lock position**. **Reset position** restores automatic placement. You can also hide and show the overlays from the tray menu.
 
-Borderless, windowed and the supported fullscreen mode are covered in [compatibility](COMPATIBILITY.md). The overlays hide when the game is minimized or closed. Other windows can cover the game and overlays; fullscreen overlays hide when the game loses focus.
+Borderless, windowed and the supported fullscreen mode are covered in [compatibility](COMPATIBILITY.md). The overlays hide at the main menu and when the game is minimized or closed. Other windows can cover the game and overlays; fullscreen overlays hide when the game loses focus.
+
+## Compass and personal pin
+
+A floating compass at the top centre follows your viewing direction. The fixed centre notch marks straight ahead. If you have a personal map pin, a lime personal-waypoint flag shows its bearing and the distance beneath it. A side arrow guides you toward a pin outside the visible compass range. Distance is horizontal and straight-line, not a walking route or elevation measurement.
+
+Within 25 metres of your personal pin by default, its marker turns cyan-blue and the distance changes to **ARRIVED** in the same colour. The cue clears beyond 35 metres, or when you move or remove the pin. In **Settings > Compass**, change both distances or turn the arrival cue off. The departure distance must exceed the arrival distance to prevent flickering near the boundary. Arrival uses horizontal distance, so check elevation yourself.
+
+The compass remains available without a pin. It hides when the game loses focus, during pause, while the game UI cursor is visible, and when current navigation readings are unavailable. In **Settings > Compass**, turn the compass on or off.
 
 ## Recipe research sidebar
 
-With the game focused, open the recipe station, hover over an unfinished recipe row and press **Alt+X**. The sidebar stays visible when you leave the station and closes automatically when the pinned recipe is completed.
+With the game focused, open the recipe station and pin up to three unfinished recipes. Hover over a recipe row and press **Alt+X**, or double-click the recipe icon or name. Each recipe has its own compact panel and closes when its research is completed.
 
 | Shortcut target | Result |
 | --- | --- |
-| Different unfinished recipe | Pin or switch to it |
-| Same pinned unfinished recipe | Clear the sidebar |
-| Outside the recipe station | Clear an existing pin |
+| Unpinned unfinished recipe, with fewer than three pins | Add a panel |
+| Pinned unfinished recipe | Remove that panel |
+| Fourth unfinished recipe | Keep the existing three pins |
+| Outside the recipe station | Clear all pins |
 | Completed recipe or empty space inside the station | Keep the current selection |
 
-Each tile shows the material icon and submitted/required research amounts. White counters mean you have some material in your bag; the orange number shows that quantity. Red counters mean you have none. A tick marks a completed requirement. Unavailable readings stay distinct from zero stock. Submit materials using the game's INSERT buttons.
+Your pinned recipes are remembered separately for each local world and restored when you return. Progress is read fresh before panels appear; completed recipes stay closed. Removing a panel or clearing your pins updates that world's remembered choices. If the app cannot identify one matching local world folder, manual pinning still works but choices are not restored.
 
-Settings lets you enable the tracker, change its shortcut, choose an upper/middle/lower right position and select 75–150% scale. A replacement recipe appears after a successful reading.
+Double-click pinning works on recipe icons and names, away from ingredient tiles and INSERT buttons. It leaves the game's normal clicks intact. Double-clicks outside the station do not clear pins. In **Settings > Recipe tracker**, turn double-click pinning on or off.
 
-The app prepares names, icons and the recipe font automatically from your installed game. Setup works offline, and later launches reuse the local cache. Progress appears in **Settings > Recipe tracker**. Disabling the tracker or exiting the app stops setup. See [support](SUPPORT.md) if preparation fails.
+When the game UI cursor is visible, hover over a material tile to highlight it. After a short pause, a small tooltip anchored to the icon's centre shows the item name. It stays in place while you hover over the same item; moving to another item starts a new tooltip. Moving away hides it.
+
+Each panel shows material icons and submitted/required research amounts. White counters mean you have some material in your bag; the inset number shows that quantity, green when your bag covers the remaining requirement and orange when it holds only some. Red counters mean you have none. A tick marks a completed requirement. Unavailable readings stay distinct from zero stock. Submit materials using the game's INSERT buttons.
+
+When the game's UI cursor is visible, click a panel's **×** to remove that recipe. The close cross turns blue when hovered, without a surrounding hover border, and keeps the game's cursor appearance when available. The rest of the panel lets clicks pass through to the game.
+
+Panels sit side by side along the right edge with a top tab on the leftmost panel and a cut lower-right corner on the rightmost panel. A single panel has both details; the other panel edges are plain. They share the height of the tallest selected recipe, with space reserved for two-line names and close buttons. In Settings, **Enable recipe tracker** controls the whole tab. Turning it off greys out the other recipe controls while preserving their values. **Pinning** groups the shortcut and double-click option; **Appearance** groups the upper/middle/lower right position and 75–150% scale. To change the shortcut, click its box and press Alt or Ctrl with a letter, top-row number or F1–F11, optionally adding Shift, then Save. The Recipe tracker tab fits its controls and expands when setup has a status message. Icons and spacing are compact; a new panel appears only after a successful reading. The rightmost panel keeps the same screen-edge gap during gameplay and pause. On the pause menu, the group shrinks only if it needs more room, leaving at least the same gap beside the menu. Smaller groups keep their normal size and right-edge position. If it cannot fit at a readable size, it hides until the menu closes. Close buttons keep their click area when panels shrink.
+
+The app prepares names, icons and the recipe font automatically from your installed game. Setup works offline, and later launches reuse the local cache. Recipe preparation runs independently so the compass and rupture countdown can keep updating. Progress appears in **Settings > Recipe tracker**. Disabling the tracker or exiting the app stops setup. See [support](SUPPORT.md) if preparation fails.
 
 ## App controls
 

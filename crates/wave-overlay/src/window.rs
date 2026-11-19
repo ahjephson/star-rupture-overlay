@@ -11,11 +11,13 @@ use crate::{
 use starrupture_observation_model::shutdown::StopSignal;
 mod diagnostics;
 mod render;
+mod runtime;
+mod startup;
 
 use diagnostics::{self_test, window_events_self_test, window_self_test};
 use render::{LayerRenderer, STAGE_TOP_PADDING, panel_points};
 use starrupture_observation_model::observation::{Observation, PauseState};
-use starrupture_observation_model::wave::{HudFrame, HudPresenter, style};
+use starrupture_observation_model::wave::{HudFrame, HudPresenter, style, waves_stopped};
 use starrupture_wave_core::{config::Config, formatting::now_ms};
 use std::{
     cell::{Cell, RefCell},
@@ -38,6 +40,8 @@ use windows_sys::Win32::{
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const TRAY: u32 = WM_APP + 1;
 const READING_READY: u32 = WM_APP + 2;
+const COMPASS_READY: u32 = WM_APP + 40;
+const COMPASS_TIMER: usize = 2;
 const LAUNCH_GAME: u32 = WM_APP + 10;
 fn pause_menu_layout(pause: Option<&PauseState>, previous: bool) -> bool {
     pause.map_or(previous, |p| p.menu_open)
@@ -49,18 +53,25 @@ fn rgb(c: [u8; 3]) -> u32 {
     u32::from(c[0]) | (u32::from(c[1]) << 8) | (u32::from(c[2]) << 16)
 }
 struct Reading {
+    compass: Option<starrupture_observation_model::compass::Sample>,
+    navigation: Arc<starrupture_observation_model::compass::Control>,
+    no_world: bool,
     value: Option<Box<Observation>>,
     menu: Option<(bool, u64)>,
     process: u32,
     connection: Connection,
 }
 struct App {
+    runtime: Option<runtime::Runtime>,
+    compass: crate::compass::Panel,
+    codex: crate::codex::Panel,
     recipe: crate::recipe_tracker::Panel,
     dialogs: Dialogs,
     dialog_context: dialogs::Context,
     closed_sessions: u64,
     launch: crate::connection::Launch,
     tray_status: String,
+    startup: startup::Startup,
     shared: Arc<Mutex<Reading>>,
     stop: Arc<StopSignal>,
     frame: HudFrame,
@@ -68,6 +79,7 @@ struct App {
     renderer: LayerRenderer,
     preview: Option<String>,
     hidden: bool,
+    countdown_eligible: bool,
     unlocked: bool,
     user_moved: bool,
     pause_position: bool,
@@ -79,19 +91,35 @@ struct App {
 /// must preserve exclusive access across synchronous native calls and message
 /// dispatch, and must not retain the reference beyond the window/state lifetime.
 unsafe fn app(window: HWND) -> Option<&'static mut App> {
+    // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+    // identity themselves, and neither dereference Rust memory nor transfer ownership.
     let p = unsafe { GetWindowLongPtrW(window, GWLP_USERDATA) } as *mut App;
     if p.is_null() {
         None
     } else {
+        // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread
+        // access obeys app()'s exclusive-borrow contract and does not let the reference escape.
         Some(unsafe { &mut *p })
     }
 }
+/// # Safety
+/// EnumWindows must call this synchronously with param pointing to a live mutable (u32, HWND)
+/// tuple; the tuple must not be borrowed elsewhere during enumeration.
 unsafe extern "system" fn find_game(window: HWND, param: isize) -> i32 {
+    // SAFETY: EnumWindows invokes this callback synchronously with the pointer to the caller's live
+    // mutable (pid, HWND) tuple; no reference is retained.
     let tuple = unsafe { &mut *(param as *mut (u32, HWND)) };
     let mut pid = 0;
+    // SAFETY: Win32 validates the borrowed handle where required; every output points to an
+    // initialized local struct or bounded writable slice that stays live for the synchronous query.
     unsafe { GetWindowThreadProcessId(window, &mut pid) };
+    // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+    // identity themselves, and neither dereference Rust memory nor transfer ownership.
     if pid == tuple.0 && unsafe { IsWindowVisible(window) } != 0 {
         let mut name = [0u16; 64];
+        // SAFETY: Win32 validates the borrowed handle where required; every output points to an
+        // initialized local struct or bounded writable slice that stays live for the synchronous
+        // query.
         let n = unsafe { GetClassNameW(window, name.as_mut_ptr(), 64) };
         if n > 0 && String::from_utf16_lossy(&name[..n as usize]) == "UnrealWindow" {
             tuple.1 = window;
@@ -102,6 +130,7 @@ unsafe extern "system" fn find_game(window: HWND, param: isize) -> i32 {
 }
 fn preview(phase: &str) -> HudFrame {
     let (stage, colour) = match phase {
+        "waiting-hours" => style("waiting"),
         "FadeoutEarly" => ("INCINERATING", [0xff, 0x71, 0x69]),
         "FadeoutCooling" => ("COOLING", [0xff, 0xaa, 0x66]),
         _ => style(phase),
@@ -109,26 +138,53 @@ fn preview(phase: &str) -> HudFrame {
     HudFrame {
         stage,
         colour,
-        next_label: if phase == "waiting" || phase == "PreWave" {
+        next_label: if phase == "waiting" || phase == "waiting-hours" || phase == "PreWave" {
             "Rupture in"
         } else {
             "Next stage in"
         },
-        countdown: if stage == "UNAVAILABLE" {
+        countdown: if phase == "waiting-hours" {
+            "1:20:00".into()
+        } else if stage == "UNAVAILABLE" {
             "--:--".into()
         } else {
             "12:34".into()
         },
     }
 }
+/// # Safety
+/// window must be the live overlay HWND with boxed App user data; the caller must provide
+/// exclusive App access for this UI-thread operation.
 unsafe fn tick(window: HWND) {
     // Release App borrows before any operation that can dispatch another message.
+    // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread access
+    // obeys app()'s exclusive-borrow contract and does not let the reference escape.
     unsafe { update_connection(window) };
+    // SAFETY: This timer owns exclusive UI-thread access to its retained App.
+    if let Some(a) = unsafe { app(window) }
+        && let Some(mut runtime) = a.runtime.take()
+    {
+        let ready = runtime.sync(a, window);
+        a.runtime = Some(runtime);
+        if !ready {
+            a.recipe.suspend();
+            a.codex.close();
+            a.compass.hide();
+            a.countdown_eligible = false;
+            // SAFETY: Only the owned overlay window is hidden; no Rust borrow crosses dispatch.
+            unsafe {
+                ShowWindow(window, SW_HIDE);
+            }
+            return;
+        }
+    }
+    // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread access
+    // obeys app()'s exclusive-borrow contract and does not let the reference escape.
     let Some(a) = (unsafe { app(window) }) else {
         return;
     };
-    let (frame, pid) = if let Some(phase) = &a.preview {
-        (preview(phase), 0)
+    let (frame, pid, stopped, no_world) = if let Some(phase) = &a.preview {
+        (preview(phase), 0, false, false)
     } else {
         let r = a.shared.lock().unwrap_or_else(|e| e.into_inner());
         let paused = match r.menu {
@@ -147,33 +203,81 @@ unsafe fn tick(window: HWND) {
                 }
             );
         }
-        (a.presenter.update(r.value.as_deref(), now_ms().max(0) as u64, 5000), r.process)
+        (
+            a.presenter.update_with_format(
+                r.value.as_deref(),
+                now_ms().max(0) as u64,
+                5000,
+                a.dialog_context.preferences.get().countdown_format,
+            ),
+            match r.connection.status {
+                crate::connection::GameStatus::FeaturesDisabled {
+                    pid,
+                    ..
+                } => pid,
+                _ => r.process,
+            },
+            waves_stopped(r.value.as_deref(), now_ms().max(0) as u64, 5000),
+            r.no_world,
+        )
     };
     if a.frame != frame {
         a.frame = frame;
+        // SAFETY: The UI/fixture owns the dialog and its resource-template child handles; only
+        // scalar enabled/theme/invalidation state is changed or queried, with no Rust pointer
+        // retained.
         unsafe { InvalidateRect(window, std::ptr::null(), 0) };
     }
     if a.preview.is_some() {
         if !a.hidden {
+            // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles;
+            // native position/style values are scalar, and referenced menu/state objects remain
+            // alive through synchronous dispatch.
             unsafe { ShowWindow(window, SW_SHOWNOACTIVATE) };
         }
         return;
     }
     let mut found = (pid, std::ptr::null_mut());
     if pid != 0 {
+        // SAFETY: The callback has the Win32 ABI; its context points to the live mutable result
+        // tuple for this synchronous enumeration and is not retained.
         unsafe { EnumWindows(Some(find_game), (&mut found as *mut (u32, HWND)) as isize) };
     }
     a.game = found.1;
-    let visible = !a.hidden && !a.game.is_null() && unsafe { IsIconic(a.game) } == 0;
-    a.recipe.tick(window, a.game, visible, a.dialog_context.preferences.get().recipe_tracker, pid);
+    // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+    // identity themselves, and neither dereference Rust memory nor transfer ownership.
+    let visible = !no_world && !a.hidden && !a.game.is_null() && unsafe { IsIconic(a.game) } == 0;
+    a.recipe.tick(
+        window,
+        a.game,
+        visible,
+        a.dialog_context.preferences.get().recipe_tracker,
+        pid,
+        crate::recipe_tracker::Presentation {
+            pause: a.pause_position,
+            modal: a.codex.backdrop(),
+            codex_window: a.codex.window_handle(),
+            codex: a.codex.pin_context(),
+        },
+    );
     *a.dialog_context.recipe_status.borrow_mut() = a.recipe.status.clone();
     a.dialogs.refresh_recipe_status();
-    if !visible {
+    a.countdown_eligible = visible && !stopped && a.dialog_context.preferences.get().wave_enabled;
+    if !a.countdown_eligible {
+        // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles;
+        // native position/style values are scalar, and referenced menu/state objects remain alive
+        // through synchronous dispatch.
         unsafe { ShowWindow(window, SW_HIDE) };
         return;
     }
     let mut rect = RECT::default();
+    // SAFETY: Win32 validates the borrowed handle where required; every output points to an
+    // initialized local struct or bounded writable slice that stays live for the synchronous query.
     if unsafe { GetClientRect(a.game, &mut rect) } == 0 {
+        a.countdown_eligible = false;
+        // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles;
+        // native position/style values are scalar, and referenced menu/state objects remain alive
+        // through synchronous dispatch.
         unsafe { ShowWindow(window, SW_HIDE) };
         return;
     }
@@ -181,6 +285,8 @@ unsafe fn tick(window: HWND) {
         x: 0,
         y: 0,
     };
+    // SAFETY: Win32 validates the borrowed handle where required; every output points to an
+    // initialized local struct or bounded writable slice that stays live for the synchronous query.
     unsafe { ClientToScreen(a.game, &mut origin) };
     let w = rect.right.max(1);
     let h = rect.bottom.max(1);
@@ -188,6 +294,9 @@ unsafe fn tick(window: HWND) {
     let height = ((h as f64 * 0.059).round() as i32).max(60) + STAGE_TOP_PADDING;
     if !a.user_moved {
         let mut current = RECT::default();
+        // SAFETY: Win32 validates the borrowed handle where required; every output points to an
+        // initialized local struct or bounded writable slice that stays live for the synchronous
+        // query.
         unsafe { GetWindowRect(window, &mut current) };
         let gap = (w as f64 * 0.003).round() as i32;
         let x = origin.x + gap;
@@ -204,8 +313,14 @@ unsafe fn tick(window: HWND) {
             || current.top != y
             || current.right - current.left != width
             || current.bottom - current.top != height
+            // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native
+            // handle identity themselves, and neither dereference Rust memory nor transfer
+            // ownership.
             || unsafe { IsWindowVisible(window) } == 0
         {
+            // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles;
+            // native position/style values are scalar, and referenced menu/state objects remain
+            // alive through synchronous dispatch.
             unsafe {
                 SetWindowPos(
                     window,
@@ -219,13 +334,29 @@ unsafe fn tick(window: HWND) {
             };
         }
     }
-    crate::stacking::follow_game(window, a.game);
+    follow_wave(window, a.game, a.codex.backdrop());
     if rect.right != a.last_rect.right || rect.bottom != a.last_rect.bottom {
         a.last_rect = rect;
+        // SAFETY: The UI/fixture owns the dialog and its resource-template child handles; only
+        // scalar enabled/theme/invalidation state is changed or queried, with no Rust pointer
+        // retained.
         unsafe { InvalidateRect(window, std::ptr::null(), 0) };
     }
 }
+fn follow_wave(window: HWND, game: HWND, backdrop: HWND) {
+    if backdrop.is_null() {
+        crate::stacking::follow_game(window, game);
+    } else {
+        crate::stacking::follow_companion(window, backdrop, game);
+    }
+}
+
+/// # Safety
+/// window must retain the boxed App on its owning UI thread; no other App borrow may be live
+/// when this function retrieves it.
 unsafe fn update_connection(window: HWND) {
+    // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread access
+    // obeys app()'s exclusive-borrow contract and does not let the reference escape.
     let Some(a) = (unsafe { app(window) }) else {
         return;
     };
@@ -261,6 +392,7 @@ unsafe fn update_connection(window: HWND) {
     } else {
         connection.label()
     };
+    a.startup.update(window, &connection, a.dialog_context.preferences.get(), a.launch.pending());
     if a.tray_status != label {
         a.tray_status = label.into();
         let mut icon = NOTIFYICONDATAW {
@@ -273,6 +405,8 @@ unsafe fn update_connection(window: HWND) {
         let tip = wide(&format!("StarRupture Overlay\n{label}"));
         let count = tip.len().min(icon.szTip.len() - 1);
         icon.szTip[..count].copy_from_slice(&tip[..count]);
+        // SAFETY: NOTIFYICONDATAW is initialized with its exact cbSize and bounded terminated
+        // tooltip; its icon/window handles remain live for this synchronous shell call.
         unsafe {
             Shell_NotifyIconW(NIM_MODIFY, &icon);
         }
@@ -280,6 +414,8 @@ unsafe fn update_connection(window: HWND) {
     // Release the connection borrow before opening windows or invoking the shell.
     drop(connection);
     if launch && let Err(error) = crate::desktop::launch_game(window) {
+        // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread
+        // access obeys app()'s exclusive-borrow contract and does not let the reference escape.
         if let Some(a) = unsafe { app(window) } {
             a.launch.failed();
         }
@@ -293,9 +429,13 @@ unsafe fn update_connection(window: HWND) {
     }
     match exit {
         GameExit::KeepRunning => {}
+        // SAFETY: Only scalar event data/IDs are queued to the retained UI HWND; no pointer to a
+        // Rust stack value or borrow crosses the asynchronous message boundary.
         GameExit::Exit => unsafe {
             PostMessageW(window, WM_CLOSE, 0, 0);
         },
+        // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread
+        // access obeys app()'s exclusive-borrow contract and does not let the reference escape.
         GameExit::Ask => unsafe {
             if let Some(context) = app(window).map(|a| a.dialog_context.clone()) {
                 open_dialog(window, dialogs::EXIT_PROMPT, context);
@@ -304,6 +444,8 @@ unsafe fn update_connection(window: HWND) {
     }
 }
 fn show_error(window: HWND, message: &str) {
+    // SAFETY: Title/message buffers are terminated UTF-16 and live for the modal call; the borrowed
+    // owner HWND is valid and App/RefCell borrows have been released before message dispatch.
     unsafe {
         MessageBoxW(
             window,
@@ -313,7 +455,12 @@ fn show_error(window: HWND, message: &str) {
         );
     }
 }
+/// # Safety
+/// window must be a live overlay with valid boxed App state on its UI thread; callers must
+/// release previous App borrows before opening the dialog.
 unsafe fn open_dialog(window: HWND, kind: u16, context: dialogs::Context) {
+    // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread access
+    // obeys app()'s exclusive-borrow contract and does not let the reference escape.
     let result = if let Some(a) = unsafe { app(window) } {
         a.dialogs.open(kind, window, context)
     } else {
@@ -323,20 +470,36 @@ unsafe fn open_dialog(window: HWND, kind: u16, context: dialogs::Context) {
         show_error(window, &error.to_string());
     }
 }
+/// # Safety
+/// Call only for WM_PAINT on the live overlay HWND with exclusive App access and a retained
+/// UI-thread renderer.
 unsafe fn paint(window: HWND) {
+    // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread access
+    // obeys app()'s exclusive-borrow contract and does not let the reference escape.
     let Some(a) = (unsafe { app(window) }) else {
         return;
     };
     let mut ps = PAINTSTRUCT::default();
+    // SAFETY: This WM_PAINT handler owns the live window; PAINTSTRUCT is writable local storage and
+    // BeginPaint/EndPaint are paired on the same UI thread.
     let dc = unsafe { BeginPaint(window, &mut ps) };
+    // SAFETY: This WM_PAINT handler owns the live window; PAINTSTRUCT is writable local storage and
+    // BeginPaint/EndPaint are paired on the same UI thread.
     unsafe {
-        if !a.renderer.render(window, dc, &a.frame) {
+        if (a.preview.is_some() || a.dialog_context.preferences.get().wave_enabled)
+            && !a.renderer.render(window, dc, &a.frame)
+        {
             eprintln!("Overlay: layered frame update failed: {}", std::io::Error::last_os_error());
         }
         EndPaint(window, &ps)
     };
 }
+/// # Safety
+/// window must retain its boxed App on the owning UI thread; callers must not retain App
+/// borrows while the popup dispatches messages.
 unsafe fn menu(window: HWND) {
+    // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread access
+    // obeys app()'s exclusive-borrow contract and does not let the reference escape.
     let Some(a) = (unsafe { app(window) }) else {
         return;
     };
@@ -346,11 +509,17 @@ unsafe fn menu(window: HWND) {
     let unlocked = a.unlocked;
     let launching = a.launch.pending();
     let context = a.dialog_context.clone();
+    // SAFETY: The popup/menu header are retained by this UI-thread owner; text and MENUITEMINFO
+    // buffers are initialized and live through each call, and the menu is destroyed before its
+    // item-data owner.
     let m = unsafe { CreatePopupMenu() };
     if m.is_null() {
         return;
     }
     let header = Box::new(crate::status::MenuHeader::new(window, &connection, launching));
+    // SAFETY: The popup/menu header are retained by this UI-thread owner; text and MENUITEMINFO
+    // buffers are initialized and live through each call, and the menu is destroyed before its
+    // item-data owner.
     unsafe {
         header.append(m);
         AppendMenuW(m, MF_SEPARATOR, 0, std::ptr::null());
@@ -405,10 +574,16 @@ unsafe fn menu(window: HWND) {
         AppendMenuW(m, MF_STRING, 4, wide("Exit").as_ptr());
     }
     let mut cursor = POINT::default();
+    // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles; native
+    // position/style values are scalar, and referenced menu/state objects remain alive through
+    // synchronous dispatch.
     unsafe {
         GetCursorPos(&mut cursor);
         SetForegroundWindow(window);
     }
+    // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles; native
+    // position/style values are scalar, and referenced menu/state objects remain alive through
+    // synchronous dispatch.
     let choice = unsafe {
         TrackPopupMenu(
             m,
@@ -420,21 +595,33 @@ unsafe fn menu(window: HWND) {
             std::ptr::null(),
         )
     };
+    // SAFETY: Only scalar event data/IDs are queued to the retained UI HWND; no pointer to a Rust
+    // stack value or borrow crosses the asynchronous message boundary.
     unsafe {
         DestroyMenu(m);
         PostMessageW(window, WM_NULL, 0, 0);
     }
     match choice {
         1 => {
+            // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread
+            // access obeys app()'s exclusive-borrow contract and does not let the reference escape.
             if let Some(a) = unsafe { app(window) } {
                 a.hidden = !a.hidden;
             }
         }
         2 => {
+            // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread
+            // access obeys app()'s exclusive-borrow contract and does not let the reference escape.
             if let Some(a) = unsafe { app(window) } {
                 a.unlocked = !a.unlocked;
                 let unlocked = a.unlocked;
+                // SAFETY: These Win32 queries use scalar values or borrowed handles, validate
+                // native handle identity themselves, and neither dereference Rust memory nor
+                // transfer ownership.
                 let style = unsafe { GetWindowLongPtrW(window, GWL_EXSTYLE) };
+                // SAFETY: This is an owned window on its UI thread; a stored creation-state pointer
+                // remains boxed through HWND teardown, and changing native style bits does not
+                // transfer Rust ownership.
                 unsafe {
                     SetWindowLongPtrW(
                         window,
@@ -449,41 +636,65 @@ unsafe fn menu(window: HWND) {
             }
         }
         3 => {
+            // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread
+            // access obeys app()'s exclusive-borrow contract and does not let the reference escape.
             if let Some(a) = unsafe { app(window) } {
                 a.user_moved = false;
             }
         }
+        // SAFETY: Only this UI/fixture owner destroys its HWND; boxed callback state remains alive
+        // until DestroyWindow completes, and stale handles are validated by Win32.
         4 => unsafe {
             DestroyWindow(window);
         },
+        // SAFETY: Only scalar event data/IDs are queued to the retained UI HWND; no pointer to a
+        // Rust stack value or borrow crosses the asynchronous message boundary.
         5 => unsafe {
             PostMessageW(window, LAUNCH_GAME, 0, 0);
         },
+        // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread
+        // access obeys app()'s exclusive-borrow contract and does not let the reference escape.
         6 => unsafe {
             open_dialog(window, dialogs::SETTINGS, context);
         },
+        // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread
+        // access obeys app()'s exclusive-borrow contract and does not let the reference escape.
         7 => unsafe {
             open_dialog(window, dialogs::ABOUT, context);
         },
         _ => {}
     }
 }
+/// # Safety
+/// Windows must supply message-specific valid parameters for this registered class;
+/// WM_NCCREATE must receive the App box retained through the message loop.
 unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isize) -> isize {
+    // SAFETY: The message uses a live native menu structure and item data backed by the retained
+    // MenuHeader; the synchronous handler does not retain either pointer.
     if let Some(result) = unsafe { crate::status::menu_message(message, l) } {
         return result;
     }
     match message {
         LAUNCH_GAME => {
+            // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread
+            // access obeys app()'s exclusive-borrow contract and does not let the reference escape.
             if let Some(a) = unsafe { app(window) } {
                 a.launch.request();
             }
+            // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread
+            // access obeys app()'s exclusive-borrow contract and does not let the reference escape.
             unsafe {
                 update_connection(window);
             }
             0
         }
         dialogs::OPEN_NOTICES => {
+            // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread
+            // access obeys app()'s exclusive-borrow contract and does not let the reference escape.
             if let Some(context) = unsafe { app(window) }.map(|a| a.dialog_context.clone()) {
+                // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-
+                // thread access obeys app()'s exclusive-borrow contract and does not let the
+                // reference escape.
                 unsafe {
                     open_dialog(window, dialogs::NOTICES, context);
                 }
@@ -491,39 +702,81 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
             0
         }
         WM_NCCREATE => {
+            // SAFETY: WM_NCCREATE supplies a valid CREATESTRUCTW for this callback; lpCreateParams
+            // points to the App box retained through the message loop.
             let create = unsafe { &*(l as *const CREATESTRUCTW) };
+            // SAFETY: This is an owned window on its UI thread; a stored creation-state pointer
+            // remains boxed through HWND teardown, and changing native style bits does not transfer
+            // Rust ownership.
             unsafe { SetWindowLongPtrW(window, GWLP_USERDATA, create.lpCreateParams as isize) };
             1
+        }
+        COMPASS_READY => {
+            // SAFETY: Message dispatch owns exclusive UI-thread access to the retained App.
+            unsafe { compass_tick(window) };
+            0
+        }
+        WM_TIMER if w == COMPASS_TIMER => {
+            // SAFETY: This timer is scoped to the owned overlay and retained App.
+            unsafe { compass_tick(window) };
+            0
         }
         crate::window_events::CHANGED => {
             crate::window_events::acknowledge();
             // Focus recovery must not wait for the reader mutex, timing/geometry
             // work, or the next low-priority WM_TIMER. Reuse the checked game HWND.
+            // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread
+            // access obeys app()'s exclusive-borrow contract and does not let the reference escape.
             if let Some(a) = unsafe { app(window) }
                 && !a.hidden
                 && a.preview.is_none()
             {
-                crate::stacking::follow_game(window, a.game);
+                if a.countdown_eligible {
+                    follow_wave(window, a.game, a.codex.backdrop());
+                }
                 a.recipe.shortcut(
                     window,
                     a.game,
                     a.dialog_context.preferences.get().recipe_tracker,
                 );
-                a.recipe.follow(a.game);
+                a.recipe.follow(a.game, a.codex.backdrop(), a.codex.window_handle());
+                a.compass.follow(a.game);
             }
             0
         }
         WM_TIMER | READING_READY => {
+            // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread
+            // access obeys app()'s exclusive-borrow contract and does not let the reference escape.
             unsafe { tick(window) };
             0
         }
-        WM_HOTKEY => {
+        crate::recipe_tracker::MOUSE_CLICK => {
+            // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread
+            // access obeys app()'s exclusive-borrow contract and does not let the reference escape.
             if let Some(a) = unsafe { app(window) } {
-                a.recipe.pressed(w, a.game);
+                a.recipe.mouse_pressed(
+                    a.game,
+                    w as u32,
+                    [l as u32 as i32, ((l as u64) >> 32) as u32 as i32],
+                );
+            }
+            0
+        }
+        WM_HOTKEY => {
+            // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread
+            // access obeys app()'s exclusive-borrow contract and does not let the reference escape.
+            if let Some(a) = unsafe { app(window) } {
+                if w == crate::codex::HOTKEY {
+                    a.codex.pressed(a.game, l);
+                } else {
+                    a.recipe.pressed(w, a.game);
+                }
             }
             0
         }
         WM_PAINT => {
+            // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread
+            // access obeys app()'s exclusive-borrow contract and does not let the reference escape.
             unsafe { paint(window) };
             0
         }
@@ -531,8 +784,15 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
             let width = (l as u32 & 0xffff) as i32;
             let height = ((l as u32 >> 16) & 0xffff) as i32;
             let points = panel_points(width, height, 0);
+            // SAFETY: The point array and dimensions are local bounded geometry; a created region
+            // is deleted on failure or transferred to Windows only after SetWindowRgn succeeds.
             let region = unsafe { CreatePolygonRgn(points.as_ptr(), points.len() as i32, WINDING) };
+            // SAFETY: The point array and dimensions are local bounded geometry; a created region
+            // is deleted on failure or transferred to Windows only after SetWindowRgn succeeds.
             if !region.is_null() && unsafe { SetWindowRgn(window, region, 1) } == 0 {
+                // SAFETY: The drawing DC is live on this UI thread; local text/geometry buffers
+                // match their lengths. Owned GDI objects are restored/deselected before deletion;
+                // stock/system objects remain borrowed.
                 unsafe { DeleteObject(region) };
             }
             0
@@ -540,6 +800,8 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
         WM_ERASEBKGND => 1,
         WM_MOUSEACTIVATE => MA_NOACTIVATE as isize,
         WM_NCHITTEST => {
+            // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread
+            // access obeys app()'s exclusive-borrow contract and does not let the reference escape.
             if unsafe { app(window) }.is_some_and(|a| !a.unlocked) {
                 HTTRANSPARENT as isize
             } else {
@@ -547,10 +809,15 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
             }
         }
         WM_LBUTTONDOWN => {
+            // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread
+            // access obeys app()'s exclusive-borrow contract and does not let the reference escape.
             if let Some(a) = unsafe { app(window) }
                 && a.unlocked
             {
                 a.user_moved = true;
+                // SAFETY: These synchronous messages target owned UI controls/windows; scalar
+                // parameters or initialized text/message buffers remain live until the call
+                // returns, with no retained Rust pointers.
                 unsafe {
                     ReleaseCapture();
                     SendMessageW(window, WM_NCLBUTTONDOWN, HTCAPTION as usize, 0)
@@ -560,17 +827,33 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
         }
         TRAY => {
             if l as u32 == WM_RBUTTONUP {
+                // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-
+                // thread access obeys app()'s exclusive-borrow contract and does not let the
+                // reference escape.
                 unsafe { menu(window) }
-            } else if l as u32 == WM_LBUTTONDBLCLK
+            } else if matches!(l as u32, WM_LBUTTONDBLCLK | NIN_BALLOONUSERCLICK)
+                // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-
+                // thread access obeys app()'s exclusive-borrow contract and does not let the
+                // reference escape.
                 && let Some(context) = unsafe { app(window) }.map(|a| a.dialog_context.clone())
             {
+                // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-
+                // thread access obeys app()'s exclusive-borrow contract and does not let the
+                // reference escape.
                 unsafe {
-                    open_dialog(window, dialogs::SETTINGS, context);
+                    let kind = if l as u32 == NIN_BALLOONUSERCLICK {
+                        dialogs::ABOUT
+                    } else {
+                        dialogs::SETTINGS
+                    };
+                    open_dialog(window, kind, context);
                 }
             };
             0
         }
         WM_DESTROY => {
+            // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread
+            // access obeys app()'s exclusive-borrow contract and does not let the reference escape.
             if let Some(a) = unsafe { app(window) } {
                 a.stop.request()
             };
@@ -580,6 +863,8 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
                 uID: 1,
                 ..Default::default()
             };
+            // SAFETY: NOTIFYICONDATAW is initialized with its exact cbSize and bounded terminated
+            // tooltip; its icon/window handles remain live for this synchronous shell call.
             unsafe {
                 Shell_NotifyIconW(NIM_DELETE, &icon);
                 KillTimer(window, 1);
@@ -587,6 +872,8 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
             };
             0
         }
+        // SAFETY: This callback forwards the original Win32 message parameters unchanged; message-
+        // owned pointers remain valid for the synchronous default handling.
         _ => unsafe { DefWindowProcW(window, message, w, l) },
     }
 }
@@ -594,13 +881,19 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
 struct Instance(HANDLE);
 impl Instance {
     fn acquire() -> Result<Self> {
+        // SAFETY: The terminated instance name stays live through creation, optional security
+        // fields are null, and the returned mutex handle is retained by Instance.
         let handle = unsafe {
             CreateMutexW(std::ptr::null(), 0, wide("Local\\StarRuptureWaveOverlay").as_ptr())
         };
         if handle.is_null() {
             return Err(std::io::Error::last_os_error().into());
         }
+        // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+        // identity themselves, and neither dereference Rust memory nor transfer ownership.
         if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+            // SAFETY: This guard owns the non-shared Win32 handle returned by its creation/open API
+            // and closes it once without transferring Rust memory.
             unsafe { CloseHandle(handle) };
             return Ok(Self(std::ptr::null_mut()));
         }
@@ -610,6 +903,8 @@ impl Instance {
 impl Drop for Instance {
     fn drop(&mut self) {
         if !self.0.is_null() {
+            // SAFETY: This guard owns the non-shared Win32 handle returned by its creation/open API
+            // and closes it once without transferring Rust memory.
             unsafe { CloseHandle(self.0) };
         }
     }
@@ -622,12 +917,16 @@ pub fn run() -> Result<()> {
     let mut launch_game = false;
     if let Some(first) = args.next() {
         if first == "--prepare-recipe-assets"
+            || first == "--prepare-codex-assets"
             || first == "--self-test-asset-wait"
             || first == "--self-test-asset-wait-child"
         {
             let path = args.next().ok_or("Missing asset operation path")?;
             if args.next().is_some() {
                 return Err("Unexpected asset operation argument".into());
+            }
+            if first == "--prepare-codex-assets" {
+                return Ok(starrupture_assets::codex::run(std::path::Path::new(&path))?);
             }
             if first == "--prepare-recipe-assets" {
                 return Ok(starrupture_assets::run(std::path::Path::new(&path))?);
@@ -637,9 +936,25 @@ pub fn run() -> Result<()> {
                 first == "--self-test-asset-wait-child",
             )?);
         }
+        if first == "--self-test-codex" || first == "--self-test-codex-live" {
+            let dir = args.next().ok_or("Missing catalogue diagnostic directory")?;
+            if args.next().is_some() {
+                return Err("Unexpected catalogue argument".into());
+            }
+            return Ok(crate::codex::self_test(
+                std::path::Path::new(&dir),
+                first == "--self-test-codex-live",
+            )?);
+        }
         if first == "--self-test-asset-disabled" {
             let dir = args.next().ok_or("Missing disabled asset setup directory")?;
             return Ok(crate::recipe_tracker::self_test_asset_disabled(std::path::Path::new(
+                &dir,
+            ))?);
+        }
+        if first == "--self-test-wave-layout" {
+            let dir = args.next().ok_or("Missing wave diagnostic directory")?;
+            return Ok(starrupture_overlay_reader::self_test_wave_layout(std::path::Path::new(
                 &dir,
             ))?);
         }
@@ -686,11 +1001,59 @@ pub fn run() -> Result<()> {
             }
             return Ok(crate::dialogs::self_test(std::path::Path::new(&directory))?);
         }
+        if first == "--self-test-recipe-identity" {
+            let directory =
+                PathBuf::from(args.next().ok_or("Identity diagnostic directory required")?);
+            if args.next().is_some() {
+                return Err("Unexpected identity diagnostic argument".into());
+            }
+            return Ok(starrupture_overlay_reader::recipe_pins::self_test(&directory)?);
+        }
+        if first == "--self-test-feature-workers" {
+            let directory =
+                PathBuf::from(args.next().ok_or("Worker diagnostic directory required")?);
+            if args.next().is_some() {
+                return Err("Unexpected worker diagnostic argument".into());
+            }
+            return Ok(starrupture_overlay_reader::overlay_stream::self_test_workers(
+                &directory,
+                &crate::recipe_tracker::diagnostic_catalogue()?,
+            )?);
+        }
+        if first == "--self-test-compass-warmup" {
+            let directory = PathBuf::from(args.next().ok_or("Compass warmup directory required")?);
+            if args.next().is_some() {
+                return Err("Unexpected compass warmup argument".into());
+            }
+            return Ok(starrupture_overlay_reader::compass::self_test_warmup(&directory)?);
+        }
+        if first == "--self-test-compass-reader" {
+            let directory =
+                PathBuf::from(args.next().ok_or("Compass diagnostic directory required")?);
+            if args.next().is_some() {
+                return Err("Unexpected compass diagnostic argument".into());
+            }
+            return Ok(starrupture_overlay_reader::compass::self_test(&directory)?);
+        }
+        if first == "--self-test-compass" {
+            let directory = PathBuf::from(args.next().ok_or("Compass render directory required")?);
+            if args.next().is_some() {
+                return Err("Unexpected compass render argument".into());
+            }
+            return crate::compass::self_test(&directory);
+        }
         if first == "--self-test-icons" {
             if args.next().is_some() {
                 return Err("Unexpected icon-test argument".into());
             }
             return Ok(crate::icons::self_test()?);
+        }
+        if first == "--self-test-idle-presence" {
+            println!(
+                "{:?}",
+                starrupture_overlay_reader::overlay_stream::presence_without_features()
+            );
+            return Ok(());
         }
         if first == "--self-test-window-events" {
             if args.next().is_some() {
@@ -769,8 +1132,14 @@ pub fn run() -> Result<()> {
             let deadline = Instant::now() + Duration::from_secs(3);
             loop {
                 let existing =
+                    // SAFETY: The message buffers/class strings are initialized and live for these
+                    // UI-thread calls; callback-owned data remains retained until synchronous
+                    // dispatch finishes.
                     unsafe { FindWindowW(wide("StarRuptureWaveTimer").as_ptr(), std::ptr::null()) };
                 if !existing.is_null() {
+                    // SAFETY: Only scalar event data/IDs are queued to the retained UI HWND; no
+                    // pointer to a Rust stack value or borrow crosses the asynchronous message
+                    // boundary.
                     if unsafe { PostMessageW(existing, LAUNCH_GAME, 0, 0) } == 0 {
                         return Err(std::io::Error::last_os_error().into());
                     }
@@ -811,13 +1180,20 @@ pub fn run() -> Result<()> {
 
     let stop = Arc::new(StopSignal::default());
     let shared = Arc::new(Mutex::new(Reading {
+        compass: None,
+        navigation: Arc::new(Default::default()),
+        no_world: false,
         value: None,
         menu: None,
         process: 0,
         connection: Connection::default(),
     }));
+    // SAFETY: These UI-thread APIs use scalar IDs or documented Win32 pseudo-handles;
+    // callback/state ownership is retained separately and no Rust pointer is transferred.
     unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
     let class = wide("StarRuptureWaveTimer");
+    // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+    // identity themselves, and neither dereference Rust memory nor transfer ownership.
     let module = unsafe { GetModuleHandleW(std::ptr::null()) };
     let app_icons = crate::icons::Icons::load()?;
     let wc = WNDCLASSW {
@@ -825,13 +1201,21 @@ pub fn run() -> Result<()> {
         lpfnWndProc: Some(procedure),
         hInstance: module,
         lpszClassName: class.as_ptr(),
+        // SAFETY: The module/resource identifiers or terminated path are valid for the synchronous
+        // lookup; shared image handles are borrowed, while explicitly extracted copies retain their
+        // documented owners.
         hCursor: unsafe { LoadCursorW(std::ptr::null_mut(), IDC_ARROW) },
         ..Default::default()
     };
+    // SAFETY: The class structure is initialized, its terminated name is live during registration,
+    // and the callback has the Win32 ABI and remains in this module.
     if unsafe { RegisterClassW(&wc) } == 0 {
         return Err(std::io::Error::last_os_error().into());
     }
     let mut app = Box::new(App {
+        runtime: None,
+        compass: crate::compass::Panel::default(),
+        codex: crate::codex::Panel::with_cache(config.cache_directory.clone()),
         recipe: crate::recipe_tracker::Panel::new(),
         dialogs: Dialogs::default(),
         dialog_context,
@@ -844,6 +1228,7 @@ pub fn run() -> Result<()> {
             launch
         },
         tray_status: String::new(),
+        startup: startup::Startup::default(),
         shared,
         stop: stop.clone(),
         frame: preview("unavailable"),
@@ -851,12 +1236,16 @@ pub fn run() -> Result<()> {
         renderer: LayerRenderer::default(),
         preview: preview_phase,
         hidden: false,
+        countdown_eligible: false,
         unlocked: false,
         user_moved: false,
         pause_position: false,
         last_rect: RECT::default(),
         game: std::ptr::null_mut(),
     });
+    // SAFETY: The registered callback has the Win32 ABI, class/title strings remain live during
+    // creation, and any creation-state box stays at a stable address until after the new HWND is
+    // destroyed.
     let window = unsafe {
         CreateWindowExW(
             crate::stacking::EXTENDED_STYLE,
@@ -889,7 +1278,11 @@ pub fn run() -> Result<()> {
     };
     let tip = wide("StarRupture Overlay — right-click for controls");
     icon.szTip[..tip.len()].copy_from_slice(&tip);
+    // SAFETY: NOTIFYICONDATAW is initialized with its exact cbSize and bounded terminated tooltip;
+    // its icon/window handles remain live for this synchronous shell call.
     if unsafe { Shell_NotifyIconW(NIM_ADD, &icon) } == 0 {
+        // SAFETY: Only this UI/fixture owner destroys its HWND; boxed callback state remains alive
+        // until DestroyWindow completes, and stale handles are validated by Win32.
         unsafe { DestroyWindow(window) };
         return Err("Could not create overlay exit/control tray icon".into());
     }
@@ -907,88 +1300,196 @@ pub fn run() -> Result<()> {
     } else {
         None
     };
-    let worker = if app.preview.is_none() {
-        Some(reader(
-            config,
-            app.shared.clone(),
-            stop.clone(),
-            window as usize,
-            app.recipe.tracker(),
-            app.recipe.asset_setup(app.dialog_context.preferences.get().recipe_tracker.enabled),
-        ))
-    } else {
-        None
-    };
+    if app.preview.is_none() {
+        app.startup.start();
+        app.runtime = Some(runtime::Runtime::new(config));
+    }
+    // SAFETY: These UI-thread APIs use scalar IDs or documented Win32 pseudo-handles;
+    // callback/state ownership is retained separately and no Rust pointer is transferred.
     unsafe {
         SetTimer(window, 1, 100, None);
+        SetTimer(window, COMPASS_TIMER, 33, None);
         tick(window)
     };
     eprintln!(
         "StarRupture Overlay running (PID{}); right-click its tray icon to hide, move or exit. Preview values are illustrative.",
+        // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
+        // identity themselves, and neither dereference Rust memory nor transfer ownership.
         unsafe { GetCurrentProcessId() }
     );
     let mut message = MSG::default();
     loop {
+        // SAFETY: The message buffers/class strings are initialized and live for these UI-thread
+        // calls; callback-owned data remains retained until synchronous dispatch finishes.
         let state = unsafe { GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) };
         if state <= 0 {
             break;
         }
         app.dialogs.prune();
-        if app.dialogs.translate(&message) {
+        if app.codex.translate(&message) || app.dialogs.translate(&message) {
             continue;
         }
+        // SAFETY: The message buffers/class strings are initialized and live for these UI-thread
+        // calls; callback-owned data remains retained until synchronous dispatch finishes.
         unsafe {
             TranslateMessage(&message);
             DispatchMessageW(&message)
         };
     }
+    drop(app.runtime.take());
     drop(app.dialogs);
     drop(window_events);
     stop.request();
-    if let Some(worker) = worker {
-        let _ = worker.join();
-    }
+
     Ok(())
 }
 
+/// # Safety
+/// The HWND must retain its boxed App on this UI thread with exclusive access.
+unsafe fn compass_tick(window: HWND) {
+    // SAFETY: The dispatcher retains the App through HWND teardown and owns this UI thread.
+    let Some(a) = (unsafe { app(window) }) else {
+        return;
+    };
+    let settings = a.dialog_context.preferences.get();
+    if let Ok(state) = a.shared.try_lock() {
+        let pid = if settings.codex_enabled && a.preview.is_none() {
+            match state.connection.status {
+                crate::connection::GameStatus::FeaturesDisabled {
+                    pid,
+                    ..
+                } => pid,
+                _ if state.connection.connected && !state.no_world => state.process,
+                _ => 0,
+            }
+        } else {
+            0
+        };
+        drop(state);
+        let shortcut = (settings.codex_enabled && !settings.codex_shortcut_conflicts())
+            .then_some(settings.codex_shortcut);
+        let previous_backdrop = a.codex.backdrop();
+        a.codex.tick(
+            window,
+            (a.game, pid),
+            shortcut,
+            !a.hidden && !a.pause_position,
+            (a.recipe.tracker(), a.recipe.game_cursor()),
+        );
+        let backdrop = a.codex.backdrop();
+        if previous_backdrop != backdrop {
+            if a.countdown_eligible {
+                follow_wave(window, a.game, backdrop);
+            }
+            a.recipe.follow(a.game, backdrop, a.codex.window_handle());
+        }
+    }
+    let enabled = a.dialog_context.preferences.get().compass_enabled
+        && !a.hidden
+        && a.preview.is_none()
+        && !a.pause_position
+        && crate::compass::focused(a.game)
+        && crate::compass::gameplay_cursor();
+    if !enabled {
+        a.compass.hide();
+    }
+    let Ok(r) = a.shared.try_lock() else {
+        return;
+    };
+    r.navigation.configure(
+        a.dialog_context.preferences.get().compass_enabled && !a.hidden && a.preview.is_none(),
+    );
+    r.navigation.set(enabled);
+    let sample = if !r.no_world {
+        r.compass
+    } else {
+        None
+    };
+    drop(r);
+    a.compass.configure(a.dialog_context.preferences.get().compass);
+    if let Err(e) = a.compass.update(a.game, sample, enabled) {
+        a.compass.hide();
+        eprintln!("Compass rendering unavailable: {e}");
+    }
+}
 fn reader(
     config: Config,
     shared: Arc<Mutex<Reading>>,
     stop: Arc<StopSignal>,
     window: usize,
     tracker: Option<starrupture_overlay_reader::recipe::Tracker>,
+    features: runtime::Mask,
     setup: Option<Box<dyn starrupture_overlay_reader::recipe::AssetSetup>>,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         use crate::stream_client::Update;
+        let navigation = shared.lock().unwrap_or_else(|e| e.into_inner()).navigation.clone();
         let publish = |event: Update| {
+            let compass_only = matches!(event, Update::Compass(_));
             let mut r = shared.lock().unwrap_or_else(|e| e.into_inner());
             match event {
+                Update::Compass(value) => r.compass = value,
                 Update::Status(status) => r.connection.update(status),
                 Update::Reset(pid) => {
+                    r.no_world = false;
                     r.connection.ready(pid);
                     r.process = pid;
                     r.menu = None;
                     r.value = None;
+                    r.compass = None;
                 }
                 Update::Menu(menu, at) => r.menu = Some((menu, at)),
-                Update::World(value) => r.value = Some(value),
+                Update::World(value) => {
+                    r.no_world = false;
+                    r.value = Some(value);
+                }
+                Update::NoWorld => {
+                    r.no_world = true;
+                    r.connection.unavailable();
+                    r.menu = None;
+                    r.value = None;
+                    r.compass = None;
+                    eprintln!("No local gameplay world loaded; overlay hidden.");
+                }
                 Update::Unavailable(reason) => {
+                    r.no_world = false;
                     r.connection.unavailable();
                     eprintln!("Live observation unavailable: {reason}");
                     r.menu = None;
                     r.value = None;
+                    r.compass = None;
                 }
             }
             drop(r);
             if !stop.is_requested() {
+                // SAFETY: Only scalar event data/IDs are queued to the retained UI HWND; no pointer
+                // to a Rust stack value or borrow crosses the asynchronous message boundary.
                 unsafe {
-                    PostMessageW(window as HWND, READING_READY, 0, 0);
+                    PostMessageW(
+                        window as HWND,
+                        if compass_only {
+                            COMPASS_READY
+                        } else {
+                            READING_READY
+                        },
+                        0,
+                        0,
+                    );
                 }
             }
         };
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            crate::stream_client::run_with_assets(config, stop.clone(), &publish, tracker, setup)
+            crate::stream_client::run_with_features(
+                config,
+                stop.clone(),
+                &publish,
+                starrupture_overlay_reader::overlay_stream::Features {
+                    wave: features.wave,
+                    tracker,
+                    setup,
+                    navigation: features.compass.then_some(navigation),
+                },
+            )
         }));
         match result {
             Ok(Ok(stats)) => eprintln!("Embedded reader stopped: {stats:?}"),

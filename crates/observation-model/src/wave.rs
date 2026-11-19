@@ -3,7 +3,21 @@ use crate::{
     observation::{Observation, OverlaySession, Phase, Verification, WaveTiming, WorldState},
     overlay_stream::GameIdentity,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CountdownFormat {
+    #[default]
+    Hours,
+    Minutes,
+}
+fn countdown(seconds: u64, format: CountdownFormat) -> String {
+    if format == CountdownFormat::Hours && seconds >= 3600 {
+        format!("{}:{:02}:{:02}", seconds / 3600, seconds / 60 % 60, seconds % 60)
+    } else {
+        format!("{:02}:{:02}", seconds / 60, seconds % 60)
+    }
+}
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct DisplayFrame {
     pub state: &'static str,
@@ -35,14 +49,12 @@ struct Presentation {
     seconds: Option<u64>,
 }
 impl Presentation {
-    fn frame(self, seconds: Option<u64>) -> HudFrame {
+    fn frame(self, seconds: Option<u64>, format: CountdownFormat) -> HudFrame {
         HudFrame {
             stage: self.stage,
             next_label: self.next_label,
             colour: self.colour,
-            countdown: seconds
-                .map(|s| format!("{:02}:{:02}", s / 60, s % 60))
-                .unwrap_or_else(|| "--:--".into()),
+            countdown: seconds.map(|s| countdown(s, format)).unwrap_or_else(|| "--:--".into()),
         }
     }
 }
@@ -69,7 +81,7 @@ impl Key {
     }
     fn new(v: &Observation, stage: &'static str) -> Self {
         Self {
-            process: v.process,
+            process: v.process.clone(),
             session: v.overlay_session,
             world: v.world.clone(),
             wave_count: v.wave.wave_count,
@@ -96,10 +108,19 @@ impl HudPresenter {
         now_ms: u64,
         stale_after_ms: u64,
     ) -> HudFrame {
+        self.update_with_format(value, now_ms, stale_after_ms, CountdownFormat::default())
+    }
+    pub fn update_with_format(
+        &mut self,
+        value: Option<&Observation>,
+        now_ms: u64,
+        stale_after_ms: u64,
+        format: CountdownFormat,
+    ) -> HudFrame {
         let frame = presentation(value, now_ms, stale_after_ms);
         let Some((v, seconds)) = value.zip(frame.seconds) else {
             *self = Self::default();
-            return frame.frame(None);
+            return frame.frame(None, format);
         };
         let reset = !self.key.as_ref().is_some_and(|k| k.matches(v, frame.stage))
             || self.simulation.is_some_and(|s| v.clocks.simulation_seconds < s);
@@ -118,7 +139,7 @@ impl HudPresenter {
             self.observation = observation;
             self.simulation = Some(v.clocks.simulation_seconds);
         }
-        frame.frame(self.seconds)
+        frame.frame(self.seconds, format)
     }
 }
 pub fn style(phase: &str) -> (&'static str, [u8; 3]) {
@@ -145,20 +166,31 @@ fn state(v: &Observation, now_ms: u64, stale_after_ms: u64) -> &'static str {
         "unavailable"
     }
 }
+const INCINERATION_SECONDS: f64 = 7.0;
 fn fadeout_presentation(w: &WaveTiming) -> Option<(&'static str, [u8; 3], f64)> {
     let duration = w.fadeout_duration_seconds?;
     let remaining = w.next_phase_remaining_seconds?;
     if !duration.is_finite()
-        || !(8.5..=604800.0).contains(&duration)
+        || !(INCINERATION_SECONDS..=604800.0).contains(&duration)
         || !remaining.is_finite()
         || !(0.0..=duration).contains(&remaining)
     {
         return None;
     }
-    Some(if duration - remaining < 8.5 {
-        ("INCINERATING", [0xff, 0x71, 0x69], remaining - (duration - 8.5))
+    Some(if duration - remaining < INCINERATION_SECONDS {
+        ("INCINERATING", [0xff, 0x71, 0x69], remaining - (duration - INCINERATION_SECONDS))
     } else {
         ("COOLING", [0xff, 0xaa, 0x66], remaining)
+    })
+}
+/// Hide only when a current validated observation confirms waves are stopped.
+pub fn waves_stopped(value: Option<&Observation>, now_ms: u64, stale_after_ms: u64) -> bool {
+    value.is_some_and(|v| {
+        !v.reader_is_elevated
+            && stale_after_ms > 0
+            && v.window.completed_ms <= now_ms
+            && now_ms - v.window.completed_ms <= stale_after_ms
+            && v.wave.phase == Phase::Disabled
     })
 }
 fn presentation(value: Option<&Observation>, now_ms: u64, stale_after_ms: u64) -> Presentation {
@@ -203,7 +235,7 @@ fn presentation(value: Option<&Observation>, now_ms: u64, stale_after_ms: u64) -
 pub fn hud(v: &Observation, now_ms: u64, stale_after_ms: u64) -> HudFrame {
     let frame = presentation(Some(v), now_ms, stale_after_ms);
     let seconds = frame.seconds;
-    frame.frame(seconds)
+    frame.frame(seconds, CountdownFormat::default())
 }
 pub fn display(v: &Observation, now_ms: u64, stale_after_ms: u64) -> DisplayFrame {
     let state = state(v, now_ms, stale_after_ms);
@@ -254,7 +286,7 @@ mod tests {
             process: GameIdentity {
                 pid: 7,
                 creation_ticks: 123,
-                executable_sha256: GAME_HASH,
+                executable_sha256: GAME_HASH.into(),
             },
             overlay_session: OverlaySession::default(),
             observed_at_ms: 1000,
@@ -280,6 +312,30 @@ mod tests {
         }
     }
     #[test]
+    fn countdown_format_switches_at_hour_boundary_and_can_keep_total_minutes() {
+        let mut v = source();
+        v.wave.phase = Phase::Waiting;
+        v.wave.rupture_verification = Verification::Verified;
+        let mut p = HudPresenter::default();
+        for (seconds, hours, minutes) in [
+            (4800, "1:20:00", "80:00"),
+            (3600, "1:00:00", "60:00"),
+            (3599, "59:59", "59:59"),
+            (0, "00:00", "00:00"),
+        ] {
+            v.wave.rupture_remaining_seconds = Some(seconds as f64);
+            v.window.completed_ms += 1;
+            assert_eq!(
+                p.update_with_format(Some(&v), 1100, 5000, CountdownFormat::Hours).countdown,
+                hours
+            );
+            assert_eq!(
+                p.update_with_format(Some(&v), 1100, 5000, CountdownFormat::Minutes).countdown,
+                minutes
+            );
+        }
+    }
+    #[test]
     fn agreed_hud_alias_colour_and_stage_countdown() {
         let mut v = source();
         v.wave.next_phase_remaining_seconds = Some(258.);
@@ -301,16 +357,19 @@ mod tests {
         v.wave.fadeout_duration_seconds = Some(80.0);
         v.wave.stage_verification = Verification::ProgressEstimate;
         let mut presenter = HudPresenter::default();
-        for (remaining, stage, countdown) in [
-            (80.0, "INCINERATING", "00:08"),
-            (73.0, "INCINERATING", "00:01"),
-            (71.501, "INCINERATING", "00:00"),
-            (71.5, "COOLING", "01:11"),
-            (71.499, "COOLING", "01:11"),
+        for (index, (remaining, stage, countdown)) in [
+            (80.0, "INCINERATING", "00:07"),
+            (74.0, "INCINERATING", "00:01"),
+            (73.001, "INCINERATING", "00:00"),
+            (73.0, "COOLING", "01:13"),
+            (72.999, "COOLING", "01:12"),
             (0.0, "COOLING", "00:00"),
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             v.wave.next_phase_remaining_seconds = Some(remaining);
-            v.window.completed_ms = 1000 + (80.0 - remaining) as u64;
+            v.window.completed_ms = 1000 + index as u64;
             let frame = presenter.update(Some(&v), 1100, 5000);
             assert_eq!((frame.stage, frame.countdown.as_str()), (stage, countdown));
             assert_eq!(frame, presenter.update(Some(&v), 4000, 5000));
@@ -328,7 +387,7 @@ mod tests {
             (Some(80.0), None),
             (Some(80.0), Some(-1.0)),
             (Some(80.0), Some(81.0)),
-            (Some(8.0), Some(5.0)),
+            (Some(6.0), Some(5.0)),
         ] {
             v.wave.fadeout_duration_seconds = duration;
             v.wave.next_phase_remaining_seconds = remaining;
@@ -384,6 +443,18 @@ mod tests {
         v.wave.phase = Phase::Waiting;
         v.wave.rupture_remaining_seconds = Some(60.99);
         assert_eq!(hud(&v, 1000, 5000).countdown, "01:00");
+    }
+    #[test]
+    fn stopped_waves_hide_only_with_current_evidence() {
+        let mut v = source();
+        assert!(!waves_stopped(Some(&v), 1000, 5000));
+        v.wave.phase = Phase::Disabled;
+        assert!(waves_stopped(Some(&v), 1000, 5000));
+        assert!(!waves_stopped(Some(&v), 7000, 5000));
+        assert!(!waves_stopped(Some(&v), 999, 5000));
+        assert!(!waves_stopped(None, 1000, 5000));
+        v.reader_is_elevated = true;
+        assert!(!waves_stopped(Some(&v), 1000, 5000));
     }
     #[test]
     fn stale_and_errors_hide_old_countdown() {

@@ -1,4 +1,4 @@
-//! Embedded wave reader and validated observations, in the GUI's worker thread.
+//! Validated feature observations delivered through the GUI's reader coordinator.
 use serde::Serialize;
 use starrupture_observation_model::observation::{Observation, OverlaySession};
 use starrupture_observation_model::overlay_stream::{Payload, Statistics, Validator};
@@ -23,7 +23,9 @@ pub struct RunStatistics {
 pub enum Update {
     Status(starrupture_overlay_reader::overlay_stream::GameStatus),
     Reset(u32),
+    NoWorld,
     Menu(bool, u64),
+    Compass(Option<starrupture_observation_model::compass::Sample>),
     World(Box<Observation>),
     Unavailable(String),
 }
@@ -49,6 +51,34 @@ pub fn run_with_assets(
     tracker: Option<starrupture_overlay_reader::recipe::Tracker>,
     setup: Option<Box<dyn starrupture_overlay_reader::recipe::AssetSetup>>,
 ) -> Result<RunStatistics, String> {
+    run_with_navigation(config, stop, publish, tracker, setup, None)
+}
+pub fn run_with_navigation(
+    config: Config,
+    stop: Arc<StopSignal>,
+    publish: impl FnMut(Update),
+    tracker: Option<starrupture_overlay_reader::recipe::Tracker>,
+    setup: Option<Box<dyn starrupture_overlay_reader::recipe::AssetSetup>>,
+    navigation: Option<Arc<starrupture_observation_model::compass::Control>>,
+) -> Result<RunStatistics, String> {
+    run_with_features(
+        config,
+        stop,
+        publish,
+        starrupture_overlay_reader::overlay_stream::Features {
+            wave: true,
+            tracker,
+            setup,
+            navigation,
+        },
+    )
+}
+pub fn run_with_features(
+    config: Config,
+    stop: Arc<StopSignal>,
+    publish: impl FnMut(Update),
+    features: starrupture_overlay_reader::overlay_stream::Features,
+) -> Result<RunStatistics, String> {
     let cache = config.cache_directory.as_ref().ok_or("Private cache directory required")?;
     let publish = std::cell::RefCell::new(publish);
     let mut last_status = None;
@@ -59,7 +89,7 @@ pub fn run_with_assets(
         statistics: None,
         publish: |event| (publish.borrow_mut())(event),
     };
-    starrupture_overlay_reader::overlay_stream::run_with_assets(
+    starrupture_overlay_reader::overlay_stream::run_with_features(
         cache,
         stop,
         |message| sink.accept(message).map_err(anyhow::Error::msg),
@@ -69,15 +99,14 @@ pub fn run_with_assets(
                 (publish.borrow_mut())(Update::Status(status));
             }
         },
-        tracker,
-        setup,
+        features,
     )
     .map_err(|error| format!("{error:#}"))?;
     Ok(RunStatistics {
         world_reads: sink.world_reads,
         menu_updates: sink.menu_updates,
         last_statistics: sink.statistics,
-        reader_mode: "embedded_worker",
+        reader_mode: "embedded_feature_workers",
         child_processes: 0,
     })
 }
@@ -120,7 +149,7 @@ impl<F: FnMut(Update)> ObservationSink<F> {
                 (self.publish)(Update::Menu(data.menu_open, data.finished_ms));
             }
             Payload::World(sample) => {
-                if Some(sample.raw.process) != message.process {
+                if Some(sample.raw.process.clone()) != message.process {
                     return Err("World message identity mismatch".into());
                 }
                 let mut value =
@@ -139,6 +168,13 @@ impl<F: FnMut(Update)> ObservationSink<F> {
                 }
                 (self.publish)(Update::World(Box::new(value)));
             }
+            Payload::Compass(value) => {
+                if value.is_some_and(|s| !s.valid(now)) {
+                    return Err("Invalid navigation sample".into());
+                }
+                (self.publish)(Update::Compass(value));
+            }
+            Payload::NoWorld => (self.publish)(Update::NoWorld),
             Payload::Unavailable(reason) => {
                 (self.publish)(Update::Unavailable(reason.chars().take(240).collect()))
             }
@@ -170,7 +206,16 @@ pub fn self_test(dir: &std::path::Path) -> Result<(), Box<dyn std::error::Error>
     };
     let mut worlds = 0;
     let result = run(config, stop.clone(), |event| {
-        if matches!(event, Update::World(_)) {
+        if let Update::Unavailable(reason) = &event {
+            eprintln!("Reader diagnostic unavailable: {reason}");
+        }
+        if let Update::World(value) = &event {
+            if worlds == 0 {
+                eprintln!(
+                    "Validated wave state: {:?}, count {}, reason {}",
+                    value.wave.phase, value.wave.wave_count, value.wave.timing_reason
+                );
+            }
             worlds += 1;
             if worlds >= 24 {
                 stop.request();
@@ -199,7 +244,7 @@ mod tests {
         GameIdentity {
             pid: 123,
             creation_ticks: 134000000000000000,
-            executable_sha256: GAME_HASH,
+            executable_sha256: GAME_HASH.into(),
         }
     }
     fn message(payload: Payload, sequence: u64, now: u64) -> Message {
@@ -293,6 +338,62 @@ mod tests {
         assert_eq!(value.overlay_session.generation, 1);
         assert!(matches!(events[2], Update::Menu(true, at) if at == now));
         assert!(matches!(&events[3], Update::Unavailable(reason) if reason == "Unavailable"));
+    }
+    #[test]
+    fn navigation_updates_do_not_refresh_timer_evidence_and_obey_session_guards() {
+        let now = now_ms().max(0) as u64;
+        let mut events = Vec::new();
+        let mut sink = ObservationSink {
+            validator: Validator::new(std::process::id(), now),
+            world_reads: 0,
+            menu_updates: 0,
+            statistics: None,
+            publish: |event| events.push(event),
+        };
+        sink.accept(message(Payload::Ready, 1, now)).unwrap();
+        sink.accept(message(Payload::World(Box::new(world(now))), 2, now)).unwrap();
+        let sample = starrupture_observation_model::compass::Sample {
+            started_ms: now,
+            finished_ms: now,
+            heading: 359.,
+            pin: None,
+            pin_known: true,
+            menu_open: false,
+        };
+        sink.accept(message(Payload::Compass(Some(sample)), 3, now)).unwrap();
+        assert_eq!((sink.world_reads, sink.menu_updates), (1, 0));
+        sink.accept(message(Payload::NoWorld, 4, now)).unwrap();
+        assert!(sink.accept(message(Payload::Compass(Some(sample)), 5, now)).is_err());
+        assert!(matches!(events[2], Update::Compass(Some(_))));
+        let Update::World(value) = &events[1] else {
+            panic!("Expected original timer evidence")
+        };
+        assert_eq!(value.window.completed_ms, now);
+    }
+    #[test]
+    fn no_world_invalidates_evidence_until_a_new_ready_generation() {
+        let now = now_ms().max(0) as u64;
+        let mut events = Vec::new();
+        let mut sink = ObservationSink {
+            validator: Validator::new(std::process::id(), now),
+            world_reads: 0,
+            menu_updates: 0,
+            statistics: None,
+            publish: |event| events.push(event),
+        };
+        sink.accept(message(Payload::Ready, 1, now)).unwrap();
+        sink.accept(message(Payload::World(Box::new(world(now))), 2, now)).unwrap();
+        sink.accept(message(Payload::NoWorld, 3, now)).unwrap();
+        assert!(sink.accept(message(Payload::World(Box::new(world(now))), 4, now)).is_err());
+        let mut ready = message(Payload::Ready, 4, now);
+        ready.generation = 2;
+        sink.accept(ready).unwrap();
+        let mut loaded = message(Payload::World(Box::new(world(now))), 5, now);
+        loaded.generation = 2;
+        sink.accept(loaded).unwrap();
+        assert_eq!(sink.world_reads, 2);
+        assert!(matches!(events[2], Update::NoWorld));
+        assert!(matches!(events[4], Update::World(_)));
     }
     #[test]
     fn invalid_menu_guards_windows_and_world_identity_are_rejected() {

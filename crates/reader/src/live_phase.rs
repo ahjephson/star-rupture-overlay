@@ -1,10 +1,20 @@
-//! Fixed-build, read-only active-phase readers. Never invoke native methods.
+//! Read-only active-phase readers with checked native arithmetic and controller proofs.
 use anyhow::{Result, ensure};
 use jmap_dumper::mem::Ctx;
 use starrupture_observation_model::observation::{
     ActivePhase, HeatSettings, NativeStage, PhaseEvidence,
 };
-pub async fn read(ctx: &Ctx, subsystem: u64, image_base: u64) -> Result<(u64, PhaseEvidence)> {
+#[cfg(test)]
+async fn read(ctx: &Ctx, subsystem: u64, image_base: u64) -> Result<(u64, PhaseEvidence)> {
+    read_with_clock(ctx, subsystem, image_base, 0, &crate::phase_clock::Cache::default()).await
+}
+pub(crate) async fn read_with_clock(
+    ctx: &Ctx,
+    subsystem: u64,
+    image_base: u64,
+    settings: u64,
+    clock: &crate::phase_clock::Cache,
+) -> Result<(u64, PhaseEvidence)> {
     let implementation = ctx.read::<u64>(subsystem + 0x1f8).await?;
     if implementation == 0 {
         return Ok((0, PhaseEvidence::Inactive));
@@ -41,27 +51,13 @@ pub async fn read(ctx: &Ctx, subsystem: u64, image_base: u64) -> Result<(u64, Ph
         inverse_duration.is_finite() && inverse_duration > 0.0,
         "Invalid phase inverse duration"
     );
-    // Exact executable is independently hash-pinned. Check its active update binding
-    // and controller clamp before exposing the researched phase-clock semantics.
-    let update_rva = match stage {
-        NativeStage::PreWave => 124071968,
-        NativeStage::Moving => 124071664,
-        NativeStage::Fadeout => 124071280,
-        NativeStage::Growback => 124071568,
-    };
-    ensure!(
-        ctx.read::<u64>(vtable + 8).await? == image_base + update_rva,
-        "Unknown phase update binding"
-    );
-    let mut clamp = [0u8; 8];
-    ctx.read_buf(image_base + 0x765420f, &mut clamp).await?;
-    let displacement = i32::from_le_bytes(clamp[4..8].try_into().unwrap()) as i64;
-    ensure!(
-        clamp[..4] == [0xf3, 0x0f, 0x5d, 0x35] && (0x7654217i64 + displacement) == 0xaf40620,
-        "Unknown phase delta clamp"
-    );
-    let delta_cap = ctx.read::<f32>(image_base + 0xaf40620).await?;
-    ensure!(delta_cap == 0.1f32, "Changed phase delta cap");
+    let update = ctx.read::<u64>(vtable + 8).await?;
+    ensure!(update > image_base && update - image_base < 0x20000000, "Phase update outside image");
+    let mut code = [0; 64];
+    ctx.read_buf(update, &mut code).await?;
+    crate::phase_clock::update(&code)?;
+    let delta_cap = clock.read(ctx, update, image_base, settings).await?;
+    ensure!(delta_cap == 0.1f32, "Uncalibrated phase delta cap");
     ensure!(progress.is_finite() && (0.0..=1.0).contains(&progress), "Invalid phase progress");
     let wave_type = ctx.read::<u8>(implementation + 0x18).await?;
     // Consecutive native fields are named by HeatSettings::from_native_fields.
@@ -71,8 +67,14 @@ pub async fn read(ctx: &Ctx, subsystem: u64, image_base: u64) -> Result<(u64, Ph
         ensure!(v.is_finite(), "Non-finite phase setting");
         *setting = f64::from(v);
     }
+    let mut after_code = [0; 64];
+    ctx.read_buf(update, &mut after_code).await?;
+    ensure!(
+        after_code == code && ctx.read::<u64>(vtable + 8).await? == update,
+        "Phase update binding changed"
+    );
     let start = ctx.read::<f64>(subsystem + 0x210).await?;
-    ensure!(start.is_finite() && start >= 0.0, "Invalid wave start clock");
+    ensure!(stage.accepts_wave_start(start), "Invalid wave start clock");
     ensure!(
         ctx.read::<u64>(subsystem + 0x1f8).await? == implementation
             && ctx.read::<u64>(implementation).await? == vtable,
@@ -113,6 +115,22 @@ mod tests {
                 buf.copy_from_slice(&0.1f32.to_le_bytes());
                 return Ok(());
             }
+            if buf.len() == 65536 {
+                buf.fill(0);
+                return Ok(());
+            }
+            if [124071968u64, 124071664, 124071280, 124071568]
+                .contains(&address.saturating_sub(0x4000))
+                && buf.len() == 64
+            {
+                buf.fill(0xcc);
+                let code = [
+                    0xf3, 0x0f, 0x59, 0x49, 0x14, 0xf3, 0x0f, 0x58, 0x49, 0x10, 0xf3, 0x0f, 0x11,
+                    0x49, 0x10,
+                ];
+                buf[..code.len()].copy_from_slice(&code);
+                return Ok(());
+            }
             let at = address as usize;
             let end = at.checked_add(buf.len()).ok_or_else(|| anyhow::anyhow!("overflow"))?;
             buf.copy_from_slice(self.0.get(at..end).ok_or_else(|| anyhow::anyhow!("unmapped"))?);
@@ -123,9 +141,12 @@ mod tests {
         context_rate(stage, corrupt, progress, 1.0f32 / 735.0)
     }
     fn context_rate(stage: u8, corrupt: bool, progress: f32, inverse: f32) -> Ctx {
+        context_start(stage, corrupt, progress, inverse, 100.0)
+    }
+    fn context_start(stage: u8, corrupt: bool, progress: f32, inverse: f32, start: f64) -> Ctx {
         let mut bytes = vec![0u8; 0x9000];
         bytes[0x11f8..0x1200].copy_from_slice(&0x2000u64.to_le_bytes());
-        bytes[0x1210..0x1218].copy_from_slice(&100f64.to_le_bytes());
+        bytes[0x1210..0x1218].copy_from_slice(&start.to_le_bytes());
         bytes[0x2000..0x2008].copy_from_slice(&0x3000u64.to_le_bytes());
         bytes[0x2010..0x2014].copy_from_slice(&progress.to_le_bytes());
         bytes[0x2014..0x2018].copy_from_slice(&inverse.to_le_bytes());
@@ -164,6 +185,35 @@ mod tests {
             image_base_address: 0x4000,
             build_change_list: None,
         })
+    }
+    #[test]
+    fn unset_start_is_accepted_only_for_prewave_and_is_preserved() {
+        smol::block_on(async {
+            for stage in 1..=4 {
+                let result =
+                    read(&context_start(stage, false, 0.5, 1.0 / 120.0, f64::MIN), 0x1000, 0x4000)
+                        .await;
+                if stage == 1 {
+                    let (_, PhaseEvidence::Active(p)) = result.unwrap() else {
+                        panic!("Expected Pre-wave")
+                    };
+                    assert_eq!(p.wave_start_seconds, f64::MIN);
+                } else {
+                    assert!(result.is_err());
+                }
+                for invalid in [-1.0, f64::NEG_INFINITY, f64::INFINITY, f64::NAN] {
+                    assert!(
+                        read(
+                            &context_start(stage, false, 0.5, 1.0 / 120.0, invalid),
+                            0x1000,
+                            0x4000
+                        )
+                        .await
+                        .is_err()
+                    );
+                }
+            }
+        });
     }
     #[test]
     fn invalid_phase_rates_are_rejected() {

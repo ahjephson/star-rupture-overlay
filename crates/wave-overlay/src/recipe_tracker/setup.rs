@@ -105,7 +105,7 @@ pub(super) fn diagnostic_assets() -> Result<PathBuf> {
     );
     Ok(directory)
 }
-fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
+pub(crate) fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
     let file = fs::File::open(path)?;
     ensure!(file.metadata()?.len() <= limit, "Local setup file exceeds size bound");
     let mut bytes = Vec::new();
@@ -166,7 +166,7 @@ impl AssetSetup for Preparation {
     fn enabled(&self) -> bool {
         self.enabled.load(std::sync::atomic::Ordering::Relaxed)
     }
-    fn cached(&mut self, executable: &Path) -> Result<Option<Tracker>> {
+    fn cached(&mut self, executable: &Path, game_hash: &str) -> Result<Option<Tracker>> {
         self.update(None, "Checking recipe tracker cache...", None);
         let (current, _) = source(executable)?;
         let cached: Result<_> = (|| {
@@ -183,6 +183,7 @@ impl AssetSetup for Preparation {
             );
             let directory = self.root.join(receipt.directory);
             let cat = catalogue(&directory)?;
+            ensure!(cat.game_hash == game_hash, "Recipe cache belongs to another game build");
             ensure!(
                 inventory(&directory, &cat)? == receipt.files,
                 "Recipe cache integrity mismatch"
@@ -213,6 +214,7 @@ impl AssetSetup for Preparation {
     fn complete(
         &mut self,
         executable: &Path,
+        game_hash: &str,
         mappings: &[u8],
         stop: &StopSignal,
     ) -> Result<Tracker> {
@@ -232,7 +234,7 @@ impl AssetSetup for Preparation {
             serde_json::to_vec(&serde_json::json!({
                 "paks":paks, "mappings":mapping_path, "output":output, "progress":progress,
                 "error":output.join("setup-error.txt"),
-                "gameHash":starrupture_observation_model::overlay_stream::GAME_HASH,
+                "gameHash":game_hash,
             }))?,
         )?;
         self.update(None, "Preparing recipe tracker...", Some(progress));
@@ -247,6 +249,7 @@ impl AssetSetup for Preparation {
         let (after, _) = source(executable)?;
         ensure!(before == after, "Game files changed during recipe setup");
         let cat = catalogue(&output)?;
+        ensure!(cat.game_hash == game_hash, "Prepared recipe cache belongs to another game build");
         let files = inventory(&output, &cat)?;
         let receipt = Receipt {
             schema: 3,
@@ -299,7 +302,10 @@ fn self_test_impl(directory: &Path, enabled: bool) -> Result<()> {
             if matches!(message.payload, Payload::World(_)) {
                 worlds += 1;
             }
-            if worlds >= 24 || started.elapsed().as_secs() >= 320 {
+            // World sampling can finish before the independent recipe worker is ready.
+            let setup_complete =
+                !enabled || state.lock().unwrap_or_else(|p| p.into_inner()).ready.is_some();
+            if (worlds >= 24 && setup_complete) || started.elapsed().as_secs() >= 320 {
                 stop.request();
             }
             Ok(())
@@ -343,10 +349,37 @@ fn self_test_impl(directory: &Path, enabled: bool) -> Result<()> {
     )?;
     Ok(())
 }
+pub(crate) fn run_catalogue_child(
+    executable: &Path,
+    request: &Path,
+    error: &Path,
+    stop: &StopSignal,
+    enabled: &std::sync::atomic::AtomicBool,
+) -> Result<()> {
+    child::run_asset_executable(executable, "--prepare-codex-assets", request, error, stop, enabled)
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bounded_reads_reject_oversize_cache_files() -> Result<()> {
+        let root = std::env::temp_dir().join(format!("overlay-read-bound-{}", std::process::id()));
+        fs::create_dir_all(&root)?;
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let path = root.join("progress.txt");
+        fs::write(&path, vec![b'x'; 513])?;
+        assert!(read_bounded(&path, 512).is_err());
+        fs::write(&path, vec![b'x'; 512])?;
+        assert_eq!(read_bounded(&path, 512)?.len(), 512);
+        Ok(())
+    }
     #[test]
     fn cache_rejects_changed_archives_corrupt_images_and_escaping_receipts() -> Result<()> {
         let scratch = std::env::temp_dir().join(format!(
@@ -385,7 +418,8 @@ mod tests {
         fs::create_dir_all(&directory)?;
         fs::write(directory.join("pixel.bgra"), [1, 0, 0, 0, 1, 0, 0, 0, 128, 64, 32, 255])?;
         fs::write(directory.join("font.otf"), b"OTTO-fixture")?;
-        let data = serde_json::json!({"gameHash": starrupture_observation_model::overlay_stream::GAME_HASH,
+        let game_hash = "a".repeat(64);
+        let data = serde_json::json!({"gameHash": game_hash,
             "recipes":{"/Game/TestRecipe":{"name":"Fixture","itemId":"/Game/TestItem","requirements":{"/Game/TestItem":10}}},
             "items":{"/Game/TestItem":{"name":"Fixture","image":"pixel.bgra"}},
             "tick":"pixel.bgra","frame":"pixel.bgra","background":"pixel.bgra","font":"font.otf"});
@@ -404,21 +438,22 @@ mod tests {
             enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             pending_directory: None,
         };
-        assert!(preparation.cached(&executable)?.is_some());
+        assert!(preparation.cached(&executable, &"b".repeat(64))?.is_none());
+        assert!(preparation.cached(&executable, &game_hash)?.is_some());
         assert!(preparation.state.lock().unwrap().ready.is_none());
         preparation.ready();
         assert!(preparation.state.lock().unwrap().ready.is_some());
         fs::write(paks.join("fixture.utoc"), b"changed archive")?;
-        assert!(preparation.cached(&executable)?.is_none());
+        assert!(preparation.cached(&executable, &game_hash)?.is_none());
         fs::write(paks.join("fixture.utoc"), b"utoc")?;
         let mut receipt = receipt;
         receipt.source = source(&executable)?.0;
         fs::write(root.join("current.json"), serde_json::to_vec(&receipt)?)?;
         fs::write(directory.join("pixel.bgra"), b"corrupt")?;
-        assert!(preparation.cached(&executable)?.is_none());
+        assert!(preparation.cached(&executable, &game_hash)?.is_none());
         receipt.directory = "../assets-fixture".into();
         fs::write(root.join("current.json"), serde_json::to_vec(&receipt)?)?;
-        assert!(preparation.cached(&executable)?.is_none());
+        assert!(preparation.cached(&executable, &game_hash)?.is_none());
         Ok(())
     }
 }

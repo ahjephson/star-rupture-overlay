@@ -27,7 +27,9 @@ pub fn validate_observation(
     valid(
         raw.process.pid > 0
             && raw.process.creation_ticks > 0
-            && raw.process.executable_sha256 == GAME_HASH,
+            && starrupture_observation_model::overlay_stream::valid_executable_hash(
+                &raw.process.executable_sha256,
+            ),
         "Unsupported process identity.",
     )?;
     valid(
