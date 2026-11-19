@@ -159,7 +159,7 @@ impl Hub {
             payload if s.seed.is_some() => {
                 let slot = match (&role, &payload) {
                     (Role::Connection, Payload::Menu(_)) => 0,
-                    (Role::Connection, Payload::World(_)) => 1,
+                    (Role::Connection, Payload::World(_) | Payload::WaveUnavailable) => 1,
                     (Role::Compass, Payload::Compass(_)) => 2,
                     _ => return Ok(()),
                 };

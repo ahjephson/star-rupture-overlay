@@ -104,6 +104,45 @@ fn u32at(b: &[u8], n: usize) -> u32 {
 fn u64at(b: &[u8], n: usize) -> u64 {
     u64::from_le_bytes(b[n..n + 8].try_into().unwrap())
 }
+pub(crate) struct SubmittedItems {
+    pub(crate) counts: Vec<(String, u32)>,
+    pointer: u64,
+    raw: Vec<u8>,
+}
+
+impl SubmittedItems {
+    pub(crate) async fn read(ctx: &Ctx, row: &[u8; 40]) -> Result<Self> {
+        let pointer = u64at(row, 24);
+        let count = u32at(row, 32) as usize;
+        let capacity = u32at(row, 36) as usize;
+        ensure!(count <= 20 && count <= capacity && capacity <= 256, "Research ingredient bounds");
+        let raw = if count == 0 {
+            Vec::new()
+        } else {
+            bytes(ctx, pointer, count * 16).await?
+        };
+        let mut counts = Vec::with_capacity(count);
+        for item in raw.as_chunks::<16>().0 {
+            let count = u32at(item, 8);
+            ensure!(count <= i32::MAX as u32, "Research counter out of range");
+            counts.push((asset(ctx, u64at(item, 0)).await?, count));
+        }
+        Ok(Self {
+            counts,
+            pointer,
+            raw,
+        })
+    }
+
+    pub(crate) async fn check(&self, ctx: &Ctx) -> Result<()> {
+        ensure!(
+            self.raw.is_empty() || bytes(ctx, self.pointer, self.raw.len()).await? == self.raw,
+            "Research ingredients changed during observation"
+        );
+        Ok(())
+    }
+}
+
 pub(crate) async fn class_is(ctx: &Ctx, mut class: u64, wanted: u64) -> Result<bool> {
     for _ in 0..32 {
         if class == wanted {
@@ -663,24 +702,10 @@ impl Binding {
         ensure!(matches.len() <= 1, "Ambiguous pinned research recipe");
         let ingredients = if let Some((_, r)) = matches.first().copied() {
             self.recipe_hints.borrow_mut().insert(id.into(), u64at(r, 16));
-            let ip = u64at(r, 24);
-            let ni = u32at(r, 32) as usize;
-            let ic = u32at(r, 36) as usize;
-            ensure!(ni <= 20 && ic >= ni && ic <= 256, "Research ingredient bounds");
-            let items = if ni == 0 {
-                Vec::new()
-            } else {
-                bytes(ctx, ip, ni * 16).await?
-            };
-            let mut submitted = Vec::new();
-            for item in items.as_chunks::<16>().0 {
-                let count = u32at(item, 8);
-                ensure!(count <= i32::MAX as u32, "Research counter out of range");
-                submitted.push((asset(ctx, u64at(item, 0)).await?, count));
-            }
+            let submitted = SubmittedItems::read(ctx, r).await?;
             let mut ingredients = progress(
                 &catalogue.recipes.get(id).context("Recipe reference")?.requirements,
-                &submitted,
+                &submitted.counts,
             )
             .map_err(anyhow::Error::msg)?;
             if ingredients.iter().any(|i| i.remaining > 0)
@@ -690,10 +715,7 @@ impl Binding {
                     item.bag_count = Some(counts.get(&item.item_id).copied().unwrap_or(0));
                 }
             }
-            ensure!(
-                ni == 0 || bytes(ctx, ip, items.len()).await? == items,
-                "Research ingredients changed during observation"
-            );
+            submitted.check(ctx).await?;
             Some(ingredients)
         } else {
             // A completed recipe can leave the active research list entirely.

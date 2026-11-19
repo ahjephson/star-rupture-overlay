@@ -35,6 +35,22 @@ fn resource_compiler() -> PathBuf {
 }
 
 fn main() {
+    let version = env::var("CARGO_PKG_VERSION").expect("Cargo package version");
+    println!("cargo:rerun-if-env-changed=OVERLAY_RELEASE_TAG");
+    let label = match env::var("OVERLAY_RELEASE_TAG") {
+        Ok(tag) => {
+            assert_eq!(tag, format!("v{version}"), "Release tag and Cargo package version differ");
+            if version.split('+').next().is_some_and(|value| value.contains('-')) {
+                "Pre-release build"
+            } else {
+                "Release build"
+            }
+        }
+        Err(env::VarError::NotPresent) => "Development build",
+        Err(error) => panic!("Invalid release tag environment: {error}"),
+    };
+    println!("cargo:rustc-env=OVERLAY_BUILD_LABEL={label}");
+
     println!("cargo:rerun-if-changed=assets/icon/app.ico");
     println!("cargo:rerun-if-changed=assets/icon/app.rc");
     for path in ["assets/app.rc", "assets/dialogs.rc", "assets/version.rc", "assets/app.manifest"] {
@@ -75,7 +91,6 @@ fn main() {
     );
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("Cargo manifest directory"));
     let output_directory = PathBuf::from(env::var_os("OUT_DIR").expect("Cargo output directory"));
-    let version = env::var("CARGO_PKG_VERSION").expect("Cargo package version");
     assert!(version.bytes().all(|c| c.is_ascii_alphanumeric() || b".-+".contains(&c)));
     let components = ["MAJOR", "MINOR", "PATCH"].map(|part| {
         env::var(format!("CARGO_PKG_VERSION_{part}"))

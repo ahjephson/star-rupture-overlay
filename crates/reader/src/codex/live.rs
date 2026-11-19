@@ -1,13 +1,16 @@
 //! Bounded observations from the current world's owned objects.
 use super::*;
-use crate::recipe::runtime::Binding;
+use crate::recipe::runtime::{Binding, SubmittedItems};
 use std::time::{Duration, Instant};
+
+type UpgradeSubmissions = BTreeMap<String, Vec<(String, u32)>>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Progress {
     pub buildings: BTreeSet<String>,
     pub recipes: BTreeSet<String>,
     pub research: BTreeSet<String>,
+    pub upgrade_submissions: UpgradeSubmissions,
     pub owned_equipment: BTreeSet<String>,
     pub corporations: BTreeMap<String, u32>,
     pub cores: Vec<super::Core>,
@@ -123,8 +126,19 @@ impl Array {
         hints: &mut BTreeMap<u64, ((crate::ObjectStamp, i32), String)>,
         package: bool,
     ) -> Result<BTreeSet<String>> {
+        Ok(self.read_with_submissions(ctx, hints, package, None).await?.0)
+    }
+
+    async fn read_with_submissions(
+        &self,
+        ctx: &Ctx,
+        hints: &mut BTreeMap<u64, ((crate::ObjectStamp, i32), String)>,
+        package: bool,
+        upgrade_recipes: Option<&BTreeSet<String>>,
+    ) -> Result<(BTreeSet<String>, UpgradeSubmissions)> {
         let (pointer, header, bytes) = self.bytes(ctx).await?;
         let mut values = BTreeSet::new();
+        let mut submissions = BTreeMap::new();
         for row in bytes.chunks_exact(self.stride) {
             let address =
                 u64::from_le_bytes(row[self.object_offset..self.object_offset + 8].try_into()?);
@@ -147,7 +161,17 @@ impl Array {
             };
             if package {
                 if let Some((package, _)) = id.split_once('.') {
-                    values.insert(package.to_owned());
+                    let first = values.insert(package.to_owned());
+                    if upgrade_recipes.is_some_and(|recipes| recipes.contains(package)) {
+                        ensure!(first, "Duplicate upgrade research row");
+                        let row = row.try_into().context("Upgrade research row layout")?;
+                        // A torn ingredient read affects this progress entry only.
+                        if let Ok(items) = SubmittedItems::read(ctx, row).await
+                            && items.check(ctx).await.is_ok()
+                        {
+                            submissions.insert(package.to_owned(), items.counts);
+                        }
+                    }
                 }
             } else {
                 values.insert(id);
@@ -157,7 +181,7 @@ impl Array {
             self.bytes(ctx).await? == (pointer, header, bytes),
             "Codex data changed during read"
         );
-        Ok(values)
+        Ok((values, submissions))
     }
 }
 
@@ -166,6 +190,7 @@ pub fn observe(
     stop: Arc<StopSignal>,
     pid: Option<u32>,
     context: &NativeContext,
+    upgrade_recipes: &BTreeSet<String>,
     mut publish: impl FnMut(bool, Option<Progress>),
 ) -> Result<()> {
     let budget = crate::platform::ReadBudget::new(stop.clone());
@@ -211,6 +236,10 @@ pub fn observe(
             Some("Recipe"),
         )
         .await?;
+        ensure!(
+            research.stride == 40 && research.object_offset == 16,
+            "Upgrade research row layout"
+        );
         let buildings = Array::bind(
             &ctx,
             technology.target(),
@@ -292,6 +321,10 @@ pub fn observe(
                 } else {
                     (Vec::new(), None)
                 };
+                let (research, upgrade_submissions) = research
+                    .read_with_submissions(&ctx, &mut hints, true, Some(upgrade_recipes))
+                    .await
+                    .context("Codex research list")?;
                 let progress = Progress {
                     buildings: buildings
                         .read(&ctx, &mut hints, true)
@@ -301,10 +334,8 @@ pub fn observe(
                         .read(&ctx, &mut hints, true)
                         .await
                         .context("Codex recipes list")?,
-                    research: research
-                        .read(&ctx, &mut hints, true)
-                        .await
-                        .context("Codex research list")?,
+                    research,
+                    upgrade_submissions,
                     owned_equipment,
                     corporations: corporations
                         .read(&ctx)

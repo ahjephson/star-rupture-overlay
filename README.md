@@ -52,7 +52,7 @@ Press **K** during gameplay to open the Codex. Search Production, Buildings, Int
 
 The overlay prepares the Codex in the background when it attaches to a loaded world. Press **Esc** or **Tab** in the Codex to close it. Opening a game menu or station also closes it. The Codex stays open when you switch to another app. Change the shortcut or disable the feature in **Settings → Codex**.
 
-Open **Buildings → Base Core** to see and pin the requirements for unlocked levels and the next unlock. You can also pin production recipes and machine upgrades. The Codex and in-game pin controls share the same three pins. A dash in a counter means the submitted amount is unavailable.
+Open **Buildings → Base Core** to see and pin the requirements for unlocked levels and the next unlock. You can also pin production recipes and machine upgrades. The Codex and in-game pin controls share the same three pins. Base Core pins show the required quantities. A dash in a progress counter means the submitted amount is unavailable.
 
 ## Updating or removing the app
 

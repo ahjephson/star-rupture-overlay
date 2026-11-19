@@ -1,5 +1,5 @@
 //! Persistent read-only context with live allocation and ownership guards.
-use super::{Bindings, RuntimeBindings, finite, read_context, snapshot, world};
+use super::{Bindings, RuntimeBindings, discover, finite, read_context, world, write_bindings};
 use crate::{ObjectStamp, RuntimeCache, platform, stamp};
 use anyhow::{Context, Result, ensure};
 use jmap_dumper::{
@@ -35,6 +35,7 @@ pub(crate) struct Resident {
     record: std::sync::Arc<Bindings>,
     ctx: Ctx,
     anchors: Vec<StrongStamp>,
+    wave_anchors: Option<[StrongStamp; 2]>,
     level: u64,
     persistent: u64,
     settings: u64,
@@ -68,25 +69,33 @@ impl Resident {
         base: &RuntimeCache,
         directory: &FilePath,
     ) -> Result<Self> {
-        snapshot(process, base, directory).await?;
-        let record: Bindings =
-            crate::cache::read_json(&directory.join("live-context.json"), 65536)?;
-        Self::from_record(process, base, std::sync::Arc::new(record), true).await
+        let file = directory.join("live-context.json");
+        if let Ok(record) = crate::cache::read_json::<Bindings>(&file, 65536)
+            && let Ok(resident) =
+                Self::from_record(process, base, std::sync::Arc::new(record)).await
+        {
+            return Ok(resident);
+        }
+        let record = std::sync::Arc::new(discover(process, base).await?);
+        let resident = Self::from_record(process, base, record.clone()).await?;
+        write_bindings(&file, &record)?;
+        Ok(resident)
     }
     pub(crate) async fn from_record(
         process: &platform::Process,
         base: &RuntimeCache,
         record: std::sync::Arc<Bindings>,
-        timer: bool,
     ) -> Result<Self> {
-        let mut b = RuntimeBindings::new(&record)?;
+        let b = RuntimeBindings::new(&record)?;
         b.validate(&process.identity)?;
         let ctx = jmap_dumper::connect_manual(process.clone(), base.config.clone(), None).await?;
-        if timer {
-            b.bind_timer(&ctx, base.config.image_base).await?;
-        }
         let (world, persistent) = world(&ctx, base, &b).await?;
         ensure!(stamp(&ctx, world).await? == b.world, "Resident world changed");
+        ensure!(
+            crate::path(&ctx, world).await?
+                == "/Game/Chimera/Maps/ChimeraMain/ChimeraMain.ChimeraMain",
+            "Unsupported world frame"
+        );
         let level = Ptr::<UObject>::new(base.controller.address, ctx.clone())?
             .outer_private()
             .read()
@@ -97,17 +106,8 @@ impl Resident {
         let state = ctx.read::<u64>(world + b.fields.game_state).await?;
         let player: u64 = ctx.read(base.controller.address + base.fields.player).await?;
         let mut anchors = Vec::new();
-        for address in [
-            base.controller.address,
-            world,
-            level,
-            persistent,
-            settings,
-            player,
-            state,
-            b.timer_subsystem.address,
-            b.wave_subsystem.address,
-        ] {
+        for address in [base.controller.address, world, level, persistent, settings, player, state]
+        {
             anchors.push(strong_stamp(&ctx, address).await?);
         }
         let last_sim = finite(ctx.read::<f64>(world + b.clocks.simulation_seconds).await?)?;
@@ -116,6 +116,7 @@ impl Resident {
             record,
             ctx,
             anchors,
+            wave_anchors: None,
             level,
             persistent,
             settings,
@@ -146,9 +147,7 @@ impl Resident {
                 && ctx.read::<u64>(base.controller.address + base.fields.player).await?
                     == self.player
                 && ctx.read::<u64>(self.player + base.fields.player_controller).await?
-                    == base.controller.address
-                && ctx.read::<u64>(b.timer_subsystem.address + 32).await? == world
-                && ctx.read::<u64>(b.wave_subsystem.address + 32).await? == world,
+                    == base.controller.address,
             "Resident world/player ownership changed"
         );
         Ok(())
@@ -214,13 +213,46 @@ impl Resident {
         );
         Ok(sample)
     }
+    pub(crate) fn has_wave_bindings(&self) -> bool {
+        self.bindings.wave.is_some()
+    }
+
+    async fn guard_wave(&self, anchors: &[StrongStamp; 2]) -> Result<()> {
+        for anchor in anchors {
+            let address = anchor.basic.address;
+            ensure!(
+                strong_stamp(&self.ctx, address).await? == *anchor
+                    && self.ctx.read::<u64>(address + 32).await? == self.world_address(),
+                "Wave subsystem allocation or ownership changed"
+            );
+        }
+        Ok(())
+    }
+
     pub(crate) async fn snapshot(
         &mut self,
         process: &platform::Process,
         base: &RuntimeCache,
     ) -> Result<LiveContext> {
         self.menu(process, base).await?;
+        if self.wave_anchors.is_none() {
+            let wave =
+                self.bindings.wave.as_ref().context("Validated wave subsystems unavailable")?;
+            let timer = strong_stamp(&self.ctx, wave.timer_subsystem.address).await?;
+            let phase = strong_stamp(&self.ctx, wave.wave_subsystem.address).await?;
+            ensure!(
+                timer.basic == wave.timer_subsystem && phase.basic == wave.wave_subsystem,
+                "Wave subsystem identity changed"
+            );
+            let anchors = [timer, phase];
+            self.guard_wave(&anchors).await?;
+            self.bindings.bind_timer(&self.ctx, base.config.image_base).await?;
+            self.wave_anchors = Some(anchors);
+        }
+        let anchors = self.wave_anchors.as_ref().context("Wave allocation guards unavailable")?;
+        self.guard_wave(anchors).await?;
         let value = read_context(process, base, &self.bindings, self.ctx.clone()).await?;
+        self.guard_wave(anchors).await?;
         self.menu(process, base).await?;
         Ok(value)
     }

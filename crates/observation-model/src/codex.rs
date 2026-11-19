@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 pub struct NativeContext {
     pub version: u32,
     pub game_hash: String,
-    pub mode_class: String,
     pub state_class: String,
     pub keeper_class: String,
     pub buildings: Vec<BuildingRoot>,
@@ -47,11 +46,9 @@ pub fn class_path(value: &str) -> bool {
 impl NativeContext {
     pub fn validate(&self) -> Result<(), String> {
         let d = &self.defaults;
-        if self.version != 1
+        if self.version != 2
             || !crate::overlay_stream::valid_executable_hash(&self.game_hash)
-            || ![&self.mode_class, &self.state_class, &self.keeper_class]
-                .iter()
-                .all(|s| class_path(s))
+            || ![&self.state_class, &self.keeper_class].iter().all(|s| class_path(s))
             || !asset_id(&self.core_asset)
             || self.buildings.is_empty()
             || self.buildings.len() > 1024

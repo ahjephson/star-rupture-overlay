@@ -122,16 +122,20 @@ pub(crate) fn run(directory: &FilePath) -> Result<()> {
         bindings.validate(&process.identity)?;
         let ctx = jmap_dumper::connect_manual(process.clone(), base.config.clone(), None).await?;
         let (image, size) = process.main_module()?;
-        let timer = object(&ctx, bindings.timer_subsystem.address, image, size as u64).await?;
-        let mut phase = object(&ctx, bindings.wave_subsystem.address, image, size as u64).await?;
-        let pointer = ctx.read::<u64>(bindings.wave_subsystem.address + 0x1f8).await?;
+        let timer_subsystem =
+            bindings.timer_subsystem.as_ref().context("Timer subsystem unavailable")?;
+        let wave_subsystem =
+            bindings.wave_subsystem.as_ref().context("Wave subsystem unavailable")?;
+        let timer = object(&ctx, timer_subsystem.address, image, size as u64).await?;
+        let mut phase = object(&ctx, wave_subsystem.address, image, size as u64).await?;
+        let pointer = ctx.read::<u64>(wave_subsystem.address + 0x1f8).await?;
         let probe_runtime = RuntimeBindings::new(&bindings)?;
         let (_, probe_level) = world(&ctx, &base, &probe_runtime).await?;
         let probe_settings =
             ctx.read::<u64>(probe_level + probe_runtime.fields.world_settings).await?;
         phase["activeRead"] = match crate::live_phase::read_with_clock(
             &ctx,
-            bindings.wave_subsystem.address,
+            wave_subsystem.address,
             image,
             probe_settings,
             &probe_runtime.phase_clock,
@@ -178,14 +182,14 @@ pub(crate) fn run(directory: &FilePath) -> Result<()> {
             phase["implementationOwner"] = json!({"pointer":owner,"vtable":owner_vt,"hex":owner_data.iter().map(|b|format!("{b:02x}")).collect::<String>(),"methods":owner_methods});
             phase["implementation"] = json!({"pointer":pointer,"vtableRva":vt-image,"hex":data.iter().map(|b|format!("{b:02x}")).collect::<String>(),"methods":methods});
             ensure!(
-                ctx.read::<u64>(bindings.wave_subsystem.address + 0x1f8).await? == pointer
+                ctx.read::<u64>(wave_subsystem.address + 0x1f8).await? == pointer
                     && ctx.read::<u64>(pointer).await? == vt,
                 "Active phase changed during diagnostic"
             );
         }
         let mut tables = Vec::new();
         for offset in (0x28..0x68).step_by(8) {
-            let vt = ctx.read::<u64>(bindings.wave_subsystem.address + offset).await?;
+            let vt = ctx.read::<u64>(wave_subsystem.address + offset).await?;
             if vt >= image && vt + 8 * 12 <= image + size as u64 {
                 let mut methods = Vec::new();
                 for slot in (0..8 * 12).step_by(8) {

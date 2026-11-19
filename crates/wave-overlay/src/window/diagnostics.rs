@@ -164,42 +164,41 @@ pub(super) fn window_events_self_test() -> Result<()> {
             return Err("Event fixture changed focus or used a timer".into());
         }
         drop(reader_lock);
-        // Exercise the production tick decision before an event, independently
-        // for no world and stopped waves. Only this process's fixture is found.
-        for no_world in [true, false] {
+        // Only this process's fixture is found by the production tick.
+        use starrupture_observation_model::{observation::*, overlay_stream::GameIdentity};
+        for (no_world, phase) in
+            [(false, None), (true, Some(Phase::Waiting)), (false, Some(Phase::Disabled))]
+        {
             {
-                use starrupture_observation_model::{observation::*, overlay_stream::GameIdentity};
                 let at = now_ms().max(0) as u64;
                 let mut reading = shared.lock().map_err(|_| "Fixture reader mutex poisoned")?;
                 reading.process = GetCurrentProcessId();
                 reading.no_world = no_world;
-                reading.value = Some(Box::new(Observation {
-                    process: GameIdentity {
-                        pid: reading.process,
-                        creation_ticks: 1,
-                        executable_sha256: "0".repeat(64).into(),
-                    },
-                    overlay_session: OverlaySession::default(),
-                    observed_at_ms: at,
-                    window: ReadWindow {
-                        completed_ms: at,
-                        ..ReadWindow::default()
-                    },
-                    reader_is_elevated: false,
-                    position: Position::default(),
-                    map_position: None,
-                    world: WorldState::default(),
-                    clocks: Clocks::default(),
-                    pause: PauseState::default(),
-                    wave: WaveTiming {
-                        phase: if no_world {
-                            Phase::Waiting
-                        } else {
-                            Phase::Disabled
+                reading.value = phase.map(|phase| {
+                    Box::new(Observation {
+                        process: GameIdentity {
+                            pid: reading.process,
+                            creation_ticks: 1,
+                            executable_sha256: "0".repeat(64).into(),
                         },
-                        ..WaveTiming::default()
-                    },
-                }));
+                        overlay_session: OverlaySession::default(),
+                        observed_at_ms: at,
+                        window: ReadWindow {
+                            completed_ms: at,
+                            ..ReadWindow::default()
+                        },
+                        reader_is_elevated: false,
+                        position: Position::default(),
+                        map_position: None,
+                        world: WorldState::default(),
+                        clocks: Clocks::default(),
+                        pause: PauseState::default(),
+                        wave: WaveTiming {
+                            phase,
+                            ..WaveTiming::default()
+                        },
+                    })
+                });
             }
             tick(hud.0);
             if state.game != game.0 || state.countdown_eligible || IsWindowVisible(hud.0) != 0 {
@@ -234,7 +233,11 @@ pub(super) fn window_events_self_test() -> Result<()> {
         // A later eligible observation must still allow event-driven recovery.
         {
             let mut reading = shared.lock().map_err(|_| "Fixture reader mutex poisoned")?;
-            reading.value = None;
+            let sample = reading.value.as_mut().ok_or("Missing fixture sample")?;
+            let at = now_ms().max(0) as u64;
+            sample.observed_at_ms = at;
+            sample.window.completed_ms = at;
+            sample.wave.phase = Phase::Waiting;
         }
         tick(hud.0);
         if !state.countdown_eligible || IsWindowVisible(hud.0) == 0 {
@@ -271,7 +274,8 @@ pub(super) fn window_events_self_test() -> Result<()> {
                 "gameRead": false,
                 "actualWindowsModified": false,
                 "injectedCode": false,
-                "notificationRoundTrips": 22,
+                "notificationRoundTrips": 23,
+                "missingWaveDataRemainsHidden": true,
                 "noWorldRemainsHidden": true,
                 "stoppedWavesRemainHidden": true,
                 "eligibleCountdownRecovers": true,

@@ -183,8 +183,8 @@ unsafe fn tick(window: HWND) {
     let Some(a) = (unsafe { app(window) }) else {
         return;
     };
-    let (frame, pid, stopped, no_world) = if let Some(phase) = &a.preview {
-        (preview(phase), 0, false, false)
+    let (frame, pid, wave_available, no_world) = if let Some(phase) = &a.preview {
+        (preview(phase), 0, true, false)
     } else {
         let r = a.shared.lock().unwrap_or_else(|e| e.into_inner());
         let paused = match r.menu {
@@ -217,7 +217,7 @@ unsafe fn tick(window: HWND) {
                 } => pid,
                 _ => r.process,
             },
-            waves_stopped(r.value.as_deref(), now_ms().max(0) as u64, 5000),
+            r.value.is_some() && !waves_stopped(r.value.as_deref(), now_ms().max(0) as u64, 5000),
             r.no_world,
         )
     };
@@ -262,7 +262,8 @@ unsafe fn tick(window: HWND) {
     );
     *a.dialog_context.recipe_status.borrow_mut() = a.recipe.status.clone();
     a.dialogs.refresh_recipe_status();
-    a.countdown_eligible = visible && !stopped && a.dialog_context.preferences.get().wave_enabled;
+    a.countdown_eligible =
+        visible && wave_available && a.dialog_context.preferences.get().wave_enabled;
     if !a.countdown_eligible {
         // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles;
         // native position/style values are scalar, and referenced menu/state objects remain alive
@@ -1443,6 +1444,7 @@ fn reader(
                     r.no_world = false;
                     r.value = Some(value);
                 }
+                Update::WaveUnavailable => r.value = None,
                 Update::NoWorld => {
                     r.no_world = true;
                     r.connection.unavailable();

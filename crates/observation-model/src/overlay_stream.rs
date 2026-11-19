@@ -39,6 +39,7 @@ pub enum Payload {
     Menu(MenuSample),
     Compass(Option<crate::compass::Sample>),
     World(Box<WorldSample>),
+    WaveUnavailable,
     NoWorld,
     Unavailable(String),
 }

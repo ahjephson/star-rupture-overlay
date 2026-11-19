@@ -34,8 +34,10 @@ const FIELDS: &[(&str, &str, usize)] = &[
     ("Chimera.CrCharacterPlayerBase", "FPPCamera", 8),
     ("Chimera.CrCharacterPlayerBase", "DroneCamera", 8),
     ("Engine.ActorComponent", "bIsActive", 1),
-    ("Chimera.CrGameStateBase", "WaveTimerActor", 8),
     ("Chimera.CrGameStateBase", "bIsGamePaused", 1),
+];
+const WAVE_FIELDS: &[(&str, &str, usize)] = &[
+    ("Chimera.CrGameStateBase", "WaveTimerActor", 8),
     ("Chimera.CrEnviroWaveTimerSubsystem", "TimerActor", 8),
     ("Chimera.CrEnviroWaveSubsystem", "CurrentPreWaveSubstage", 1),
     ("Chimera.CrEnviroWaveSubsystem", "CurrentFadeoutSubstage", 1),
@@ -56,8 +58,8 @@ pub(crate) struct Bindings {
     version: u32,
     identity: Identity,
     world: ObjectStamp,
-    timer_subsystem: ObjectStamp,
-    wave_subsystem: ObjectStamp,
+    timer_subsystem: Option<ObjectStamp>,
+    wave_subsystem: Option<ObjectStamp>,
     offsets: BTreeMap<String, u64>,
     masks: BTreeMap<String, u8>,
     getters: BTreeMap<String, u64>,
@@ -71,20 +73,24 @@ impl Bindings {
     }
     fn validate(&self, id: &Identity) -> Result<()> {
         ensure!(self.version == 2 && self.identity == *id, "Stale live-context cache");
-        for &(c, f, _) in FIELDS {
-            ensure!((8..=262144).contains(&self.offset(c, f)?), "Invalid context offset");
-            if f.starts_with('b') {
-                ensure!(
-                    self.masks.get(&property_key(c, f)).is_some_and(|x| *x != 0),
-                    "Invalid bool mask"
-                );
-            }
-        }
+        self.validate_fields(FIELDS)?;
         for g in GETTERS {
             ensure!(
                 self.getters.get(*g).is_some_and(|o| (512..8192).contains(o)),
                 "Invalid getter field"
             );
+        }
+        Ok(())
+    }
+    fn validate_fields(&self, fields: &[(&str, &str, usize)]) -> Result<()> {
+        for &(class, field, _) in fields {
+            ensure!((8..=262144).contains(&self.offset(class, field)?), "Invalid context offset");
+            if field.starts_with('b') {
+                ensure!(
+                    self.masks.get(&property_key(class, field)).is_some_and(|mask| *mask != 0),
+                    "Invalid bool mask"
+                );
+            }
         }
         Ok(())
     }
@@ -112,8 +118,8 @@ async fn discover(process: &platform::Process, base: &RuntimeCache) -> Result<Bi
     let array = Ptr::<FUObjectArray>::new(ctx.uobjectarray, ctx.clone())?;
     let count = array.num_elements().await?;
     ensure!((1..=2_000_000).contains(&count), "Invalid registry size");
-    let wanted: HashSet<&str> = FIELDS
-        .iter()
+    let fields = || FIELDS.iter().chain(WAVE_FIELDS);
+    let wanted: HashSet<&str> = fields()
         .map(|(c, _, _)| c.rsplit('.').next().unwrap())
         .chain(GETTERS.iter().copied())
         .chain(["CrEnviroWaveTimerSubsystem"])
@@ -163,7 +169,7 @@ async fn discover(process: &platform::Process, base: &RuntimeCache) -> Result<Bi
             );
             getters.insert(name.clone(), found[0]);
         }
-        if FIELDS.iter().any(|(c, _, _)| object_path == format!("/Script/{c}")) {
+        if fields().any(|(c, _, _)| object_path == format!("/Script/{c}")) {
             let mut props = obj.cast::<UStruct>().properties(false);
             let mut visits = 0;
             while let Some(prop) = props.next().await {
@@ -171,15 +177,18 @@ async fn discover(process: &platform::Process, base: &RuntimeCache) -> Result<Bi
                 ensure!(visits <= 4096, "Invalid property chain");
                 let prop = prop?;
                 let name = prop.zfield().name_private().read().await?;
-                if let Some((c, f, size)) = FIELDS
-                    .iter()
-                    .find(|(c, f, _)| object_path == format!("/Script/{c}") && name == *f)
+                if let Some((c, f, size)) =
+                    fields().find(|(c, f, _)| object_path == format!("/Script/{c}") && name == *f)
                 {
-                    ensure!(
-                        prop.element_size().read().await? as usize == *size
-                            && prop.array_dim().read().await? == 1,
-                        "Unexpected live field layout"
-                    );
+                    if prop.element_size().read().await? as usize != *size
+                        || prop.array_dim().read().await? != 1
+                    {
+                        ensure!(
+                            !FIELDS.iter().any(|(class, field, _)| class == c && field == f),
+                            "Unexpected live field layout"
+                        );
+                        continue;
+                    }
                     let k = property_key(c, f);
                     offsets.insert(k.clone(), prop.offset_internal().read().await? as u64);
                     if f.starts_with('b') {
@@ -199,8 +208,8 @@ async fn discover(process: &platform::Process, base: &RuntimeCache) -> Result<Bi
         version: 2,
         identity: process.identity.clone(),
         world: base.controller.clone(),
-        timer_subsystem: base.controller.clone(),
-        wave_subsystem: base.controller.clone(),
+        timer_subsystem: None,
+        wave_subsystem: None,
         offsets,
         masks,
         getters,
@@ -208,32 +217,37 @@ async fn discover(process: &platform::Process, base: &RuntimeCache) -> Result<Bi
     b.validate(&process.identity)?;
     let (world, _) = world(&ctx, base, &RuntimeBindings::new(&b)?).await?;
     b.world = stamp(&ctx, world).await?;
-    let matching: Vec<_> = subsystems.into_iter().filter(|a| *a != 0).collect();
     let mut selected = vec![];
-    for address in matching {
+    for address in subsystems {
         if Ptr::<UObject>::new(address, ctx.clone())?
             .outer_private()
             .read()
             .await?
             .is_some_and(|o| o.address() == world)
         {
-            selected.push((address, stamp(&ctx, address).await?));
+            selected.push(stamp(&ctx, address).await?);
         }
     }
-    ensure!(selected.len() == 2, "Live wave subsystems unavailable or ambiguous");
-    b.timer_subsystem = selected
-        .iter()
-        .find(|(_, s)| s.name.starts_with("CrEnviroWaveTimerSubsystem_"))
-        .context("Missing timer subsystem")?
-        .1
-        .clone();
-    b.wave_subsystem = selected
-        .iter()
-        .find(|(_, s)| s.name.starts_with("CrEnviroWaveSubsystem_"))
-        .context("Missing phase subsystem")?
-        .1
-        .clone();
+    let (timer, phase) = select_wave_subsystems(selected);
+    b.timer_subsystem = timer;
+    b.wave_subsystem = phase;
     Ok(b)
+}
+fn select_wave_subsystems(
+    mut selected: Vec<ObjectStamp>,
+) -> (Option<ObjectStamp>, Option<ObjectStamp>) {
+    if selected.len() == 2 {
+        if selected[0].name.starts_with("CrEnviroWaveSubsystem_") {
+            selected.swap(0, 1);
+        }
+        if selected[0].name.starts_with("CrEnviroWaveTimerSubsystem_")
+            && selected[1].name.starts_with("CrEnviroWaveSubsystem_")
+        {
+            let phase = selected.pop();
+            return (selected.pop(), phase);
+        }
+    }
+    (None, None)
 }
 fn finite(v: f64) -> Result<f64> {
     ensure!(v.is_finite() && v >= 0.0, "Invalid live clock/countdown");
@@ -251,17 +265,6 @@ fn countdown(remaining: f64, waiting: bool, stopped: bool) -> Result<Option<f64>
         Ok(None)
     }
 }
-async fn read(
-    process: &platform::Process,
-    base: &RuntimeCache,
-    b: &Bindings,
-) -> Result<LiveContext> {
-    let mut runtime = RuntimeBindings::new(b)?;
-    runtime.validate(&process.identity)?;
-    let ctx = jmap_dumper::connect_manual(process.clone(), base.config.clone(), None).await?;
-    runtime.bind_timer(&ctx, base.config.image_base).await?;
-    read_context(process, base, &runtime, ctx).await
-}
 async fn read_context(
     process: &platform::Process,
     base: &RuntimeCache,
@@ -269,11 +272,12 @@ async fn read_context(
     ctx: Ctx,
 ) -> Result<LiveContext> {
     b.validate(&process.identity)?;
+    let wave = b.wave.as_ref().context("Validated wave subsystems unavailable")?;
     let (world, persistent) = world(&ctx, base, b).await?;
     ensure!(
         stamp(&ctx, world).await? == b.world
-            && stamp(&ctx, b.timer_subsystem.address).await? == b.timer_subsystem
-            && stamp(&ctx, b.wave_subsystem.address).await? == b.wave_subsystem,
+            && stamp(&ctx, wave.timer_subsystem.address).await? == wave.timer_subsystem
+            && stamp(&ctx, wave.wave_subsystem.address).await? == wave.wave_subsystem,
         "Live world/subsystem identity changed"
     );
     let world_path = path(&ctx, world).await?;
@@ -292,10 +296,10 @@ async fn read_context(
         ctx.read::<u64>(controller + base.fields.character).await? == character,
         "Main character and possession disagree"
     );
-    let timer = ctx.read::<u64>(state + b.fields.wave_timer_actor).await?;
+    let timer = ctx.read::<u64>(state + wave.wave_timer_actor).await?;
     let timer_stamp = stamp(&ctx, timer).await?;
     ensure!(
-        ctx.read::<u64>(b.timer_subsystem.address + b.fields.timer_actor).await? == timer,
+        ctx.read::<u64>(wave.timer_subsystem.address + wave.timer_actor).await? == timer,
         "Independent timer references disagree"
     );
     let observed_start = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
@@ -336,7 +340,7 @@ async fn read_context(
     } else {
         ViewMode::Unknown
     };
-    let sub = b.timer_subsystem.address;
+    let sub = wave.timer_subsystem.address;
     let timer_layout = b.timer.as_ref().context("Missing verified timer layout")?;
     timer_layout.verify(&ctx).await?;
     let fields = timer_layout.fields;
@@ -351,13 +355,13 @@ async fn read_context(
     let stopped = ctx.read::<u8>(sub + fields.stopped).await? != 0;
     let waves = ctx.read::<i64>(sub + fields.waves).await?;
     ensure!((0..=10000000).contains(&waves), "Invalid wave counter");
-    let actor_next_time = ctx.read::<f32>(timer + b.fields.actor_next_time).await?;
-    let actor_next_phase = ctx.read::<i32>(timer + b.fields.actor_next_phase).await?;
-    let actor_pause = b.fields.actor_paused.read(&ctx, timer).await?;
-    let phase_pointer = ctx.read::<u64>(b.wave_subsystem.address + 0x1f8).await?;
+    let actor_next_time = ctx.read::<f32>(timer + wave.actor_next_time).await?;
+    let actor_next_phase = ctx.read::<i32>(timer + wave.actor_next_phase).await?;
+    let actor_pause = wave.actor_paused.read(&ctx, timer).await?;
+    let phase_pointer = ctx.read::<u64>(wave.wave_subsystem.address + 0x1f8).await?;
     let phase_evidence = match crate::live_phase::read_with_clock(
         &ctx,
-        b.wave_subsystem.address,
+        wave.wave_subsystem.address,
         base.config.image_base,
         settings,
         &b.phase_clock,
@@ -371,12 +375,11 @@ async fn read_context(
         Err(_) => PhaseEvidence::Unavailable,
     };
     let mut substages = [0u8; 3];
-    for (index, offset) in
-        [b.fields.pre_wave_substage, b.fields.fadeout_substage, b.fields.growback_substage]
-            .into_iter()
-            .enumerate()
+    for (index, offset) in [wave.pre_wave_substage, wave.fadeout_substage, wave.growback_substage]
+        .into_iter()
+        .enumerate()
     {
-        substages[index] = ctx.read::<u8>(b.wave_subsystem.address + offset).await?;
+        substages[index] = ctx.read::<u8>(wave.wave_subsystem.address + offset).await?;
     }
     smol::Timer::after(std::time::Duration::from_millis(30)).await;
     let end_time = finite(ctx.read::<f64>(world + b.clocks.simulation_seconds).await?)?;
@@ -385,7 +388,7 @@ async fn read_context(
         "Simulation clock jumped during live observation"
     );
     ensure!(
-        ctx.read::<u64>(state + b.fields.wave_timer_actor).await? == timer
+        ctx.read::<u64>(state + wave.wave_timer_actor).await? == timer
             && stamp(&ctx, world).await? == b.world
             && stamp(&ctx, settings).await? == settings_stamp
             && stamp(&ctx, state).await? == state_stamp
@@ -407,8 +410,8 @@ async fn read_context(
         );
     }
     ensure!(
-        stamp(&ctx, b.wave_subsystem.address).await? == b.wave_subsystem
-            && ctx.read::<u64>(b.wave_subsystem.address + 0x1f8).await? == phase_pointer
+        stamp(&ctx, wave.wave_subsystem.address).await? == wave.wave_subsystem
+            && ctx.read::<u64>(wave.wave_subsystem.address + 0x1f8).await? == phase_pointer
             && (ctx.read::<u8>(sub + fields.waiting).await? != 0) == waiting
             && ctx.read::<u8>(sub + fields.previous).await? == previous,
         ObservationConflict::Wave
@@ -493,27 +496,14 @@ mod tests {
         assert!(countdown(f64::NAN, false, false).is_err());
     }
 }
-pub async fn snapshot(
-    process: &platform::Process,
-    base: &RuntimeCache,
-    directory: &FilePath,
-) -> Result<LiveContext> {
-    let file = directory.join("live-context.json");
-    let cached = crate::cache::read_json::<Bindings>(&file, 65536).ok();
-    if let Some(b) = cached.filter(|b| b.validate(&process.identity).is_ok())
-        && let Ok(value) = read(process, base, &b).await
-    {
-        return Ok(value);
+fn write_bindings(path: &FilePath, b: &Bindings) -> Result<()> {
+    let temporary = path.with_file_name(format!("live-{}.tmp", std::process::id()));
+    std::fs::write(&temporary, serde_json::to_vec_pretty(b)?)?;
+    if path.exists() {
+        std::fs::remove_file(path)?;
     }
-    let b = discover(process, base).await?;
-    let value = read(process, base, &b).await?;
-    let temporary = directory.join(format!("live-{}.tmp", std::process::id()));
-    std::fs::write(&temporary, serde_json::to_vec_pretty(&b)?)?;
-    if file.exists() {
-        std::fs::remove_file(&file)?;
-    }
-    std::fs::rename(temporary, file)?;
-    Ok(value)
+    std::fs::rename(temporary, path)?;
+    Ok(())
 }
 
 pub(crate) mod resident;

@@ -18,8 +18,7 @@ pub(super) struct RuntimeBindings {
     version: u32,
     pub identity: Identity,
     pub world: ObjectStamp,
-    pub timer_subsystem: ObjectStamp,
-    pub wave_subsystem: ObjectStamp,
+    pub wave: Option<WaveBindings>,
     pub fields: ContextFields,
     pub clocks: ClockFields,
     pub timer: Option<crate::timer_layout::Layout>,
@@ -40,8 +39,12 @@ pub(super) struct ContextFields {
     pub first_person_camera: u64,
     pub drone_camera: u64,
     pub camera_active: BooleanField,
-    pub wave_timer_actor: u64,
     pub game_paused: BooleanField,
+}
+pub(super) struct WaveBindings {
+    pub timer_subsystem: ObjectStamp,
+    pub wave_subsystem: ObjectStamp,
+    pub wave_timer_actor: u64,
     pub timer_actor: u64,
     pub pre_wave_substage: u64,
     pub fadeout_substage: u64,
@@ -85,18 +88,28 @@ impl RuntimeBindings {
             first_person_camera: record.offset("Chimera.CrCharacterPlayerBase", "FPPCamera")?,
             drone_camera: record.offset("Chimera.CrCharacterPlayerBase", "DroneCamera")?,
             camera_active: boolean("Engine.ActorComponent", "bIsActive")?,
-            wave_timer_actor: record.offset("Chimera.CrGameStateBase", "WaveTimerActor")?,
             game_paused: boolean("Chimera.CrGameStateBase", "bIsGamePaused")?,
-            timer_actor: record.offset("Chimera.CrEnviroWaveTimerSubsystem", "TimerActor")?,
-            pre_wave_substage: record
-                .offset("Chimera.CrEnviroWaveSubsystem", "CurrentPreWaveSubstage")?,
-            fadeout_substage: record
-                .offset("Chimera.CrEnviroWaveSubsystem", "CurrentFadeoutSubstage")?,
-            growback_substage: record
-                .offset("Chimera.CrEnviroWaveSubsystem", "CurrentGrowbackSubstage")?,
-            actor_next_time: record.offset("Chimera.CrWaveTimerActor", "NextTime")?,
-            actor_next_phase: record.offset("Chimera.CrWaveTimerActor", "NextPhase")?,
-            actor_paused: boolean("Chimera.CrWaveTimerActor", "bPause")?,
+        };
+        let wave = match (&record.timer_subsystem, &record.wave_subsystem) {
+            (Some(timer), Some(phase)) if record.validate_fields(super::WAVE_FIELDS).is_ok() => {
+                Some(WaveBindings {
+                    timer_subsystem: timer.clone(),
+                    wave_subsystem: phase.clone(),
+                    wave_timer_actor: record.offset("Chimera.CrGameStateBase", "WaveTimerActor")?,
+                    timer_actor: record
+                        .offset("Chimera.CrEnviroWaveTimerSubsystem", "TimerActor")?,
+                    pre_wave_substage: record
+                        .offset("Chimera.CrEnviroWaveSubsystem", "CurrentPreWaveSubstage")?,
+                    fadeout_substage: record
+                        .offset("Chimera.CrEnviroWaveSubsystem", "CurrentFadeoutSubstage")?,
+                    growback_substage: record
+                        .offset("Chimera.CrEnviroWaveSubsystem", "CurrentGrowbackSubstage")?,
+                    actor_next_time: record.offset("Chimera.CrWaveTimerActor", "NextTime")?,
+                    actor_next_phase: record.offset("Chimera.CrWaveTimerActor", "NextPhase")?,
+                    actor_paused: boolean("Chimera.CrWaveTimerActor", "bPause")?,
+                })
+            }
+            _ => None,
         };
         let clocks = ClockFields {
             simulation_seconds: *record
@@ -124,8 +137,7 @@ impl RuntimeBindings {
             version: record.version,
             identity: record.identity.clone(),
             world: record.world.clone(),
-            timer_subsystem: record.timer_subsystem.clone(),
-            wave_subsystem: record.wave_subsystem.clone(),
+            wave,
             fields,
             clocks,
             timer: None,
@@ -133,12 +145,13 @@ impl RuntimeBindings {
         })
     }
     pub async fn bind_timer(&mut self, ctx: &Ctx, image: u64) -> Result<()> {
+        let wave = self.wave.as_ref().context("Validated wave subsystems unavailable")?;
         self.timer = Some(
             crate::timer_layout::Layout::resolve(
                 ctx,
-                self.timer_subsystem.address,
+                wave.timer_subsystem.address,
                 image,
-                self.fields.timer_actor,
+                wave.timer_actor,
             )
             .await?,
         );
@@ -162,15 +175,7 @@ impl RuntimeBindings {
                 self.fields.first_person_camera,
                 self.fields.drone_camera,
                 self.fields.camera_active.offset,
-                self.fields.wave_timer_actor,
                 self.fields.game_paused.offset,
-                self.fields.timer_actor,
-                self.fields.pre_wave_substage,
-                self.fields.fadeout_substage,
-                self.fields.growback_substage,
-                self.fields.actor_next_time,
-                self.fields.actor_next_phase,
-                self.fields.actor_paused.offset
             ]
             .into_iter()
             .all(|v| (8..=262144).contains(&v)),
@@ -183,7 +188,6 @@ impl RuntimeBindings {
                 self.fields.player_dead.mask,
                 self.fields.camera_active.mask,
                 self.fields.game_paused.mask,
-                self.fields.actor_paused.mask
             ]
             .into_iter()
             .all(|v| v != 0),
@@ -208,7 +212,7 @@ impl RuntimeBindings {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::live_context::{FIELDS, GETTERS, property_key};
+    use crate::live_context::{FIELDS, GETTERS, WAVE_FIELDS, property_key};
     fn record() -> Bindings {
         let identity = Identity {
             pid: 123,
@@ -226,15 +230,17 @@ mod tests {
             version: 2,
             identity,
             world: stamp.clone(),
-            timer_subsystem: stamp.clone(),
-            wave_subsystem: stamp,
+            timer_subsystem: Some(stamp.clone()),
+            wave_subsystem: Some(stamp),
             offsets: FIELDS
                 .iter()
+                .chain(WAVE_FIELDS)
                 .enumerate()
                 .map(|(i, (class, field, _))| (property_key(class, field), 100 + i as u64 * 8))
                 .collect(),
             masks: FIELDS
                 .iter()
+                .chain(WAVE_FIELDS)
                 .filter(|(_, field, _)| field.starts_with('b'))
                 .map(|(class, field, _)| (property_key(class, field), 16))
                 .collect(),
@@ -260,6 +266,25 @@ mod tests {
             ..record.identity.clone()
         };
         assert!(runtime.validate(&changed).is_err());
+    }
+    #[test]
+    fn missing_subsystems_or_wave_fields_only_disable_wave_bindings() {
+        let mut absent = record();
+        absent.timer_subsystem = None;
+        absent.wave_subsystem = None;
+        let bindings = RuntimeBindings::new(&absent).unwrap();
+        assert!(bindings.wave.is_none());
+        assert_eq!(bindings.fields.menu_open.mask, 16);
+
+        let mut partial = record();
+        partial.wave_subsystem = None;
+        assert!(RuntimeBindings::new(&partial).unwrap().wave.is_none());
+
+        let mut invalid = record();
+        invalid.offsets.insert(property_key("Chimera.CrWaveTimerActor", "NextTime"), 7);
+        assert!(RuntimeBindings::new(&invalid).unwrap().wave.is_none());
+
+        assert!(RuntimeBindings::new(&record()).unwrap().wave.is_some());
     }
     #[test]
     fn missing_out_of_range_or_unmasked_cached_fields_are_rejected_before_sampling() {

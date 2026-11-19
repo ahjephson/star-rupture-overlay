@@ -36,6 +36,21 @@ pub(crate) fn pinnable_recipe(c: &Catalogue, id: &str) -> bool {
     c.recipes.get(id).is_some_and(|recipe| !recipe.inputs.is_empty())
 }
 
+pub(super) fn upgrade_recipes(c: &Catalogue) -> std::collections::BTreeSet<String> {
+    c.buildings
+        .values()
+        .flat_map(|building| &building.unlocks)
+        .filter_map(|unlock| match unlock {
+            BuildingUnlock::Upgrade {
+                recipe,
+                materials,
+                ..
+            } if !materials.is_empty() => Some(recipe.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 pub(super) fn highest_core_tier(c: &Catalogue, p: &Progress) -> Option<u32> {
     p.highest_unlocked_core_tier.filter(|highest| (*highest as usize) < c.core_tiers.len())
 }
@@ -43,11 +58,12 @@ pub(super) fn highest_core_tier(c: &Catalogue, p: &Progress) -> Option<u32> {
 pub(crate) fn card(c: &Catalogue, p: &Progress, key: String) -> Option<Card> {
     if let Some(id) = key.strip_prefix("upgrade:") {
         let building = c.buildings.get(id)?;
-        let materials = building.unlocks.iter().find_map(|unlock| match unlock {
+        let (recipe, materials) = building.unlocks.iter().find_map(|unlock| match unlock {
             BuildingUnlock::Upgrade {
+                recipe,
                 materials,
                 ..
-            } => Some(materials.clone()),
+            } => Some((recipe, materials)),
             _ => None,
         })?;
         return Some(Card {
@@ -55,7 +71,16 @@ pub(crate) fn card(c: &Catalogue, p: &Progress, key: String) -> Option<Card> {
             name: format!("{} upgrade", building.name),
             icon: building.icon.clone(),
             key,
-            materials: unobserved(materials),
+            materials: materials
+                .iter()
+                .cloned()
+                .map(|amount| Material {
+                    submitted: p.upgrade_submissions.get(recipe).and_then(|items| {
+                        items.iter().find(|(item, _)| *item == amount.item).map(|(_, count)| *count)
+                    }),
+                    amount,
+                })
+                .collect(),
         });
     }
     if let Some(tier) = key.strip_prefix("core-tier:") {

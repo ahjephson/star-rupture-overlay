@@ -1,4 +1,7 @@
-param([Parameter(Mandatory)][string]$ArchivePath)
+param(
+    [Parameter(Mandatory)][string]$ArchivePath,
+    [ValidateSet('Development build', 'Pre-release build', 'Release build')][string]$ExpectedBuildLabel
+)
 . (Join-Path $PSScriptRoot 'Common.ps1')
 . (Join-Path $PSScriptRoot 'ReleaseCommon.ps1')
 $work = Join-Path $script:ProjectRoot ('local/release-test-' + [Guid]::NewGuid().ToString('N'))
@@ -31,6 +34,13 @@ foreach ($case in @('window', 'stacking', 'events', 'icons', 'render', 'compass'
     $process = Start-Process -FilePath $exe -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $work "$case.$extension") -RedirectStandardError (Join-Path $work "$case-stderr.txt")
     if (-not $process.WaitForExit(30000)) { $process.Kill(); throw 'Own-window diagnostic exceeded its deadline.' }
     if ($process.ExitCode -ne 0) { throw "Native $case check failed." }
+}
+if ($ExpectedBuildLabel) {
+    $aboutVersion = Get-Content -LiteralPath (Join-Path $work 'dialogs/about-version.txt') -Raw
+    if ($aboutVersion -cne "Version $($manifest.version) · $ExpectedBuildLabel") {
+        throw "Unexpected About version text: $aboutVersion"
+    }
+    Write-Output "About identifies the executable as $ExpectedBuildLabel."
 }
 & (Join-Path $PSScriptRoot 'Test-Deployment.ps1') -ArchivePath $ArchivePath -WorkDirectory $work
 Write-Output "Release tests passed; private results: $work"

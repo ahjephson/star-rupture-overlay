@@ -256,6 +256,7 @@ pub(super) fn build(archive: &mut Archive<'_>, context: NativeContext) -> Result
             .collect::<Result<Vec<_>>>()?;
         routes.entry(target).or_default().push(BuildingUnlock::Upgrade {
             id: u.clone(),
+            recipe: rid,
             offers: offers(&u, "BuildingUpgradeRecipes")?,
             tasks,
             materials: bill(&re.props["UnlockRequirements"], "Key", "Value")?,
@@ -537,7 +538,7 @@ pub(super) fn build(archive: &mut Archive<'_>, context: NativeContext) -> Result
     }
     let corporations = corporation_records;
     let catalogue = Catalogue {
-        version: 8,
+        version: 9,
         lock_icon: [
             "/Game/Chimera/UI/CommonAssets/Textures/SR_Locked_icon",
             "/Game/Chimera/UI/Buildings/Crafting/Textures/SR_lockedIcon2",

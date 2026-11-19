@@ -85,6 +85,7 @@ pub enum BuildingUnlock {
     },
     Upgrade {
         id: String,
+        recipe: String,
         offers: Vec<CorporationOffer>,
         tasks: Vec<Task>,
         materials: Vec<Amount>,
@@ -196,7 +197,7 @@ impl Catalogue {
     pub fn validate(&self) -> Result<()> {
         self.context.validate().map_err(anyhow::Error::msg)?;
         ensure!(
-            self.version == 8
+            self.version == 9
                 && self.lock_icon.as_ref().is_none_or(|id| asset_id(id))
                 && self.corporations.len() <= 32
                 && !self.items.is_empty()
@@ -275,11 +276,13 @@ impl Catalogue {
             for u in &b.unlocks {
                 match u {
                     BuildingUnlock::Upgrade {
+                        recipe,
                         materials,
                         tasks,
                         offers,
                         ..
                     } => {
+                        ensure!(asset_id(recipe), "Invalid upgrade recipe ID");
                         bill(materials)?;
                         ensure!(tasks.len() <= 128 && offers.len() <= 64, "Upgrade route bound");
                     }

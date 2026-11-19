@@ -944,7 +944,12 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
                 text(
                     window,
                     120,
-                    &format!("Version {} · Development build", env!("CARGO_PKG_VERSION")),
+                    concat!(
+                        "Version ",
+                        env!("CARGO_PKG_VERSION"),
+                        " · ",
+                        env!("OVERLAY_BUILD_LABEL")
+                    ),
                 );
                 text(window, 123, env!("OVERLAY_REVISION"));
                 text(window, 144, SUPPORTED_GAME);

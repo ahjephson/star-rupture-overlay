@@ -136,6 +136,12 @@ pub(super) fn rows(c: &Catalogue, p: &Progress, tab: Tab, query: &str) -> Vec<Ro
                         false
                     }
                 };
+                // Extraction recipe art depicts the deposit. Show the item you collect.
+                let icon = if recipe.inputs.is_empty() {
+                    c.items.get(&recipe.output.item).map_or(recipe.icon.as_str(), |item| &item.icon)
+                } else {
+                    &recipe.icon
+                };
                 for machine in &recipe.producers {
                     if !p.buildings.contains(machine) {
                         continue;
@@ -152,7 +158,7 @@ pub(super) fn rows(c: &Catalogue, p: &Progress, tab: Tab, query: &str) -> Vec<Ro
                         },
                         &recipe.name,
                         format!("{}  ·  ×{}  ·  {}", building.name, recipe.output.quantity, inputs),
-                        Some(&recipe.icon),
+                        Some(icon),
                         locked,
                     ));
                 }
@@ -768,12 +774,11 @@ mod tests {
             crafting: None,
         };
         let c = Catalogue {
-            version: 8,
+            version: 9,
             lock_icon: None,
             context: NativeContext {
-                version: 1,
+                version: 2,
                 game_hash: String::new(),
-                mode_class: String::new(),
                 state_class: String::new(),
                 keeper_class: String::new(),
                 buildings: vec![],
@@ -826,6 +831,7 @@ mod tests {
             buildings: BTreeSet::from(["v1".into()]),
             recipes: BTreeSet::from(["faster".into(), "alternative".into()]),
             research: BTreeSet::from(["base".into()]),
+            upgrade_submissions: BTreeMap::new(),
             owned_equipment: BTreeSet::new(),
             corporations: BTreeMap::new(),
             cores: Vec::new(),
@@ -1118,6 +1124,60 @@ mod tests {
         assert!(super::super::pins::key(&catalogue, &entry("base")).is_none());
         assert!(super::super::pins::card(&catalogue, &progress, "base".into()).is_none());
         assert!(super::super::pins::key(&catalogue, &entry("faster")).is_some());
+    }
+
+    #[test]
+    fn extraction_rows_use_the_inventory_icon_and_crafting_keeps_recipe_art() {
+        let (mut c, mut p) = fixture();
+        c.items.get_mut("sheet").unwrap().icon = "inventory-icon".into();
+        let extraction = c.recipes.get_mut("base").unwrap();
+        extraction.inputs.clear();
+        extraction.icon = "deposit-icon".into();
+        c.recipes.get_mut("faster").unwrap().icon = "crafting-variant-icon".into();
+        p.buildings.insert("v2".into());
+
+        let production = rows(&c, &p, Tab::Production, "");
+        let icon_for = |recipe: &str| {
+            production
+                .iter()
+                .find(|row| matches!(&row.key, Entry::Recipe { id, .. } if id == recipe))
+                .and_then(|row| row.icon.as_deref())
+        };
+        assert_eq!(icon_for("base"), Some("inventory-icon"));
+        assert_eq!(icon_for("faster"), Some("crafting-variant-icon"));
+    }
+
+    #[test]
+    fn building_upgrade_pins_use_the_exact_recipe_submissions() {
+        let (mut catalogue, mut progress) = fixture();
+        catalogue.buildings.get_mut("v2").unwrap().unlocks.push(BuildingUnlock::Upgrade {
+            id: "upgrade".into(),
+            recipe: "upgrade-recipe".into(),
+            offers: vec![],
+            tasks: vec![],
+            materials: vec![
+                Amount {
+                    item: "sheet".into(),
+                    quantity: 10,
+                },
+                Amount {
+                    item: "data".into(),
+                    quantity: 800,
+                },
+                Amount {
+                    item: "quartz".into(),
+                    quantity: 5,
+                },
+            ],
+        });
+        progress
+            .upgrade_submissions
+            .insert("upgrade-recipe".into(), vec![("data".into(), 800), ("sheet".into(), 0)]);
+        progress.upgrade_submissions.insert("other-recipe".into(), vec![("quartz".into(), 5)]);
+
+        let card = super::super::pins::card(&catalogue, &progress, "upgrade:v2".into()).unwrap();
+        let submitted: Vec<_> = card.materials.iter().map(|item| item.submitted).collect();
+        assert_eq!(submitted, [Some(0), Some(800), None]);
     }
 
     #[test]

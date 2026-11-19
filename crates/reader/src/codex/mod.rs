@@ -453,16 +453,11 @@ async fn capture(
     let level = ctx.read::<u64>(controller.0.address + 32).await?;
     let world = object_field(ctx, level, "OwningWorld").await?;
     let world_proof = crate::recipe::allocation(ctx, world).await?;
-    let mode = object_field(ctx, world, "AuthorityGameMode").await?;
-    let mode_class = crate::recipe::allocation(ctx, mode).await?.0.class;
-    let mode_cdo = default_object(ctx, mode_class).await?;
-    let state_class = object_field(ctx, mode_cdo, "GameStateClass").await?;
-    let state_cdo = default_object(ctx, state_class).await?;
+    // GameState identifies the authored catalogue on both the host and remote clients.
     let state = object_field(ctx, world, "GameState").await?;
-    ensure!(
-        crate::recipe::allocation(ctx, state).await?.0.class == state_class,
-        "Codex selected GameState differs from current world"
-    );
+    let state_proof = crate::recipe::allocation(ctx, state).await?;
+    let state_class = state_proof.0.class;
+    let state_cdo = default_object(ctx, state_class).await?;
     let keeper_class = object_field(ctx, state_cdo, "TechnologyKeeperClass").await?;
     let keeper_cdo = default_object(ctx, keeper_class).await?;
     let root = object_array(ctx, keeper_cdo, "AllBuildingList").await?;
@@ -510,17 +505,17 @@ async fn capture(
     ensure!(
         crate::recipe::allocation(ctx, world).await? == world_proof
             && crate::recipe::allocation(ctx, controller.0.address).await? == controller
-            && object_field(ctx, world, "AuthorityGameMode").await? == mode
+            && object_field(ctx, level, "OwningWorld").await? == world
             && object_field(ctx, world, "GameState").await? == state
+            && crate::recipe::allocation(ctx, state).await? == state_proof
             && crate::recipe::allocation(ctx, component).await? == component_proof
             && ctx.read::<u64>(component + 32).await? == state,
         "Codex world changed during preparation"
     );
 
     let context = NativeContext {
-        version: 1,
+        version: 2,
         game_hash: base.identity.executable_sha256.clone(),
-        mode_class: crate::path(ctx, mode_class).await?,
         state_class: crate::path(ctx, state_class).await?,
         keeper_class: crate::path(ctx, keeper_class).await?,
         buildings,

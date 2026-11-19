@@ -61,11 +61,14 @@ jobs:
           ./scripts/Test-PublicContent.ps1
           ./scripts/Test-Dependencies.ps1
       - name: Build and test release archive
+        env:
+          OVERLAY_RELEASE_TAG: ${{ inputs.tag }}
         run: |
+          $buildLabel = if ($env:OVERLAY_RELEASE_TAG -match '-update3\.') { 'Pre-release build' } else { 'Release build' }
           ./scripts/Build.ps1 -OutputDirectory local/release-build
           ./scripts/Package-Release.ps1 -BuildDirectory local/release-build -OutputDirectory local/release-package
           $archive = Get-ChildItem local/release-package/*.zip
-          ./scripts/Test-Release.ps1 -ArchivePath $archive.FullName
+          ./scripts/Test-Release.ps1 -ArchivePath $archive.FullName -ExpectedBuildLabel $buildLabel
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: reviewed-release

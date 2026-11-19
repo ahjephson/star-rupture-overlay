@@ -2,7 +2,7 @@
 export const publicBase = 'https://ahjephson.dev/star-rupture-overlay/';
 export const previewImage = publicBase + 'assets/in-game-overview.webp';
 const escape = value => value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
-const decode = value => value.replaceAll('&amp;', '&').replaceAll('&quot;', '"');
+const decode = value => value.replace(/&(?:amp|quot);/g, entity => entity === '&amp;' ? '&' : '"');
 
 export function withSEO(html, path) {
   html = html.replace(/\s*<!-- SEO:start -->[\s\S]*?<!-- SEO:end -->/g, '').replace(/<link rel="canonical"[^>]*>/g, '');

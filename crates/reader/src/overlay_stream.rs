@@ -229,13 +229,9 @@ pub fn run_with_features(
 async fn attach_shared(hub: &Hub, budget: Arc<platform::ReadBudget>) -> Result<Session> {
     let seed = hub.seed().context(crate::error::WorldNotLoaded)?;
     let process = platform::reopen(&seed.base.identity, budget)?;
-    let live = live_context::resident::Resident::from_record(
-        &process,
-        &seed.base,
-        seed.live.clone(),
-        false,
-    )
-    .await?;
+    let live =
+        live_context::resident::Resident::from_record(&process, &seed.base, seed.live.clone())
+            .await?;
     ensure!(
         live.matches_proof(&seed.proof) && hub.current(seed.epoch),
         "Shared allocation/session changed during feature attach"
@@ -300,6 +296,7 @@ fn run_feature(
         let mut compass_attempted = false;
         let mut compass_error = None;
         let mut last_menu = None;
+        let mut wave_error = None;
         let mut menu_sent = Instant::now();
         let mut presence_due = Instant::now();
         let mut asset_setup_attempted = false;
@@ -372,6 +369,7 @@ fn run_feature(
                         compass_binding = None;
                         compass_attempted = false;
                         compass_due = Instant::now();
+                        let wave_bindings = s.live.has_wave_bindings();
                         session = Some(s);
                         recipe_setup_attempts = 0;
                         recipe_setup_retry = Instant::now();
@@ -380,7 +378,14 @@ fn run_feature(
                         identity_due = Instant::now();
                         identity_error = None;
                         output.send(Payload::Ready)?;
+                        if role == Role::Connection && wave && !wave_bindings {
+                            eprintln!(
+                                "Wave observation unavailable: no validated wave subsystem bindings."
+                            );
+                            output.send(Payload::WaveUnavailable)?;
+                        }
                         last_menu = None;
+                        wave_error = None;
                         pause_due = Instant::now();
                         world_due = Instant::now();
                     }
@@ -483,37 +488,65 @@ fn run_feature(
                         menu_max_micros = menu_max_micros.max(clock.elapsed().as_micros());
                         pause_due = Instant::now() + cadence.menu;
                     }
-                    if wave && Instant::now() >= world_due {
+                    if wave && s.live.has_wave_bindings() && Instant::now() >= world_due {
                         let cycle = Instant::now();
-                        let started = clock_ms();
-                        sample_context(&s.process, &s.base, s.live.context()).await?;
-                        let live = s.live.snapshot(&s.process, &s.base).await?;
-                        let mut sample =
+                        let sample = async {
+                            let started = clock_ms();
                             sample_context(&s.process, &s.base, s.live.context()).await?;
-                        sample.observed_at_ms = clock_ms();
-                        let process =
-                            output.process.clone().context("Missing active process identity")?;
-                        output.send(Payload::World(Box::new(WorldSample {
-                            read_started_unix_ms: started as i64,
-                            raw: RawObservation {
-                                schema_version: 1,
-                                contract_version: READER_CONTRACT_VERSION,
-                                source_is_live_memory: true,
-                                game_memory_writes: false,
-                                process,
-                                sample,
-                                live,
-                            },
-                            statistics: Statistics {
-                                menu_reads,
-                                world_reads: world_reads + 1,
-                                sessions,
-                                world_read_millis: cycle.elapsed().as_millis() as u64,
-                                menu_max_micros: menu_max_micros as u64,
-                            },
-                        })))?;
-                        world_reads += 1;
-                        world_due = cycle + cadence.world;
+                            let live = s.live.snapshot(&s.process, &s.base).await?;
+                            let mut sample =
+                                sample_context(&s.process, &s.base, s.live.context()).await?;
+                            sample.observed_at_ms = clock_ms();
+                            let process = output
+                                .process
+                                .clone()
+                                .context("Missing active process identity")?;
+                            Ok::<_, anyhow::Error>(WorldSample {
+                                read_started_unix_ms: started as i64,
+                                raw: RawObservation {
+                                    schema_version: 1,
+                                    contract_version: READER_CONTRACT_VERSION,
+                                    source_is_live_memory: true,
+                                    game_memory_writes: false,
+                                    process,
+                                    sample,
+                                    live,
+                                },
+                                statistics: Statistics {
+                                    menu_reads,
+                                    world_reads: world_reads + 1,
+                                    sessions,
+                                    world_read_millis: cycle.elapsed().as_millis() as u64,
+                                    menu_max_micros: menu_max_micros as u64,
+                                },
+                            })
+                        }
+                        .await;
+                        match sample {
+                            Ok(sample) => {
+                                output.send(Payload::World(Box::new(sample)))?;
+                                world_reads += 1;
+                                wave_error = None;
+                                world_due = cycle + cadence.world;
+                            }
+                            Err(error) if crate::error::is_retryable(&error) => {
+                                // A torn sample leaves the previous observation's freshness unchanged.
+                                world_due = Instant::now() + Duration::from_millis(50);
+                            }
+                            Err(error) => {
+                                // Keep the session only if its independent world/player guard passes.
+                                budget.renew(500);
+                                s.live.menu(&s.process, &s.base).await?;
+                                let reason: String =
+                                    format!("{error:#}").chars().take(240).collect();
+                                if wave_error.as_ref() != Some(&reason) {
+                                    eprintln!("Wave observation unavailable: {reason}");
+                                    output.send(Payload::WaveUnavailable)?;
+                                    wave_error = Some(reason);
+                                }
+                                world_due = Instant::now() + Duration::from_secs(1);
+                            }
+                        }
                     }
                     Ok(())
                 }
@@ -901,7 +934,11 @@ fn run_feature(
             }
             let navigation_active = navigation.as_ref().is_some_and(|c| c.enabled());
             let deadline = match role {
-                Role::Connection if wave => pause_due.min(world_due),
+                Role::Connection
+                    if wave && session.as_ref().is_some_and(|s| s.live.has_wave_bindings()) =>
+                {
+                    pause_due.min(world_due)
+                }
                 Role::Connection => pause_due,
                 Role::Compass if navigation_active => compass_due,
                 Role::Compass => Instant::now() + Duration::from_millis(100),

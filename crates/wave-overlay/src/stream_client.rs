@@ -27,6 +27,7 @@ pub enum Update {
     Menu(bool, u64),
     Compass(Option<starrupture_observation_model::compass::Sample>),
     World(Box<Observation>),
+    WaveUnavailable,
     Unavailable(String),
 }
 pub fn run(
@@ -174,6 +175,7 @@ impl<F: FnMut(Update)> ObservationSink<F> {
                 }
                 (self.publish)(Update::Compass(value));
             }
+            Payload::WaveUnavailable => (self.publish)(Update::WaveUnavailable),
             Payload::NoWorld => (self.publish)(Update::NoWorld),
             Payload::Unavailable(reason) => {
                 (self.publish)(Update::Unavailable(reason.chars().take(240).collect()))
@@ -338,6 +340,25 @@ mod tests {
         assert_eq!(value.overlay_session.generation, 1);
         assert!(matches!(events[2], Update::Menu(true, at) if at == now));
         assert!(matches!(&events[3], Update::Unavailable(reason) if reason == "Unavailable"));
+    }
+    #[test]
+    fn wave_unavailable_leaves_the_generation_open_for_other_features() {
+        let now = now_ms().max(0) as u64;
+        let mut events = Vec::new();
+        let mut sink = ObservationSink {
+            validator: Validator::new(std::process::id(), now),
+            world_reads: 0,
+            menu_updates: 0,
+            statistics: None,
+            publish: |event| events.push(event),
+        };
+        sink.accept(message(Payload::Ready, 1, now)).unwrap();
+        sink.accept(message(Payload::WaveUnavailable, 2, now)).unwrap();
+        sink.accept(message(Payload::Compass(None), 3, now)).unwrap();
+        sink.accept(message(Payload::World(Box::new(world(now))), 4, now)).unwrap();
+        assert!(matches!(events[1], Update::WaveUnavailable));
+        assert!(matches!(events[2], Update::Compass(None)));
+        assert!(matches!(events[3], Update::World(_)));
     }
     #[test]
     fn navigation_updates_do_not_refresh_timer_evidence_and_obey_session_guards() {

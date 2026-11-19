@@ -602,6 +602,7 @@ pub(super) fn render_card(
         lock(&mut pixels, dimensions, assets, width / 2, hy + header / 2, scale);
     }
     let count = card.materials.len();
+    let core_upgrade = card.key.starts_with("core-tier:") || card.key.starts_with("core:");
     for (index, material) in card.materials.iter().enumerate() {
         let [x, y, tile] = layout::tile(width, height, count, index);
         let colour = if hovered == Some(index) {
@@ -610,15 +611,37 @@ pub(super) fn render_card(
             [107, 119, 133, 255]
         };
         fill_tile(&mut pixels, dimensions, [x, y, tile, tile], colour);
+        let quantity = material.amount.quantity;
+        let complete = !core_upgrade
+            && card.locked != Some(false)
+            && material.submitted.is_some_and(|count| count >= quantity);
         if let Some(item) = catalogue.items.get(&material.amount.item)
             && let Some(icon) = assets.card_image(&item.icon, (tile - 4) as usize)
         {
-            image(&mut pixels, dimensions, icon, x + 2, y + 2, tile - 4, None);
+            image(
+                &mut pixels,
+                dimensions,
+                icon,
+                x + 2,
+                y + 2,
+                tile - 4,
+                complete.then_some([110, 110, 110]),
+            );
         }
-        let quantity = material.amount.quantity;
-        if card.locked != Some(false) || card.key.starts_with("core-tier:") {
-            let count = if card.locked == Some(false) {
-                format!("×{quantity}")
+        if complete {
+            let tick = (27.0 * scale) as i32;
+            image(
+                &mut pixels,
+                dimensions,
+                &assets.images[&assets.catalogue.tick],
+                x + tile - tick,
+                y,
+                tick,
+                Some([117, 224, 230]),
+            );
+        } else if core_upgrade || card.locked != Some(false) {
+            let count = if core_upgrade {
+                quantity.to_string()
             } else {
                 material.submitted.map_or_else(
                     || format!("— / {quantity}"),

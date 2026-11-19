@@ -25,6 +25,17 @@ test('search metadata is idempotent and provides factual app data and guide brea
   assert.equal(crumbs[1].item, publicBase + 'guides/settings.html');
 });
 
+test('search metadata decodes entities only once', () => {
+  const source = '<head><title>Timer &amp; Compass &amp;quot;</title><meta name="description" content="&quot;Track&quot; &amp;quot;"></head>';
+  const html = withSEO(source, 'index.html');
+  assert.ok(html.includes('property="og:title" content="Timer &amp; Compass &amp;quot;"'));
+  assert.ok(html.includes('property="og:description" content="&quot;Track&quot; &amp;quot;"'));
+  const json = html.match(/<script type="application\/ld\+json">([^<]+)<\/script>/)[1];
+  const [page] = JSON.parse(json)['@graph'];
+  assert.equal(page.name, 'Timer & Compass &quot;');
+  assert.equal(page.description, '"Track" &quot;');
+});
+
 test('display screenshots stay within the image budget and full-size originals remain available', async () => {
   for (const name of ['in-game-overview', 'personal-marker-arrival']) {
     const image = await readFile(new URL(`website/assets/${name}.webp`, import.meta.url));

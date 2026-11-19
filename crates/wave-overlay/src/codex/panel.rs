@@ -89,6 +89,7 @@ fn run(
         stop.clone(),
         Some(pid),
         &catalogue.catalogue.context,
+        &super::pins::upgrade_recipes(&catalogue.catalogue),
         |gameplay, sample| {
             if !gameplay && previous {
                 blocked = blocked.wrapping_add(1);

@@ -2,8 +2,8 @@
 mod marker;
 use starrupture_observation_model::compass::{Arrival, Sample, relative};
 use std::{
-    mem::size_of,
-    ptr::{null, null_mut},
+    mem::{MaybeUninit, size_of},
+    ptr::{NonNull, null, null_mut},
 };
 use windows_sys::Win32::{Foundation::*, Graphics::Gdi::*, UI::WindowsAndMessaging::*};
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -242,7 +242,7 @@ struct Surface {
     old: HGDIOBJ,
     font: HFONT,
     old_font: HGDIOBJ,
-    bits: *mut u8,
+    bits: NonNull<u8>,
     width: i32,
     height: i32,
     pixels: Vec<u8>,
@@ -263,6 +263,11 @@ impl Drop for Surface {
 }
 impl Surface {
     fn new(width: i32, height: i32) -> Result<Self> {
+        let byte_len = width
+            .checked_mul(height)
+            .and_then(|pixels| pixels.checked_mul(4))
+            .filter(|_| width > 0 && height > 0)
+            .ok_or("Invalid compass bitmap dimensions")? as usize;
         let mut info = BITMAPINFO::default();
         info.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
         info.bmiHeader.biWidth = width;
@@ -270,7 +275,7 @@ impl Surface {
         info.bmiHeader.biPlanes = 1;
         info.bmiHeader.biBitCount = 32;
         info.bmiHeader.biCompression = BI_RGB;
-        let mut bits = null_mut();
+        let mut bitmap_bits = MaybeUninit::uninit();
         // SAFETY: Bounded dimensions and initialized headers/out-pointer meet CreateDIBSection's
         // contract. This routine releases every partial allocation on failure.
         unsafe {
@@ -278,14 +283,24 @@ impl Surface {
             if dc.is_null() {
                 return Err(std::io::Error::last_os_error().into());
             }
-            let bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &mut bits, null_mut(), 0);
-            if bitmap.is_null() || bits.is_null() {
-                if !bitmap.is_null() {
-                    DeleteObject(bitmap);
-                }
+            let bitmap = CreateDIBSection(
+                dc,
+                &info,
+                DIB_RGB_COLORS,
+                bitmap_bits.as_mut_ptr(),
+                null_mut(),
+                0,
+            );
+            if bitmap.is_null() {
                 DeleteDC(dc);
                 return Err("Compass bitmap creation failed".into());
             }
+            // CreateDIBSection initializes its out-pointer when it returns a bitmap.
+            let Some(bits) = NonNull::new(bitmap_bits.assume_init().cast()) else {
+                DeleteObject(bitmap);
+                DeleteDC(dc);
+                return Err("Compass bitmap has no pixel buffer".into());
+            };
             let old = SelectObject(dc, bitmap);
             let font = CreateFontW(
                 -(height * 23 / 90).max(13),
@@ -326,10 +341,10 @@ impl Surface {
                 old,
                 font,
                 old_font,
-                bits: bits.cast(),
+                bits,
                 width,
                 height,
-                pixels: vec![0; (width * height * 4) as usize],
+                pixels: vec![0; byte_len],
                 marker_size: (width * 24 / 560).max(14) as usize,
                 marker_mask: marker::mask((width * 24 / 560).max(14) as usize),
             })
@@ -369,7 +384,7 @@ impl Surface {
         // before accessing its pixels; DrawText reads the bounded UTF-16 buffer synchronously.
         unsafe {
             GdiFlush();
-            std::ptr::write_bytes(self.bits, 0, self.pixels.len());
+            std::ptr::write_bytes(self.bits.as_ptr(), 0, self.pixels.len());
             DrawTextW(
                 self.dc,
                 text.as_ptr(),
@@ -383,7 +398,8 @@ impl Surface {
             for yy in y.max(0)..self.height {
                 for x in (cx - 65).max(0)..(cx + 65).min(self.width) {
                     // SAFETY: These bounds keep the read inside the retained selected DIB.
-                    let a = unsafe { *self.bits.add(((yy * self.width + x) * 4) as usize) };
+                    let a =
+                        unsafe { *self.bits.as_ptr().add(((yy * self.width + x) * 4) as usize) };
                     if a == 0 {
                         continue;
                     }
@@ -511,7 +527,11 @@ impl Surface {
         // flushed before replacing it with the composed premultiplied BGRA surface.
         unsafe {
             GdiFlush();
-            std::ptr::copy_nonoverlapping(self.pixels.as_ptr(), self.bits, self.pixels.len());
+            std::ptr::copy_nonoverlapping(
+                self.pixels.as_ptr(),
+                self.bits.as_ptr(),
+                self.pixels.len(),
+            );
         }
     }
 }

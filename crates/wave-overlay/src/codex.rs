@@ -88,6 +88,7 @@ pub fn self_test(directory: &Path, live: bool) -> Result<()> {
                 stop.clone(),
                 None,
                 &result.catalogue.context,
+                &pins::upgrade_recipes(&result.catalogue),
                 |_, value| {
                     if value.is_some() {
                         sample = value;
@@ -111,6 +112,7 @@ pub fn self_test(directory: &Path, live: bool) -> Result<()> {
                 .collect();
         let report = serde_json::json!({
             "buildings": sample.buildings, "recipes": sample.recipes, "research": sample.research,
+            "upgradeSubmissions": sample.upgrade_submissions,
             "ownedEquipment": sample.owned_equipment, "corporations": sample.corporations,
             "highestUnlockedCoreTier": sample.highest_unlocked_core_tier,
             "cores": sample.cores.iter().map(|core| [core.id, core.tier_index, core.capacity]).collect::<Vec<_>>(),
@@ -127,6 +129,7 @@ pub fn self_test(directory: &Path, live: bool) -> Result<()> {
         owned_equipment: result.catalogue.weapon_purchases.keys().cloned().collect(),
         recipes: Default::default(),
         research: Default::default(),
+        upgrade_submissions: Default::default(),
         corporations: Default::default(),
         cores: Vec::new(),
         highest_unlocked_core_tier: None,

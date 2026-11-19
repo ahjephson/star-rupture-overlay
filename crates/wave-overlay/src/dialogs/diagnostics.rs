@@ -568,6 +568,10 @@ pub fn self_test(directory: &Path) -> Result<()> {
     dialogs.open(ABOUT, std::ptr::null_mut(), context.clone())?;
     let about =
         dialogs.windows.iter().find(|dialog| dialog.0.kind == ABOUT).unwrap().0.window.get();
+    // SAFETY: The About window is owned, and the buffer remains valid for the synchronous read.
+    let length = unsafe { GetDlgItemTextW(about, 120, value.as_mut_ptr(), value.len() as i32) };
+    ensure!(length > 0, "About version text is missing");
+    fs::write(directory.join("about-version.txt"), String::from_utf16(&value[..length as usize])?)?;
     capture(about, &directory.join("about.bmp"))?;
     let mut icon_rect = RECT::default();
     // SAFETY: Win32 validates the borrowed handle where required; every output points to an

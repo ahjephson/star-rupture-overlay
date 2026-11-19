@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.2 — 2026-11-19
+
+This Windows x64 update supports the public Steam release of StarRupture Update 3.
+
+- Building upgrade pins show live Development Station submissions, with a cyan checkmark for fully supplied materials. Base Core upgrade pins show the required quantities.
+- The Codex shows inventory icons for Helium-3, Crude Oil and ores. It reads the building catalogue through the game state available to multiplayer guests.
+- The wave timer panel hides when wave data is unavailable and returns when valid readings resume. The Codex, compass and recipe tracker can connect without the wave timer.
+- About correctly identifies official release builds.
+
 ## 1.1.1 — 2026-11-19
 
 This Windows x64 update supports the public Steam release of StarRupture Update 3.
