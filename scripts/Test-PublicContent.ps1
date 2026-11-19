@@ -7,6 +7,7 @@ try {
     foreach ($relative in $files) {
         if ($relative -match '(^|/)(local|dist|target|\.tools|\.codex|captures|backups|saves)/|\.(sav|met|dmp|exe|dll|pdb|usmap|bgra|pak|ucas|utoc|lnk)$|(^|/)\.env($|\.)|^config/(?!example\.json$).*\.json$') { throw "Private/generated file is tracked: $relative" }
         if ([IO.Path]::GetExtension($relative) -in @('.ttf', '.png', '.ico', '.webp')) { continue }
+        if ($relative -cmatch '^site/website/assets/video/(personal-marker|recipe-tracking)-demo\.mp4$') { continue }
         if (-not (Test-Path -LiteralPath $relative)) { continue } # staged deletion
         $text = Get-Content -LiteralPath $relative -Raw -Encoding utf8
         if ($relative -notmatch '^third-party/' -and $text -match '\u00e2(?:\u20ac|\u2020)|\u00c3[\u0080-\u00bf]|\u00c2[\u00a0-\u00bf]|\ufffd') {
