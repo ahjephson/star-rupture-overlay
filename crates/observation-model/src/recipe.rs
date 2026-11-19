@@ -142,7 +142,7 @@ struct State {
     catalogue_selection: Option<String>,
     pins: Vec<View>,
     cards: Vec<(String, u32)>,
-    retained: BTreeSet<String>,
+    research_cards: BTreeSet<String>,
     notice: String,
 }
 #[derive(Default)]
@@ -224,7 +224,7 @@ impl Control {
         state.advance();
         state.pins.clear();
         state.cards.clear();
-        state.retained.clear();
+        state.research_cards.clear();
         state.edited = true;
         state.settle();
     }
@@ -234,7 +234,7 @@ impl Control {
         state.advance();
         state.pins.clear();
         state.cards.clear();
-        state.retained.clear();
+        state.research_cards.clear();
         state.edited = false;
         state.settle();
     }
@@ -252,7 +252,7 @@ impl Control {
         request: Request,
         snapshots: Vec<Snapshot>,
         cards: Vec<(String, u32)>,
-        retained: BTreeSet<String>,
+        research_cards: BTreeSet<String>,
     ) -> bool {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         let mut ids = BTreeSet::new();
@@ -263,13 +263,16 @@ impl Control {
             || snapshots.len() + cards.len() > MAX_PINS
             || snapshots.iter().any(|s| s.recipe_id.is_empty() || !ids.insert(&s.recipe_id))
             || cards.iter().any(|(id, pid)| *pid == 0 || !valid_card(id) || !ids.insert(id))
+            || !research_cards
+                .iter()
+                .all(|id| crate::codex::asset_id(id) && cards.iter().any(|(card, _)| card == id))
         {
             return false;
         }
         state.advance();
         state.edited = true;
         state.cards = cards;
-        state.retained = retained;
+        state.research_cards = research_cards;
         for mut snapshot in
             snapshots.into_iter().filter(|s| s.ingredients.iter().any(|i| i.remaining > 0))
         {
@@ -284,8 +287,8 @@ impl Control {
         state.settle();
         true
     }
-    pub fn pin_card(&self, id: &str, process: u32) {
-        if process == 0 || !valid_card(id) {
+    pub fn pin_card(&self, id: &str, process: u32, research: bool) {
+        if process == 0 || !valid_card(id) || (research && !crate::codex::asset_id(id)) {
             return;
         }
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -297,6 +300,9 @@ impl Control {
         state.advance();
         if state.pins.len() + state.cards.len() < MAX_PINS {
             state.cards.push((id.into(), process));
+            if research {
+                state.research_cards.insert(id.into());
+            }
             state.edited = true;
         } else {
             state.notice = PIN_LIMIT_NOTICE.into();
@@ -313,31 +319,34 @@ impl Control {
             .pins
             .iter()
             .filter_map(|view| view.snapshot.as_ref())
-            .map(|snap| {
-                if state.retained.contains(&snap.recipe_id) {
-                    format!("#tracked:{}", snap.recipe_id)
-                } else {
-                    snap.recipe_id.clone()
-                }
-            })
+            .map(|snapshot| snapshot.recipe_id.clone())
             .collect();
-        ids.extend(state.cards.iter().map(|(id, _)| format!("#card:{id}")));
+        ids.extend(state.cards.iter().map(|(id, _)| {
+            if state.research_cards.contains(id) {
+                format!("#tracked:{id}")
+            } else {
+                format!("#card:{id}")
+            }
+        }));
         Some(ids)
     }
 
-    pub fn settle_catalogue_as_card(&self, request: Request, pid: u32) {
+    /// Remove invalid or completed fallback cards using current-world catalogue evidence.
+    pub fn discard_cards(&self, process: u32, mut discard: impl FnMut(&str, bool) -> bool) {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        if state.request != request || pid == 0 {
-            return;
-        }
-        if let Some(id) = state.catalogue_selection.take() {
-            if state.pins.len() + state.cards.len() < MAX_PINS {
-                state.cards.push((id, pid));
+        let State {
+            cards,
+            research_cards,
+            ..
+        } = &mut *state;
+        cards.retain(|(id, pid)| {
+            if *pid == process && discard(id, research_cards.contains(id)) {
+                research_cards.remove(id);
+                false
             } else {
-                state.notice = PIN_LIMIT_NOTICE.into();
+                true
             }
-            state.settle();
-        }
+        });
     }
     pub fn card_ids(&self, process: u32) -> Vec<String> {
         self.state
@@ -359,7 +368,7 @@ impl Control {
         }
         state.advance();
         state.cards.retain(|(key, _)| key != id);
-        state.retained.remove(id);
+        state.research_cards.remove(id);
         state.pins.retain(|p| p.snapshot.as_ref().is_some_and(|s| s.recipe_id != id));
         state.settle();
     }
@@ -394,12 +403,6 @@ impl Control {
                 };
             }
             None => {
-                if state.retained.remove(id)
-                    && let Some(previous) = &state.pins[index].snapshot
-                {
-                    let process = previous.process;
-                    state.cards.push((id.into(), process));
-                }
                 state.pins.remove(index);
             }
         }
@@ -422,7 +425,7 @@ impl Control {
         if request.clear_outside {
             state.pins.clear();
             state.cards.clear();
-            state.retained.clear();
+            state.research_cards.clear();
         }
         state.settle();
     }
@@ -438,15 +441,12 @@ impl Control {
                 .iter()
                 .position(|p| p.snapshot.as_ref().is_some_and(|s| s.recipe_id == next.recipe_id))
             {
-                state.retained.remove(&next.recipe_id);
                 state.pins.remove(index);
             } else if let Some(index) = state.cards.iter().position(|(id, _)| id == &next.recipe_id)
             {
                 state.cards.remove(index);
+                state.research_cards.remove(&next.recipe_id);
             } else if state.pins.len() + state.cards.len() < MAX_PINS {
-                if state.catalogue_selection.as_deref() == Some(next.recipe_id.as_str()) {
-                    state.retained.insert(next.recipe_id.clone());
-                }
                 next.generation = request.generation;
                 state.pins.push(View {
                     snapshot: Some(next),
@@ -505,7 +505,7 @@ mod tests {
     fn upgrade_cards_share_capacity_and_persist_without_live_counts() {
         let control = super::Control::default();
         for id in ["core:42:2", "upgrade:/Game/Chimera/B_A", "/Game/Chimera/Recipe", "core:43:2"] {
-            control.pin_card(id, 7);
+            control.pin_card(id, 7, false);
         }
         assert_eq!(control.card_ids(7).len(), 3);
         assert!(control.card_ids(8).is_empty());
@@ -526,6 +526,29 @@ mod tests {
         ));
         assert_eq!(control.card_ids(8), ["core:42:2"]);
     }
+    #[test]
+    fn codex_research_completion_frees_slot_and_forgets_the_choice() {
+        let control = super::Control::default();
+        let research = "/Game/Chimera/Recipe_Research";
+        let fallback = "/Game/Chimera/Recipe_Fallback";
+        let production = "/Game/Chimera/Recipe_Production";
+        control.select_catalogue(research);
+        let mut unfinished = sample(research, 1);
+        unfinished.process = 7;
+        control.captured(control.request(), Some(unfinished));
+        control.pin_card(fallback, 7, true);
+        control.pin_card(production, 7, false);
+        assert!(control.remembered_ids().unwrap().contains(&format!("#tracked:{fallback}")));
+
+        control.publish_for(control.request(), research, Some(sample(research, 0)), String::new());
+        control.discard_cards(7, |id, is_research| id == fallback && is_research);
+        assert!(control.views().is_empty());
+        assert_eq!(control.card_ids(7), [production]);
+        assert_eq!(control.remembered_ids().unwrap(), [format!("#card:{production}")]);
+        control.pin_card(research, 7, false);
+        assert_eq!(control.card_ids(7), [production, research]);
+    }
+
     #[test]
     fn catalogue_requests_do_not_replace_or_clear_game_shortcut_requests() {
         let control = super::Control::default();

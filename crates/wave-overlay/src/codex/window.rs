@@ -1,7 +1,7 @@
 //! Native, overlay-owned Codex window and input handling.
 use super::{
     backdrop::Cursor,
-    view::{self, Entry, Row, Tab},
+    view::{self, Entry, LevelStatus, Row, Tab},
 };
 use anyhow::{Result, ensure};
 use starrupture_assets::codex::{Icon, Prepared};
@@ -495,7 +495,7 @@ impl Window {
                     if eligible(&id) {
                         tracker.control.select_catalogue(&id);
                     } else {
-                        tracker.control.pin_card(&id, pid);
+                        tracker.control.pin_card(&id, pid, s.progress.research.contains(&id));
                         pinned = tracker.control.pinned_ids(pid);
                         pinned.extend(tracker.control.card_ids(pid));
                     }
@@ -733,6 +733,35 @@ impl Drawing {
             SelectObject(self.0, old);
         }
     }
+    fn label_width(&self, font: &Font, text: &str) -> i32 {
+        let text = wide(text);
+        let mut size = SIZE::default();
+        // SAFETY: The font and UTF-16 text stay live until the original font is restored.
+        unsafe {
+            let old = SelectObject(self.0, font.0);
+            GetTextExtentPoint32W(self.0, text.as_ptr(), (text.len() - 1) as i32, &mut size);
+            SelectObject(self.0, old);
+        }
+        self.1.logical(size.cx)
+    }
+
+    fn padlock(&self, x: i32, y: i32, colour: u32, background: u32) {
+        self.polygon(
+            &[
+                point(x - 6, y),
+                point(x - 6, y - 6),
+                point(x - 3, y - 9),
+                point(x + 3, y - 9),
+                point(x + 6, y - 6),
+                point(x + 6, y),
+            ],
+            background,
+            colour,
+        );
+        self.fill(rect(x - 8, y - 2, x + 8, y + 10), colour);
+        self.fill(rect(x - 1, y + 2, x + 2, y + 7), background);
+    }
+
     fn close_button(&self, hovered: bool) {
         let bounds = close_bounds();
         let x = (bounds.left + bounds.right) / 2;
@@ -812,22 +841,7 @@ impl Drawing {
             self.fill(rect(x + size - 1, y, x + size, y + size), edge);
         }
         if style.locked && (prepared.catalogue.lock_icon.is_none() || id.is_none()) {
-            let x = x + size / 2;
-            let y = y + size / 2;
-            self.polygon(
-                &[
-                    point(x - 6, y),
-                    point(x - 6, y - 6),
-                    point(x - 3, y - 9),
-                    point(x + 3, y - 9),
-                    point(x + 6, y - 6),
-                    point(x + 6, y),
-                ],
-                TILE,
-                INK,
-            );
-            self.fill(rect(x - 8, y - 2, x + 8, y + 10), INK);
-            self.fill(rect(x - 1, y + 2, x + 2, y + 7), TILE);
+            self.padlock(x + size / 2, y + size / 2, INK, TILE);
         }
     }
 }
@@ -1260,7 +1274,39 @@ fn paint_detail(
     let right = WIDTH - 23;
     let inner = DT_END_ELLIPSIS | DT_SINGLELINE;
     if detail.section {
-        d.label(&s.text, &detail.heading, rect(x, top + 6, right, top + 29), CYAN, inner);
+        let bounds = rect(x, top + 6, right, top + 29);
+        let colour = if detail.level_status == Some(LevelStatus::Locked) {
+            DIM
+        } else {
+            CYAN
+        };
+        d.label(&s.text, &detail.heading, bounds, colour, inner);
+        if let Some(status) = detail.level_status {
+            let badge = x + d.label_width(&s.text, &detail.heading) + 10;
+            let y = top + 16;
+            match status {
+                LevelStatus::Unlocked => d.polygon(
+                    &[
+                        point(badge, y),
+                        point(badge + 2, y - 2),
+                        point(badge + 6, y + 2),
+                        point(badge + 13, y - 5),
+                        point(badge + 15, y - 3),
+                        point(badge + 6, y + 6),
+                    ],
+                    CYAN,
+                    CYAN,
+                ),
+                LevelStatus::Next => d.label(
+                    &s.small,
+                    "Next level",
+                    rect(badge, bounds.top, right, bounds.bottom),
+                    ORANGE,
+                    inner | DT_VCENTER,
+                ),
+                LevelStatus::Locked => d.padlock(badge + 8, y, DIM, PANEL),
+            }
+        }
         return;
     }
     if hover {

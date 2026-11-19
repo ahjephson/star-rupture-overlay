@@ -601,6 +601,16 @@ impl Panel {
         } = presentation;
         self.cursor.borrow_mut().observe(game, process);
         self.shortcut(owner, game, settings);
+        if let Some((prepared, progress)) = &codex {
+            let catalogue = &prepared.catalogue;
+            self.control.discard_cards(process, |id, research| {
+                catalogue.recipes.contains_key(id)
+                    && (!crate::codex::pins::pinnable_recipe(catalogue, id)
+                        || (research
+                            && !progress.research.contains(id)
+                            && progress.recipes.contains(id)))
+            });
+        }
         if !settings.enabled || !visible || self.assets.is_none() {
             self.hide();
             return;

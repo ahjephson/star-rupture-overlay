@@ -685,15 +685,22 @@ fn run_feature(
                     let result: Result<_> = async {
                         let mut snapshots = Vec::new();
                         let mut cards = Vec::new();
-                        let mut retained = std::collections::BTreeSet::new();
+                        let mut research_cards = std::collections::BTreeSet::new();
                         for stored in ids {
                             if let Some(id) = stored.strip_prefix("#card:") {
                                 cards.push((id.to_owned(), s.process.identity.pid));
                                 continue;
                             }
-                            let tracked = stored.starts_with("#tracked:");
-                            let id = stored.strip_prefix("#tracked:").unwrap_or(&stored).to_owned();
-                            if !t.catalogue.recipes.contains_key(&id) {
+                            // Older Codex research pins used the tracked prefix.
+                            let tracked = stored.strip_prefix("#tracked:");
+                            let id = tracked.unwrap_or(&stored);
+                            if !t.catalogue.recipes.contains_key(id) {
+                                // A research card can lack native counters. Keep it flagged as
+                                // research so the Codex can remove it when the unlock is observed.
+                                if tracked.is_some() {
+                                    research_cards.insert(id.to_owned());
+                                    cards.push((id.to_owned(), s.process.identity.pid));
+                                }
                                 continue;
                             }
                             s.live.menu(&s.process, &s.base).await?;
@@ -702,39 +709,28 @@ fn run_feature(
                                     &s.live.context(),
                                     &s.base,
                                     s.live.world_address(),
-                                    &id,
+                                    id,
                                     &t.catalogue,
                                     restore_request.generation,
                                 )
                                 .await?
                             {
-                                if tracked
-                                    && !snapshot.ingredients.iter().any(|item| item.remaining > 0)
-                                {
-                                    cards.push((id.clone(), s.process.identity.pid));
-                                } else {
-                                    if tracked {
-                                        retained.insert(id.clone());
-                                    }
-                                    snapshots.push(snapshot);
-                                }
-                            } else if tracked {
-                                cards.push((id.clone(), s.process.identity.pid));
+                                snapshots.push(snapshot);
                             }
                             s.live.menu(&s.process, &s.base).await?;
                         }
-                        Ok((snapshots, cards, retained))
+                        Ok((snapshots, cards, research_cards))
                     }
                     .await;
                     match result {
-                        Ok((snapshots, cards, retained)) => {
+                        Ok((snapshots, cards, research_cards)) => {
                             hub.recipes(s.epoch, |r| {
                                 r.restored_catalogue(
                                     &t.control,
                                     restore_request,
                                     snapshots,
                                     cards,
-                                    retained,
+                                    research_cards,
                                 )
                             });
                         }
@@ -773,9 +769,7 @@ fn run_feature(
                         {
                             t.control.captured(request, Some(snapshot))
                         }
-                        Ok(_) => {
-                            t.control.settle_catalogue_as_card(request, s.process.identity.pid)
-                        }
+                        Ok(_) => t.control.reject_catalogue(request, String::new()),
                         Err(error) => t.control.reject_catalogue(
                             request,
                             format!("{error:#}").chars().take(220).collect(),

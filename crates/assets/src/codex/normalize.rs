@@ -140,7 +140,7 @@ fn crafting(
                 } else {
                     Some(id(&cp["RecipeCollection"])?)
                 },
-                recipe_list_known: false,
+                recipe_order: Vec::new(),
                 loop_seconds: float(&cp["CraftingLoopDuration"], defaults.crafting_loop_seconds)?,
                 overwrite_seconds: float(
                     &cp["OverwriteRecipeBuildTime"],
@@ -302,9 +302,9 @@ pub(super) fn build(archive: &mut Archive<'_>, context: NativeContext) -> Result
             && let Some(cid) = &c.collection
         {
             let e = archive.one(cid, "CrItemRecipeCollection")?;
-            c.recipe_list_known = e.props.get("Recipes").is_some();
-            for r in rows(&e.props["Recipes"])? {
-                let v = links.entry(id(r)?).or_default();
+            c.recipe_order = rows(&e.props["Recipes"])?.iter().map(id).collect::<Result<_>>()?;
+            for recipe in &c.recipe_order {
+                let v = links.entry(recipe.clone()).or_default();
                 ensure!(!v.contains(&root.id), "Duplicate building recipe link");
                 v.push(root.id.clone());
             }
@@ -537,7 +537,7 @@ pub(super) fn build(archive: &mut Archive<'_>, context: NativeContext) -> Result
     }
     let corporations = corporation_records;
     let catalogue = Catalogue {
-        version: 7,
+        version: 8,
         lock_icon: [
             "/Game/Chimera/UI/CommonAssets/Textures/SR_Locked_icon",
             "/Game/Chimera/UI/Buildings/Crafting/Textures/SR_lockedIcon2",

@@ -115,7 +115,7 @@ pub struct Task {
 #[serde(deny_unknown_fields)]
 pub struct Crafting {
     pub collection: Option<String>,
-    pub recipe_list_known: bool,
+    pub recipe_order: Vec<String>,
     pub loop_seconds: f32,
     pub overwrite_seconds: f32,
     pub processor: bool,
@@ -196,7 +196,7 @@ impl Catalogue {
     pub fn validate(&self) -> Result<()> {
         self.context.validate().map_err(anyhow::Error::msg)?;
         ensure!(
-            self.version == 7
+            self.version == 8
                 && self.lock_icon.as_ref().is_none_or(|id| asset_id(id))
                 && self.corporations.len() <= 32
                 && !self.items.is_empty()
@@ -259,6 +259,14 @@ impl Catalogue {
                         .any(|v| v.id == *id && v.category == b.category),
                 "Invalid/unrooted building"
             );
+            if let Some(crafting) = &b.crafting {
+                let mut seen = std::collections::BTreeSet::new();
+                ensure!(
+                    crafting.recipe_order.len() <= 4096
+                        && crafting.recipe_order.iter().all(|id| asset_id(id) && seen.insert(id)),
+                    "Invalid machine recipe order"
+                );
+            }
             bill(&b.materials)?;
             ensure!(
                 (!b.unlocks.is_empty() || b.core_progression) && b.unlocks.len() <= 64,

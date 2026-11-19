@@ -326,6 +326,29 @@ impl Binding {
         read.finish(ctx).await?;
         Ok(result)
     }
+    pub(crate) async fn station_order(
+        &self,
+        ctx: &Ctx,
+        base: &RuntimeCache,
+    ) -> Result<Vec<String>> {
+        let rows = self.current_rows(ctx, base).await?;
+        let mut read = Read::default();
+        let mut order = Vec::with_capacity(rows.len());
+        for row in &rows {
+            let address = row.0.address;
+            ensure!(
+                read.object(ctx, address, Some(self.rows_class)).await? == *row,
+                "Station recipe row changed"
+            );
+            let recipe = read.pointer(ctx, address + 1024).await?;
+            read.object(ctx, recipe, None).await?;
+            order.push(asset(ctx, recipe).await?);
+        }
+        read.finish(ctx).await?;
+        ensure!(self.current_rows(ctx, base).await? == rows, "Station recipe order changed");
+        Ok(order)
+    }
+
     pub(crate) async fn current_rows(
         &self,
         ctx: &Ctx,

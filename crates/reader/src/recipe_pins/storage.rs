@@ -96,9 +96,9 @@ impl Remembered {
         request: starrupture_observation_model::recipe::Request,
         snapshots: Vec<Snapshot>,
         cards: Vec<(String, u32)>,
-        retained: std::collections::BTreeSet<String>,
+        research_cards: std::collections::BTreeSet<String>,
     ) {
-        if control.restore_catalogue(request, snapshots, cards, retained)
+        if control.restore_catalogue(request, snapshots, cards, research_cards)
             && let Some(active) = &mut self.active
         {
             active.pending = false;

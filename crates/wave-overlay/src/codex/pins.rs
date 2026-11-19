@@ -20,7 +20,7 @@ pub(super) fn key(c: &Catalogue, entry: &super::view::Entry) -> Option<String> {
         Entry::Recipe {
             id,
             ..
-        } => Some(id.clone()),
+        } => pinnable_recipe(c, id).then(|| id.clone()),
         Entry::Building(id) => c
             .buildings
             .get(id)?
@@ -30,6 +30,10 @@ pub(super) fn key(c: &Catalogue, entry: &super::view::Entry) -> Option<String> {
             .then(|| format!("upgrade:{id}")),
         _ => None,
     }
+}
+
+pub(crate) fn pinnable_recipe(c: &Catalogue, id: &str) -> bool {
+    c.recipes.get(id).is_some_and(|recipe| !recipe.inputs.is_empty())
 }
 
 pub(super) fn highest_core_tier(c: &Catalogue, p: &Progress) -> Option<u32> {
@@ -108,6 +112,9 @@ pub(crate) fn card(c: &Catalogue, p: &Progress, key: String) -> Option<Card> {
                 })
                 .collect(),
         });
+    }
+    if !pinnable_recipe(c, &key) {
+        return None;
     }
     let recipe = c.recipes.get(&key)?;
     let locked = if p.research.contains(&key) {

@@ -2278,7 +2278,7 @@ dependencies = [
 
 [[package]]
 name = "starrupture-assets"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "anyhow",
  "bcdec_rs",
@@ -2293,14 +2293,14 @@ dependencies = [
 
 [[package]]
 name = "starrupture-observation-model"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "starrupture-overlay"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "anyhow",
  "serde",
@@ -2316,7 +2316,7 @@ dependencies = [
 
 [[package]]
 name = "starrupture-overlay-reader"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2336,7 +2336,7 @@ dependencies = [
 
 [[package]]
 name = "starrupture-wave-core"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "serde",
  "serde_json",

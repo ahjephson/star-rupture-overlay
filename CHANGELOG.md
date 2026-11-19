@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.1.1 — 2026-11-19
+
+This Windows x64 update supports the public Steam release of StarRupture Update 3.
+
+### Codex
+
+- Corporation level headings now show a cyan checkmark for unlocked levels, an amber **Next level** label and a padlock for later levels.
+- The Corporations tab follows the Corporate Terminal order. Training requirements show their training milestone.
+- **Produced items** follows each machine’s game-data recipe order, so entries stay in place as recipes unlock.
+
+### Recipe pins
+
+- Completing recipe research now removes its pin and frees the slot. Pins already converted to production pins by the previous version can be closed individually.
+- Raw materials such as Titanium Ore and Helium-3 stay visible in ingredient lists. Their own entries omit **Pin recipe**.
+
 ## 1.1.0 — 2026-11-19
 
 Windows x64 release for StarRupture Update 3: Custom Game. The overlay runs alongside the Steam game and reads game data locally.
