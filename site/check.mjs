@@ -15,6 +15,7 @@ for (const path of ['index.html', ...pages.map(page => `guides/${page.slug}.html
   assert.equal((html.match(/rel="canonical"/g) || []).length, 1, `${path}: one canonical URL`);
   assert.match(html, /property="og:url" content="https:\/\/ahjephson\.dev\/star-rupture-overlay\//);
   assert.match(html, /name="twitter:card" content="summary_large_image"/);
+  assert.doesNotMatch(html, /\b(?:PTB|PTR|public test (?:branch|realm|region))\b/i, path + ": use stable Update 3 wording");
   const schema = JSON.parse(html.match(/<script type="application\/ld\+json">(.*?)<\/script>/s)[1]);
   assert.equal(schema['@context'], 'https://schema.org');
   assert.ok(schema['@graph'].some(item => item['@type'] === (path === 'index.html' ? 'SoftwareApplication' : 'BreadcrumbList')));
@@ -38,9 +39,17 @@ for (const path of ['index.html', ...pages.map(page => `guides/${page.slug}.html
 }
 const home = await readFile(new URL('index.html', root), 'utf8');
 assert.match(home, /Update 2:<\/strong> one pinned recipe, controlled by keyboard shortcut/);
-assert.match(home, /Update 3:<\/strong> up to three recipes/);
-assert.match(home, /href="https:\/\/github.com\/ahjephson\/star-rupture-overlay\/releases\/tag\/v1\.1\.0-update3\.1">Download Update 3 pre-release/);
-assert.doesNotMatch(home, /Pre-release being prepared|pre-release is being prepared/);
+assert.match(home, /Update 3:<\/strong> up to three pins/);
+assert.match(home, /href="https:\/\/github.com\/ahjephson\/star-rupture-overlay\/releases\/tag\/v1\.1\.0">Download for Update 3/);
+assert.doesNotMatch(home, /v1\.1\.0-update3\.1|UPDATE 3 PREVIEW|UPDATE 3 PRE-RELEASE/);
+const codexTabs = [...home.matchAll(/<input type="radio" name="codex-tab" id="codex-tab-([a-z]+)"( checked)?>/g)];
+assert.deepEqual(codexTabs.map(match => match[1]), ['production', 'buildings', 'interiors', 'equipment', 'corporations']);
+assert.deepEqual(codexTabs.filter(match => match[2]).map(match => match[1]), ['production']);
+for (const [, tab] of codexTabs) {
+  assert.ok(home.includes(`<label for="codex-tab-${tab}">`));
+  assert.ok(home.includes(`id="codex-slide-${tab}"`));
+  assert.ok(home.includes(`src="assets/codex/${tab}.webp"`));
+}
 assert.match(home, /restores your recipe pins after restarts/);
 assert.match(home, /Compass close-up with a Personal Marker flag and a distance of 41 metres/);
 assert.match(home, /Separate close-up of the cyan ARRIVED cue/);
@@ -51,4 +60,4 @@ assert.equal((home.match(/class="timer-stage"/g) || []).length, 6, 'Show all six
 for (const stage of ['STABLE','PRE-WAVE','APPROACHING','INCINERATING','COOLING','GROWBACK']) {
   assert.ok(home.includes(`alt="${stage} timer stage,`), `Missing actual timer capture: ${stage}`);
 }
-console.log(`Checked 5 pages and ${links} local links/assets: headings, IDs, anchors, noindex, version distinctions and pre-release state passed.`);
+console.log(`Checked 5 pages and ${links} local links/assets: headings, IDs, anchors, noindex, version distinctions and Codex carousel passed.`);

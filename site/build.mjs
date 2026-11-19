@@ -11,7 +11,7 @@ const nav = pages.map(page => `<a href="${page.slug}.html">${page.nav}</a>`).joi
 await mkdir(new URL('guides/', root), { recursive: true });
 for (const page of pages) {
   const html = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow"><meta name="theme-color" content="#111519"><meta name="description" content="${page.description}"><title>${page.title} | StarRupture Overlay</title><link rel="icon" href="../assets/overlay-mark.png"><link rel="stylesheet" href="../styles.css?v=video-demos-1"></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow"><meta name="theme-color" content="#111519"><meta name="description" content="${page.description}"><title>${page.title} | StarRupture Overlay</title><link rel="icon" href="../assets/overlay-mark.png"><link rel="stylesheet" href="../styles.css?v=codex-1"></head>
 <body><a class="skip" href="#main">Skip to content</a>
 ${header}
 <main id="main" class="wrap guide-layout"><aside class="guide-nav"><p class="eyebrow">PLAYER GUIDES</p><nav aria-label="Player guides">${nav}</nav><a class="text-link" href="../#get-started">Choose a download ↗</a></aside><article class="guide-prose"><p class="guide-breadcrumb"><a href="../">StarRupture Overlay</a> / ${page.title}</p><p class="eyebrow">${page.eyebrow}</p><h1>${page.title}</h1><p class="guide-intro">${page.description}</p>${page.body}</article></main>
