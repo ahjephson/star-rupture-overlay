@@ -642,6 +642,7 @@ fn run_feature(
                                     &s.live.context(),
                                     &s.base,
                                     s.live.world_address(),
+                                    &hub.definitions,
                                 )
                                 .await?,
                             );

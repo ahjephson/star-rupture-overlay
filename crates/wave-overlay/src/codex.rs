@@ -78,16 +78,26 @@ pub fn self_test(directory: &Path, live: bool) -> Result<()> {
     if live {
         let live_started = std::time::Instant::now();
         let mut sample = None;
-        starrupture_overlay_reader::codex::observe(
-            &directory,
-            stop.clone(),
-            None,
-            &result.catalogue.context,
-            |_, value| {
-                sample = value;
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                stop.wait_until(std::time::Instant::now() + std::time::Duration::from_secs(10));
                 stop.request();
-            },
-        )?;
+            });
+            let observed = starrupture_overlay_reader::codex::observe(
+                &directory,
+                stop.clone(),
+                None,
+                &result.catalogue.context,
+                |_, value| {
+                    if value.is_some() {
+                        sample = value;
+                        stop.request();
+                    }
+                },
+            );
+            stop.request();
+            observed
+        })?;
         let sample = sample.context("Codex live sample unavailable")?;
         let tabs: Vec<_> = view::Tab::ALL.into_iter().map(|tab| {
             let rows = view::rows(&result.catalogue, &sample, tab, "");

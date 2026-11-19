@@ -30,7 +30,8 @@ pub fn self_test(directory: &Path) -> Result<()> {
         .await?;
         let ctx = live.context();
         budget.renew(60000);
-        let binding = super::Binding::discover(&ctx, &base, live.world_address()).await?;
+        let lookup = crate::native_lookup::Lookup::new(&directory.join("cache"));
+        let binding = super::Binding::discover(&ctx, &base, live.world_address(), &lookup).await?;
         budget.renew(5000);
         let first = binding
             .current(&ctx, live.world_address(), std::path::Path::new(&process.identity.executable))

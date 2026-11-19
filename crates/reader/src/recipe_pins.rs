@@ -1,5 +1,6 @@
 //! Per-save-folder recipe choices. Never persists research amounts or game state.
 mod diagnostics;
+mod getter;
 mod identity;
 mod storage;
 pub use diagnostics::self_test;

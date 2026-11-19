@@ -751,8 +751,8 @@ fn save_settings(state: &State) -> Result<()> {
     state.context.preferences.set(preferences);
     Ok(())
 }
-const SUPPORTED_GAME: &str = "Update 3 PTB";
-const SUPPORTED_GAME_VERSION: &str = "0.4.0 (build 128786)";
+const SUPPORTED_GAME: &str = "Update 3: Custom Game";
+const SUPPORTED_GAME_VERSION: &str = "0.4.0 (build 130045)";
 fn refresh_about(state: &State) {
     let window = state.window.get();
     let connection = state.context.connection.borrow();

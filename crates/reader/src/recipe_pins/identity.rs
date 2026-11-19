@@ -26,11 +26,7 @@ fn label_offset(build: Option<&str>) -> Result<u64> {
     // persistent GUID. Its explicit native-build scope is independent of timer support.
     match build {
         Some("++Earth20+Neon-CL-127004") => Ok(0x290),
-        Some(
-            "++Earth20+Kobalt-PTR1-CL-128786"
-            | "++Earth20+Kobalt-PTR2-CL-129402"
-            | "++Earth20+Kobalt-CL-130045",
-        ) => Ok(0x2a0),
+        Some("++Earth20+Kobalt-PTR1-CL-128786" | "++Earth20+Kobalt-PTR2-CL-129402") => Ok(0x2a0),
         _ => anyhow::bail!("Loaded-session layout is not calibrated for recipe persistence"),
     }
 }
@@ -51,8 +47,16 @@ async fn native_class(ctx: &Ctx, mut class: u64, wanted: &str) -> Result<Ptr<USt
     anyhow::bail!("Native identity class ancestry bound")
 }
 impl Binding {
-    pub(crate) async fn discover(ctx: &Ctx, base: &RuntimeCache, world: u64) -> Result<Self> {
-        let label_offset = label_offset(base.config.build_change_list.as_deref())?;
+    pub(crate) async fn discover(
+        ctx: &Ctx,
+        base: &RuntimeCache,
+        world: u64,
+        lookup: &crate::native_lookup::Lookup,
+    ) -> Result<Self> {
+        let label_offset = match label_offset(base.config.build_change_list.as_deref()) {
+            Ok(offset) => offset,
+            Err(_) => super::getter::resolve(ctx, base, lookup).await?,
+        };
         let world = recipe::allocation(ctx, world).await?;
         let class = native_class(ctx, world.0.class, "/Script/Engine.World").await?;
         let size = class.properties_size().read().await?;
@@ -276,7 +280,6 @@ mod tests {
         assert_eq!(label_offset(Some("++Earth20+Neon-CL-127004"))?, 0x290);
         assert_eq!(label_offset(Some("++Earth20+Kobalt-PTR1-CL-128786"))?, 0x2a0);
         assert_eq!(label_offset(Some("++Earth20+Kobalt-PTR2-CL-129402"))?, 0x2a0);
-        assert_eq!(label_offset(Some("++Earth20+Kobalt-CL-130045"))?, 0x2a0);
         for build in [
             None,
             Some("++Earth20+Kobalt-PTR2-CL-129403"),

@@ -14,6 +14,8 @@ use std::{
     sync::Mutex,
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
+pub(crate) const SAVE_MENU: &str = "/Script/ChimeraUI.CrUW_SaveSessionMenu";
+const RECORD_VERSION: u8 = 2;
 pub(crate) const CODEX_CLASSES: [&str; 5] = [
     "/Script/Chimera.CrBuildingData",
     "/Script/Chimera.CrItemRecipeData",
@@ -117,14 +119,13 @@ impl Record {
     fn validate(&self, hash: &str) -> Result<()> {
         let wanted = recipe::definition_paths();
         ensure!(
-            self.version == 1
+            self.version == RECORD_VERSION
                 && self.game_hash == hash
-                && self.definitions.len() <= wanted.len() + CODEX_CLASSES.len()
+                && self.definitions.len() <= wanted.len() + CODEX_CLASSES.len() + 1
                 && wanted.iter().all(|p| self.definitions.contains_key(p))
-                && self
-                    .definitions
-                    .keys()
-                    .all(|p| wanted.contains(p) || CODEX_CLASSES.contains(&p.as_str()))
+                && self.definitions.keys().all(|p| wanted.contains(p)
+                    || CODEX_CLASSES.contains(&p.as_str())
+                    || p == SAVE_MENU)
                 && !self.managers.is_empty()
                 && self.managers.len() <= 16,
             "Invalid native index cache shape/build"
@@ -364,6 +365,7 @@ impl Lookup {
             let began = Instant::now();
             let mut wanted = recipe::definition_paths();
             wanted.extend(CODEX_CLASSES.iter().map(|p| (*p).to_owned()));
+            wanted.insert(SAVE_MENU.into());
             let names: BTreeSet<_> = wanted.iter().filter_map(|p| p.rsplit('.').next()).collect();
             let mut definitions = BTreeMap::new();
             let mut managers = Vec::new();
@@ -390,7 +392,7 @@ impl Lookup {
                 }
             }
             let record = Record {
-                version: 1,
+                version: RECORD_VERSION,
                 game_hash: hash.clone(),
                 definitions,
                 managers,
@@ -444,7 +446,7 @@ mod tests {
     use super::*;
     fn record() -> Record {
         Record {
-            version: 1,
+            version: RECORD_VERSION,
             game_hash: "a".repeat(64),
             definitions: recipe::definition_paths()
                 .into_iter()
