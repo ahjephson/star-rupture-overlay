@@ -19,6 +19,12 @@ pub(super) fn frame(index: usize, count: usize) -> Frame {
     }
 }
 pub(super) const WIDTH: f64 = 96.0;
+pub(super) fn header_icon_size(width: i32) -> usize {
+    ((62.0 * width as f64 / WIDTH) as i32 - 4) as usize
+}
+pub(super) fn lock_icon_size(width: i32) -> usize {
+    (32.0 * width as f64 / WIDTH).round().max(12.0) as usize
+}
 pub(super) fn control_y(width: i32) -> i32 {
     (10.0 * width as f64 / WIDTH).round().max(5.0) as i32 + 6
 }

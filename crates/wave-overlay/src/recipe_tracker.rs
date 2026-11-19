@@ -41,7 +41,7 @@ pub struct Assets {
     directory: std::path::PathBuf,
     selected: Vec<String>,
     images: BTreeMap<String, Image>,
-    card_images: BTreeMap<String, Image>,
+    card_images: BTreeMap<String, BTreeMap<usize, Image>>,
     card_image_build: String,
     lock_icon: Option<String>,
     header_frame: Image,
@@ -185,47 +185,53 @@ impl Assets {
         &mut self,
         prepared: &starrupture_assets::codex::Prepared,
         cards: &[crate::codex::pins::Card],
+        geometry: layout::Layout,
     ) {
         let catalogue = &prepared.catalogue;
         if self.card_image_build != catalogue.context.game_hash {
             self.card_images.clear();
             self.card_image_build.clone_from(&catalogue.context.game_hash);
         }
-        let mut needed: std::collections::BTreeSet<_> = cards
-            .iter()
-            .flat_map(|card| {
-                std::iter::once(card.icon.as_str()).chain(card.materials.iter().filter_map(
-                    |material| {
-                        catalogue.items.get(&material.amount.item).map(|item| item.icon.as_str())
-                    },
-                ))
-            })
-            .collect();
-        self.lock_icon.clone_from(&catalogue.lock_icon);
-        needed.extend(catalogue.lock_icon.as_deref());
-        self.card_images.retain(|id, _| needed.contains(id.as_str()));
-        for id in needed.into_iter().take(64) {
-            if let std::collections::btree_map::Entry::Vacant(entry) =
-                self.card_images.entry(id.into())
-                && let Ok(icon) = prepared.icon(id)
-            {
-                let side = 72usize;
-                let mut pixels = Vec::with_capacity(side * side * 4);
-                for y in 0..side {
-                    for x in 0..side {
-                        let source = (y * icon.height as usize / side * icon.width as usize
-                            + x * icon.width as usize / side)
-                            * 4;
-                        pixels.extend_from_slice(&icon.pixels[source..source + 4]);
-                    }
+        let mut needed = std::collections::BTreeSet::new();
+        let header = layout::header_icon_size(geometry.width);
+        for card in cards {
+            needed.insert((card.icon.as_str(), header));
+            let [_, _, tile] =
+                layout::tile(geometry.width, geometry.height, card.materials.len(), 0);
+            for material in &card.materials {
+                if let Some(item) = catalogue.items.get(&material.amount.item) {
+                    needed.insert((item.icon.as_str(), (tile - 4) as usize));
                 }
-                entry.insert(Image {
-                    width: side,
-                    height: side,
-                    pixels,
-                });
             }
         }
+        self.lock_icon.clone_from(&catalogue.lock_icon);
+        if let Some(lock) = self.lock_icon.as_deref() {
+            needed.insert((lock, layout::lock_icon_size(geometry.width)));
+        }
+        self.card_images.retain(|id, images| {
+            images.retain(|side, _| needed.contains(&(id.as_str(), *side)));
+            !images.is_empty()
+        });
+        let mut used = self
+            .card_images
+            .values()
+            .flat_map(|images| images.values())
+            .map(|image| image.pixels.len())
+            .sum::<usize>();
+        for (id, size) in needed.into_iter().take(64) {
+            if self.card_image(id, size).is_some() || used + size * size * 4 > IMAGE_BUDGET {
+                continue;
+            }
+            if let Ok(icon) = prepared.icon(id) {
+                let image = scaled_pin_icon(&icon, size);
+                used += image.pixels.len();
+                self.card_images.entry(id.into()).or_default().insert(size, image);
+            }
+        }
+    }
+
+    fn card_image(&self, id: &str, size: usize) -> Option<&Image> {
+        self.card_images.get(id)?.get(&size)
     }
 
     fn clear_images(&mut self) {
@@ -238,6 +244,69 @@ impl Assets {
         self.card_images.clear();
     }
 }
+// Filter premultiplied colours and alpha together, directly from the native icon.
+fn scaled_pin_icon(icon: &starrupture_assets::codex::Icon, side: usize) -> Image {
+    let width = icon.width as usize;
+    let height = icon.height as usize;
+    let longest = width.max(height);
+    let draw_width = (width * side / longest).max(1);
+    let draw_height = (height * side / longest).max(1);
+    let inset = [(side - draw_width) / 2, (side - draw_height) / 2];
+    let footprint = |pixel, source, output| {
+        let ratio = source as f64 / output as f64;
+        let center = (pixel as f64 + 0.5) * ratio;
+        let radius = ratio.max(1.0) / 2.0;
+        [(center - radius).max(0.0), (center + radius).min(source as f64)]
+    };
+    let coverage =
+        |from: f64, to: f64, pixel: usize| to.min((pixel + 1) as f64) - from.max(pixel as f64);
+
+    let mut pixels = vec![0; side * side * 4];
+    for y in 0..draw_height {
+        let [top, bottom] = footprint(y, height, draw_height);
+        for x in 0..draw_width {
+            let [left, right] = footprint(x, width, draw_width);
+            let area = (right - left) * (bottom - top);
+            let mut sum = [0.0; 4];
+            for row in top.floor() as usize..bottom.ceil() as usize {
+                let vertical = coverage(top, bottom, row);
+                for column in left.floor() as usize..right.ceil() as usize {
+                    let weight = vertical * coverage(left, right, column);
+                    let offset = (row * width + column) * 4;
+                    for (sum, pixel) in sum.iter_mut().zip(&icon.pixels[offset..offset + 4]) {
+                        *sum += f64::from(*pixel) * weight;
+                    }
+                }
+            }
+            let target = ((inset[1] + y) * side + inset[0] + x) * 4;
+            for (pixel, sum) in pixels[target..target + 4].iter_mut().zip(sum) {
+                *pixel = (sum / area).round() as u8;
+            }
+        }
+    }
+    Image {
+        width: side,
+        height: side,
+        pixels,
+    }
+}
+
+#[cfg(test)]
+mod pin_icon_tests {
+    use super::*;
+
+    #[test]
+    fn downsampling_keeps_partial_coverage_and_preserves_alpha() {
+        let icon = starrupture_assets::codex::Icon {
+            width: 2,
+            height: 2,
+            pixels: vec![200, 0, 0, 200, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        };
+        assert_eq!(scaled_pin_icon(&icon, 1).pixels, [50, 0, 0, 50]);
+        assert_eq!(scaled_pin_icon(&icon, 2).pixels, icon.pixels);
+    }
+}
+
 type CardContext =
     (Arc<starrupture_assets::codex::Prepared>, Arc<starrupture_overlay_reader::codex::Progress>);
 pub(crate) struct Presentation {
@@ -597,7 +666,7 @@ impl Panel {
             return;
         }
         if let Some((prepared, _)) = &codex {
-            self.assets.as_mut().unwrap().prepare_cards(prepared, &cards);
+            self.assets.as_mut().unwrap().prepare_cards(prepared, &cards, geometry);
         } else {
             self.assets.as_mut().unwrap().card_images.clear();
         }
@@ -755,7 +824,8 @@ impl Panel {
                 [origin.x, origin.y, origin.x + rect.right, origin.y + rect.bottom],
                 font,
                 game,
-                self.windows[target.panel],
+                // Panels stack from right to left. Anchor above the group, keeping the hovered tile's position.
+                self.windows[0],
             ) {
                 self.status = format!("Item tooltip unavailable: {error:#}");
                 hover.hide();

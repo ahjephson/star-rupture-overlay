@@ -564,7 +564,7 @@ pub(super) fn render_card(
     let hy = layout::controls(width) as i32;
     let bounds = [hx, hy, header, (74.0 * scale).round() as i32];
     image_rect(&mut pixels, dimensions, &assets.header_background, bounds, None);
-    if let Some(icon) = assets.card_images.get(&card.icon) {
+    if let Some(icon) = assets.card_image(&card.icon, layout::header_icon_size(width)) {
         image(
             &mut pixels,
             dimensions,
@@ -611,7 +611,7 @@ pub(super) fn render_card(
         };
         fill_tile(&mut pixels, dimensions, [x, y, tile, tile], colour);
         if let Some(item) = catalogue.items.get(&material.amount.item)
-            && let Some(icon) = assets.card_images.get(&item.icon)
+            && let Some(icon) = assets.card_image(&item.icon, (tile - 4) as usize)
         {
             image(&mut pixels, dimensions, icon, x + 2, y + 2, tile - 4, None);
         }
@@ -651,8 +651,9 @@ fn fill_tile(pixels: &mut [u8], dimensions: [usize; 2], bounds: [i32; 4], colour
 }
 
 fn lock(pixels: &mut [u8], dimensions: [usize; 2], assets: &Assets, x: i32, y: i32, scale: f64) {
-    if let Some(lock) = assets.lock_icon.as_ref().and_then(|key| assets.card_images.get(key)) {
-        let size = (32.0 * scale).round().max(12.0) as i32;
+    let size = layout::lock_icon_size(dimensions[0] as i32);
+    if let Some(lock) = assets.lock_icon.as_ref().and_then(|key| assets.card_image(key, size)) {
+        let size = size as i32;
         image(pixels, dimensions, lock, x - size / 2, y - size / 2, size, None);
     } else {
         let unit = (scale * 2.0).round().max(1.0) as i32;

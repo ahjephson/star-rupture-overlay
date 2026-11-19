@@ -203,7 +203,8 @@ impl Store {
             let root = self.root.join(&receipt.generation);
             let bytes = super::super::bounded(&root.join("catalogue.json"), 16 * 1024 * 1024)?;
             ensure!(digest(&bytes) == receipt.catalogue_hash, "Catalogue metadata integrity");
-            let catalogue: Catalogue = serde_json::from_slice(&bytes)?;
+            let mut catalogue: Catalogue = serde_json::from_slice(&bytes)?;
+            catalogue.normalize_currency_labels();
             catalogue.validate()?;
             ensure!(
                 self::key(&catalogue.context)? == key
@@ -273,6 +274,7 @@ impl Store {
         let log = retoc::logging::Log::no_log();
         let mut archive = Archive::new(store.as_ref(), schemas, &log, stop)?;
         let mut catalogue = normalize::build(&mut archive, context)?;
+        catalogue.normalize_currency_labels();
         let key = key(&catalogue.context)?;
         let name = format!(
             "catalogue-{}-{}",
@@ -378,11 +380,17 @@ mod tests {
 #[cfg(test)]
 mod cache_tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(0);
     fn catalogue() -> Result<Catalogue> {
         Ok(serde_json::from_value(serde_json::json!({
             "version":7,"lock_icon":null,"corporations":{},
             "context":{"version":1,"gameHash":"a".repeat(64),"modeClass":"/Game/Chimera/Mode.Mode_C","stateClass":"/Game/Chimera/State.State_C","keeperClass":"/Game/Chimera/Keeper.Keeper_C","buildings":[{"id":"/Game/Chimera/Forge","category":1}],"weaponClasses":["/ChimeraWeapon/Pistol.Pistol_C"],"weaponModAssets":[],"coreAsset":"/Game/Chimera/Core","defaults":{"addPlatform":false,"addPillar":false,"recipeSeconds":10.0,"craftingLoopSeconds":0.0,"overwriteRecipeSeconds":-1.0,"useCraftingProcessor":true}},
-            "items":{"/Game/Chimera/Ore":{"name":"Calcium Ore","description":null,"icon":"/Game/Chimera/T_Ore"}},
+            "items":{
+                "/Game/Chimera/Ore":{"name":"Calcium Ore","description":null,"icon":"/Game/Chimera/T_Ore"},
+                "/Game/Chimera/Items/I_ArmoryToken":{"name":"Armory Token","description":null,"icon":"/Game/Chimera/T_Ore"}
+            },
             "recipes":{"/Game/Chimera/CR_Ore":{"name":"Ore","output":{"item":"/Game/Chimera/Ore","quantity":2},"inputs":[{"item":"/Game/Chimera/Ore","quantity":1}],"producers":["/Game/Chimera/Forge"],"base_seconds":10.0,"icon":"/Game/Chimera/T_Ore","unlock":{"kind":"Building"}}},
             "buildings":{"/Game/Chimera/Forge":{"name":"Forge","icon":"/Game/Chimera/T_Ore","category":1,"materials":[],"add_platform":false,"add_pillar":false,"unlocks":[{"kind":"Corporation","id":"/Game/Chimera/Corp","name":"Corporation","level":1,"collection":null}],"core_progression":false,"crafting":null}},
             "weapon_purchases":{},"war_bond_currency":null,"equipment_material_names":{},"core_tiers":[{"source_index":0,"materials":[],"cooling":100}],"excluded":{}
@@ -400,9 +408,10 @@ mod cache_tests {
     impl Fixture {
         fn new() -> Result<Self> {
             let directory = std::env::temp_dir().join(format!(
-                "starrupture-codex-test-{}-{}",
+                "starrupture-codex-test-{}-{}-{}",
                 std::process::id(),
-                SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
+                SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos(),
+                NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed),
             ));
             fs::create_dir(&directory)?;
             let paks = directory.join("game/Content/Paks");
@@ -471,6 +480,17 @@ mod cache_tests {
         assert!(p.icon("/Game/Chimera/T_Ore").is_err());
         Ok(())
     }
+    #[test]
+    fn cached_native_currency_adopts_the_in_game_name() -> Result<()> {
+        let f = Fixture::new()?;
+        let prepared = f.store.lookup(&f.paks, &f.context)?.context("warm fixture")?;
+        assert_eq!(prepared.catalogue.items[super::super::model::WAR_BONDS].name, "War Bonds");
+        assert_eq!(prepared.search("war bonds", 10)?, vec![super::super::model::WAR_BONDS]);
+        assert!(prepared.search("armory token", 10)?.is_empty());
+        assert_eq!(prepared.metrics.archive_index_passes, 0);
+        Ok(())
+    }
+
     #[test]
     fn changed_archives_context_or_metadata_invalidate_the_cache() -> Result<()> {
         let f = Fixture::new()?;

@@ -171,12 +171,28 @@ pub struct Catalogue {
     pub core_tiers: Vec<CoreTier>,
     pub corporations: BTreeMap<String, Corporation>,
     pub weapon_purchases: BTreeMap<String, WeaponPurchase>,
-    /// Native label for the currency players call War Bonds.
+    /// Display label for equipment currency.
     pub war_bond_currency: Option<String>,
     pub equipment_material_names: BTreeMap<String, Option<String>>,
     pub excluded: BTreeMap<String, String>,
 }
 impl Catalogue {
+    pub(super) fn normalize_currency_labels(&mut self) {
+        const DISPLAY_NAME: &str = "War Bonds";
+        if let Some(item) = self.items.get_mut(WAR_BONDS) {
+            DISPLAY_NAME.clone_into(&mut item.name);
+        }
+        if let Some(name) = self.equipment_material_names.get_mut(WAR_BONDS) {
+            *name = Some(DISPLAY_NAME.into());
+        }
+        if let Some(name) = self.war_bond_currency.as_mut() {
+            DISPLAY_NAME.clone_into(name);
+        }
+        for recipe in self.recipes.values_mut().filter(|recipe| recipe.output.item == WAR_BONDS) {
+            DISPLAY_NAME.clone_into(&mut recipe.name);
+        }
+    }
+
     pub fn validate(&self) -> Result<()> {
         self.context.validate().map_err(anyhow::Error::msg)?;
         ensure!(
