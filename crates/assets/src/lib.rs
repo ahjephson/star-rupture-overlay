@@ -18,11 +18,10 @@ use std::{
     sync::{Arc, Mutex},
     time::Instant,
 };
-#[derive(Default)]
-struct Writer(Mutex<BTreeMap<String, Vec<u8>>>);
+struct Writer(Mutex<BTreeMap<String, Vec<u8>>>, usize);
 impl FileWriterTrait for Writer {
     fn write_file(&self, path: String, _: bool, data: Vec<u8>) -> Result<()> {
-        ensure!(data.len() <= 4 * 1024 * 1024, "Package bound");
+        ensure!(data.len() <= self.1, "Package bound");
         ensure!(path == "probe.uasset" || path == "probe.uexp", "Unexpected conversion output");
         ensure!(self.0.lock().unwrap().insert(path, data).is_none(), "Duplicate output");
         Ok(())
@@ -34,7 +33,14 @@ struct Package {
     header_len: usize,
 }
 fn load(context: &FZenPackageContext<'_>, id: retoc::FPackageId) -> Result<Package> {
-    let writer = Writer::default();
+    load_bounded(context, id, 4 * 1024 * 1024)
+}
+fn load_bounded(
+    context: &FZenPackageContext<'_>,
+    id: retoc::FPackageId,
+    limit: usize,
+) -> Result<Package> {
+    let writer = Writer(Mutex::default(), limit);
     build_legacy(context, id, UEPath::new("probe.uasset"), &writer)?;
     let mut files = writer.0.into_inner().unwrap();
     let header = files.remove("probe.uasset").context("Header")?;

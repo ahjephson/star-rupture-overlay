@@ -12,6 +12,7 @@ use starrupture_observation_model::shutdown::StopSignal;
 mod diagnostics;
 mod render;
 mod runtime;
+mod startup;
 
 use diagnostics::{self_test, window_events_self_test, window_self_test};
 use render::{LayerRenderer, STAGE_TOP_PADDING, panel_points};
@@ -63,12 +64,14 @@ struct Reading {
 struct App {
     runtime: Option<runtime::Runtime>,
     compass: crate::compass::Panel,
+    codex: crate::codex::Panel,
     recipe: crate::recipe_tracker::Panel,
     dialogs: Dialogs,
     dialog_context: dialogs::Context,
     closed_sessions: u64,
     launch: crate::connection::Launch,
     tray_status: String,
+    startup: startup::Startup,
     shared: Arc<Mutex<Reading>>,
     stop: Arc<StopSignal>,
     frame: HudFrame,
@@ -165,6 +168,7 @@ unsafe fn tick(window: HWND) {
         a.runtime = Some(runtime);
         if !ready {
             a.recipe.suspend();
+            a.codex.close();
             a.compass.hide();
             a.countdown_eligible = false;
             // SAFETY: Only the owned overlay window is hidden; no Rust borrow crosses dispatch.
@@ -206,7 +210,13 @@ unsafe fn tick(window: HWND) {
                 5000,
                 a.dialog_context.preferences.get().countdown_format,
             ),
-            r.process,
+            match r.connection.status {
+                crate::connection::GameStatus::FeaturesDisabled {
+                    pid,
+                    ..
+                } => pid,
+                _ => r.process,
+            },
             waves_stopped(r.value.as_deref(), now_ms().max(0) as u64, 5000),
             r.no_world,
         )
@@ -243,7 +253,12 @@ unsafe fn tick(window: HWND) {
         visible,
         a.dialog_context.preferences.get().recipe_tracker,
         pid,
-        a.pause_position,
+        crate::recipe_tracker::Presentation {
+            pause: a.pause_position,
+            modal: a.codex.backdrop(),
+            codex_window: a.codex.window_handle(),
+            codex: a.codex.pin_context(),
+        },
     );
     *a.dialog_context.recipe_status.borrow_mut() = a.recipe.status.clone();
     a.dialogs.refresh_recipe_status();
@@ -319,7 +334,7 @@ unsafe fn tick(window: HWND) {
             };
         }
     }
-    crate::stacking::follow_game(window, a.game);
+    follow_wave(window, a.game, a.codex.backdrop());
     if rect.right != a.last_rect.right || rect.bottom != a.last_rect.bottom {
         a.last_rect = rect;
         // SAFETY: The UI/fixture owns the dialog and its resource-template child handles; only
@@ -328,6 +343,14 @@ unsafe fn tick(window: HWND) {
         unsafe { InvalidateRect(window, std::ptr::null(), 0) };
     }
 }
+fn follow_wave(window: HWND, game: HWND, backdrop: HWND) {
+    if backdrop.is_null() {
+        crate::stacking::follow_game(window, game);
+    } else {
+        crate::stacking::follow_companion(window, backdrop, game);
+    }
+}
+
 /// # Safety
 /// window must retain the boxed App on its owning UI thread; no other App borrow may be live
 /// when this function retrieves it.
@@ -369,6 +392,7 @@ unsafe fn update_connection(window: HWND) {
     } else {
         connection.label()
     };
+    a.startup.update(window, &connection, a.dialog_context.preferences.get(), a.launch.pending());
     if a.tray_status != label {
         a.tray_status = label.into();
         let mut icon = NOTIFYICONDATAW {
@@ -708,14 +732,14 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
                 && a.preview.is_none()
             {
                 if a.countdown_eligible {
-                    crate::stacking::follow_game(window, a.game);
+                    follow_wave(window, a.game, a.codex.backdrop());
                 }
                 a.recipe.shortcut(
                     window,
                     a.game,
                     a.dialog_context.preferences.get().recipe_tracker,
                 );
-                a.recipe.follow(a.game);
+                a.recipe.follow(a.game, a.codex.backdrop(), a.codex.window_handle());
                 a.compass.follow(a.game);
             }
             0
@@ -742,7 +766,11 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
             // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-thread
             // access obeys app()'s exclusive-borrow contract and does not let the reference escape.
             if let Some(a) = unsafe { app(window) } {
-                a.recipe.pressed(w, a.game);
+                if w == crate::codex::HOTKEY {
+                    a.codex.pressed(a.game, l);
+                } else {
+                    a.recipe.pressed(w, a.game);
+                }
             }
             0
         }
@@ -803,7 +831,7 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
                 // thread access obeys app()'s exclusive-borrow contract and does not let the
                 // reference escape.
                 unsafe { menu(window) }
-            } else if l as u32 == WM_LBUTTONDBLCLK
+            } else if matches!(l as u32, WM_LBUTTONDBLCLK | NIN_BALLOONUSERCLICK)
                 // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-
                 // thread access obeys app()'s exclusive-borrow contract and does not let the
                 // reference escape.
@@ -813,7 +841,12 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
                 // thread access obeys app()'s exclusive-borrow contract and does not let the
                 // reference escape.
                 unsafe {
-                    open_dialog(window, dialogs::SETTINGS, context);
+                    let kind = if l as u32 == NIN_BALLOONUSERCLICK {
+                        dialogs::ABOUT
+                    } else {
+                        dialogs::SETTINGS
+                    };
+                    open_dialog(window, kind, context);
                 }
             };
             0
@@ -903,12 +936,15 @@ pub fn run() -> Result<()> {
                 first == "--self-test-asset-wait-child",
             )?);
         }
-        if first == "--self-test-codex" {
+        if first == "--self-test-codex" || first == "--self-test-codex-live" {
             let dir = args.next().ok_or("Missing catalogue diagnostic directory")?;
             if args.next().is_some() {
                 return Err("Unexpected catalogue argument".into());
             }
-            return Ok(crate::codex::self_test(std::path::Path::new(&dir))?);
+            return Ok(crate::codex::self_test(
+                std::path::Path::new(&dir),
+                first == "--self-test-codex-live",
+            )?);
         }
         if first == "--self-test-asset-disabled" {
             let dir = args.next().ok_or("Missing disabled asset setup directory")?;
@@ -1179,6 +1215,7 @@ pub fn run() -> Result<()> {
     let mut app = Box::new(App {
         runtime: None,
         compass: crate::compass::Panel::default(),
+        codex: crate::codex::Panel::with_cache(config.cache_directory.clone()),
         recipe: crate::recipe_tracker::Panel::new(),
         dialogs: Dialogs::default(),
         dialog_context,
@@ -1191,6 +1228,7 @@ pub fn run() -> Result<()> {
             launch
         },
         tray_status: String::new(),
+        startup: startup::Startup::default(),
         shared,
         stop: stop.clone(),
         frame: preview("unavailable"),
@@ -1263,6 +1301,7 @@ pub fn run() -> Result<()> {
         None
     };
     if app.preview.is_none() {
+        app.startup.start();
         app.runtime = Some(runtime::Runtime::new(config));
     }
     // SAFETY: These UI-thread APIs use scalar IDs or documented Win32 pseudo-handles;
@@ -1287,7 +1326,7 @@ pub fn run() -> Result<()> {
             break;
         }
         app.dialogs.prune();
-        if app.dialogs.translate(&message) {
+        if app.codex.translate(&message) || app.dialogs.translate(&message) {
             continue;
         }
         // SAFETY: The message buffers/class strings are initialized and live for these UI-thread
@@ -1312,6 +1351,39 @@ unsafe fn compass_tick(window: HWND) {
     let Some(a) = (unsafe { app(window) }) else {
         return;
     };
+    let settings = a.dialog_context.preferences.get();
+    if let Ok(state) = a.shared.try_lock() {
+        let pid = if settings.codex_enabled && a.preview.is_none() {
+            match state.connection.status {
+                crate::connection::GameStatus::FeaturesDisabled {
+                    pid,
+                    ..
+                } => pid,
+                _ if state.connection.connected && !state.no_world => state.process,
+                _ => 0,
+            }
+        } else {
+            0
+        };
+        drop(state);
+        let shortcut = (settings.codex_enabled && !settings.codex_shortcut_conflicts())
+            .then_some(settings.codex_shortcut);
+        let previous_backdrop = a.codex.backdrop();
+        a.codex.tick(
+            window,
+            (a.game, pid),
+            shortcut,
+            !a.hidden && !a.pause_position,
+            (a.recipe.tracker(), a.recipe.game_cursor()),
+        );
+        let backdrop = a.codex.backdrop();
+        if previous_backdrop != backdrop {
+            if a.countdown_eligible {
+                follow_wave(window, a.game, backdrop);
+            }
+            a.recipe.follow(a.game, backdrop, a.codex.window_handle());
+        }
+    }
     let enabled = a.dialog_context.preferences.get().compass_enabled
         && !a.hidden
         && a.preview.is_none()

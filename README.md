@@ -46,6 +46,14 @@ Right-click the notification-area icon for controls, or double-click it to open 
 
 The [features guide](docs/FEATURES.md) covers the rupture countdown, recipe counters and shortcuts, positioning, automatic setup and app controls.
 
+### Codex
+
+Press **K** during gameplay to open the Codex. Search Production, Buildings, Interiors, Equipment, or Corporations. Select an entry to see its materials, machine, or unlock requirements. Different recipes for the same output appear as separate entries. The Codex uses the current world's unlocks and marks visible locked entries with a padlock.
+
+The overlay prepares the Codex in the background when it attaches to a loaded world. Press **Esc** or **Tab** in the Codex to close it. Opening a game menu or station also closes it. The Codex stays open when you switch to another app. Change the shortcut or disable the feature in **Settings → Codex**.
+
+Open **Buildings → Base Core** to see and pin the requirements for unlocked levels and the next unlock. You can also pin production recipes and machine upgrades. The Codex and in-game pin controls share the same three pins. A dash in a counter means the submitted amount is unavailable.
+
 ## Updating or removing the app
 
 For an update, exit the overlay from its tray menu and extract the new ZIP to a new folder. Keep the old folder until you have checked the new version. Open the new copy's Settings and choose **Update shortcut** if the desktop shortcut points to another copy, or **Create shortcut** if it is missing. If you use Start with Windows, disable it in the old copy's Settings and enable it in the new copy.

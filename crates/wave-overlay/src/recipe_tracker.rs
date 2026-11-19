@@ -41,6 +41,9 @@ pub struct Assets {
     directory: std::path::PathBuf,
     selected: Vec<String>,
     images: BTreeMap<String, Image>,
+    card_images: BTreeMap<String, Image>,
+    card_image_build: String,
+    lock_icon: Option<String>,
     header_frame: Image,
     header_background: Image,
     font: HANDLE,
@@ -102,6 +105,9 @@ impl Assets {
             directory: directory.into(),
             selected: Vec::new(),
             images,
+            card_images: BTreeMap::new(),
+            card_image_build: String::new(),
+            lock_icon: None,
             header_frame,
             header_background,
             font,
@@ -175,6 +181,53 @@ impl Assets {
         self.selected = selected;
         Ok(())
     }
+    fn prepare_cards(
+        &mut self,
+        prepared: &starrupture_assets::codex::Prepared,
+        cards: &[crate::codex::pins::Card],
+    ) {
+        let catalogue = &prepared.catalogue;
+        if self.card_image_build != catalogue.context.game_hash {
+            self.card_images.clear();
+            self.card_image_build.clone_from(&catalogue.context.game_hash);
+        }
+        let mut needed: std::collections::BTreeSet<_> = cards
+            .iter()
+            .flat_map(|card| {
+                std::iter::once(card.icon.as_str()).chain(card.materials.iter().filter_map(
+                    |material| {
+                        catalogue.items.get(&material.amount.item).map(|item| item.icon.as_str())
+                    },
+                ))
+            })
+            .collect();
+        self.lock_icon.clone_from(&catalogue.lock_icon);
+        needed.extend(catalogue.lock_icon.as_deref());
+        self.card_images.retain(|id, _| needed.contains(id.as_str()));
+        for id in needed.into_iter().take(64) {
+            if let std::collections::btree_map::Entry::Vacant(entry) =
+                self.card_images.entry(id.into())
+                && let Ok(icon) = prepared.icon(id)
+            {
+                let side = 72usize;
+                let mut pixels = Vec::with_capacity(side * side * 4);
+                for y in 0..side {
+                    for x in 0..side {
+                        let source = (y * icon.height as usize / side * icon.width as usize
+                            + x * icon.width as usize / side)
+                            * 4;
+                        pixels.extend_from_slice(&icon.pixels[source..source + 4]);
+                    }
+                }
+                entry.insert(Image {
+                    width: side,
+                    height: side,
+                    pixels,
+                });
+            }
+        }
+    }
+
     fn clear_images(&mut self) {
         self.images.retain(|name, _| {
             name == &self.catalogue.tick
@@ -182,7 +235,16 @@ impl Assets {
                 || name == &self.catalogue.background
         });
         self.selected.clear();
+        self.card_images.clear();
     }
+}
+type CardContext =
+    (Arc<starrupture_assets::codex::Prepared>, Arc<starrupture_overlay_reader::codex::Progress>);
+pub(crate) struct Presentation {
+    pub pause: bool,
+    pub modal: HWND,
+    pub codex_window: HWND,
+    pub codex: Option<CardContext>,
 }
 pub struct Panel {
     windows: [HWND; 3],
@@ -432,19 +494,26 @@ impl Panel {
             button.hide();
         }
     }
-    pub fn follow(&self, game: HWND) {
+    pub(crate) fn game_cursor(&self) -> Rc<RefCell<cursor::GameCursor>> {
+        self.cursor.clone()
+    }
+    pub fn follow(&self, game: HWND, modal: HWND, codex_window: HWND) {
         for window in self.windows {
             // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native
             // handle identity themselves, and neither dereference Rust memory nor transfer
             // ownership.
             if !window.is_null() && unsafe { IsWindowVisible(window) } != 0 {
-                crate::stacking::follow_game(window, game);
+                if modal.is_null() {
+                    crate::stacking::follow_game(window, game);
+                } else {
+                    crate::stacking::follow_companion(window, modal, game);
+                }
             }
         }
         for button in &self.buttons {
             button.follow(game);
         }
-        self.item_hover.borrow_mut().follow(game);
+        self.item_hover.borrow_mut().follow(game, codex_window);
     }
     pub fn tick(
         &mut self,
@@ -453,8 +522,14 @@ impl Panel {
         visible: bool,
         settings: RecipeSettings,
         process: u32,
-        pause: bool,
+        presentation: Presentation,
     ) {
+        let Presentation {
+            pause,
+            modal,
+            codex_window,
+            codex,
+        } = presentation;
         self.cursor.borrow_mut().observe(game, process);
         self.shortcut(owner, game, settings);
         if !settings.enabled || !visible || self.assets.is_none() {
@@ -462,7 +537,18 @@ impl Panel {
             return;
         }
         let views = self.control.views();
-        if views.is_empty() {
+        let cards: Vec<_> = codex
+            .as_ref()
+            .map(|(prepared, progress)| {
+                self.control
+                    .card_ids(process)
+                    .into_iter()
+                    .filter_map(|key| crate::codex::pins::card(&prepared.catalogue, progress, key))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let total_pins = views.len() + cards.len();
+        if total_pins == 0 {
             if let Some(assets) = self.assets.as_mut() {
                 assets.clear_images();
             }
@@ -496,10 +582,11 @@ impl Panel {
         let count = views
             .iter()
             .filter_map(|v| v.snapshot.as_ref().map(|s| s.ingredients.len()))
+            .chain(cards.iter().map(|card| card.materials.len()))
             .max()
             .unwrap_or(0);
         let Some(geometry) =
-            layout::fit([rect.right, rect.bottom], views.len(), count, settings.scale, pause)
+            layout::fit([rect.right, rect.bottom], total_pins, count, settings.scale, pause)
         else {
             self.hide();
             return;
@@ -509,6 +596,11 @@ impl Panel {
             self.hide();
             return;
         }
+        if let Some((prepared, _)) = &codex {
+            self.assets.as_mut().unwrap().prepare_cards(prepared, &cards);
+        } else {
+            self.assets.as_mut().unwrap().card_images.clear();
+        }
         let group_y = origin.y
             + match settings.position {
                 0 => 20,
@@ -517,7 +609,10 @@ impl Panel {
             };
         // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
         // identity themselves, and neither dereference Rust memory nor transfer ownership.
-        let interactive = mouse::cursor_visible() && unsafe { GetForegroundWindow() } == game;
+        let foreground = unsafe { GetForegroundWindow() };
+        let codex_focused = !modal.is_null() && foreground == codex_window;
+        let interactive =
+            codex_focused || (foreground == game && (!modal.is_null() || mouse::cursor_visible()));
         let mut pointer = POINT::default();
         // SAFETY: Win32 validates the borrowed handle where required; every output points to an
         // initialized local struct or bounded writable slice that stays live for the synchronous
@@ -534,12 +629,14 @@ impl Panel {
         let pointer_valid = cursor_valid
             && !pointer_root.is_null()
             && (pointer_root == game
+                || pointer_root == modal
                 || self.windows.contains(&pointer_root)
                 || self.item_hover.borrow().owns(pointer_root));
         let point = [pointer.x, pointer.y];
         let target = if pointer_valid {
             items::hit(
                 &views,
+                &cards,
                 geometry,
                 origin.x + rect.right - geometry.right_margin,
                 group_y,
@@ -548,7 +645,7 @@ impl Panel {
         } else {
             None
         };
-        for (index, view) in views.iter().enumerate() {
+        for index in 0..total_pins {
             if let Err(error) = self.window(index) {
                 self.status = error.to_string();
                 self.hide();
@@ -573,24 +670,45 @@ impl Panel {
                     SWP_NOZORDER | SWP_NOACTIVATE,
                 );
             }
-            if let Err(error) = render(
-                self.windows[index],
-                self.assets.as_ref().unwrap(),
-                view,
-                geometry.width,
-                height,
-                layout::frame(index, views.len()),
-                target.as_ref().filter(|t| t.panel == index).map(|t| t.ingredient),
-            ) {
+            let frame = layout::frame(index, total_pins);
+            let (id, result) = if let Some(view) = views.get(index) {
+                let result = render(
+                    self.windows[index],
+                    self.assets.as_ref().unwrap(),
+                    view,
+                    geometry.width,
+                    height,
+                    frame,
+                    target.as_ref().filter(|t| t.panel == index).map(|t| t.ingredient),
+                );
+                (view.snapshot.as_ref().unwrap().recipe_id.as_str(), result)
+            } else {
+                let card = &cards[index - views.len()];
+                let result = render::render_card(
+                    self.windows[index],
+                    self.assets.as_ref().unwrap(),
+                    card,
+                    [geometry.width, height],
+                    frame,
+                    &codex.as_ref().unwrap().0.catalogue,
+                    target.as_ref().filter(|t| t.panel == index).map(|t| t.ingredient),
+                );
+                (card.key.as_str(), result)
+            };
+            if let Err(error) = result {
                 self.status = error.to_string();
                 self.hide();
                 return;
             }
-            crate::stacking::follow_game(self.windows[index], game);
+            if modal.is_null() {
+                crate::stacking::follow_game(self.windows[index], game);
+            } else {
+                crate::stacking::follow_companion(self.windows[index], modal, game);
+            }
             if let Err(error) = self.buttons[index].show(
                 game,
                 self.windows[index],
-                &view.snapshot.as_ref().unwrap().recipe_id,
+                id,
                 [x + geometry.width - close::SIZE - 6, group_y + layout::control_y(geometry.width)],
                 interactive,
             ) {
@@ -598,7 +716,7 @@ impl Panel {
                 self.buttons[index].hide();
             }
         }
-        for index in views.len()..3 {
+        for index in total_pins..3 {
             if !self.windows[index].is_null() {
                 // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison
                 // handles; native position/style values are scalar, and referenced menu/state
@@ -614,17 +732,30 @@ impl Panel {
         let hover = self.item_hover.get_mut();
         if hover.select(target.clone(), std::time::Instant::now())
             && let Some(target) = target
-            && let Some(item) = self.assets.as_ref().unwrap().catalogue.items.get(&target.item)
+            && let Some(name) = if target.panel < views.len() {
+                self.assets
+                    .as_ref()
+                    .unwrap()
+                    .catalogue
+                    .items
+                    .get(&target.item)
+                    .map(|item| item.name.as_str())
+            } else {
+                codex
+                    .as_ref()
+                    .and_then(|(prepared, _)| prepared.catalogue.items.get(&target.item))
+                    .map(|item| item.name.as_str())
+            }
         {
             let font =
                 (18.0 * (rect.bottom as f64 / 1440.0).clamp(0.65, 2.0)).round().max(12.0) as i32;
             if let Err(error) = hover.show(
-                &item.name,
+                name,
                 target.center,
                 [origin.x, origin.y, origin.x + rect.right, origin.y + rect.bottom],
                 font,
                 game,
-                self.windows[0],
+                self.windows[target.panel],
             ) {
                 self.status = format!("Item tooltip unavailable: {error:#}");
                 hover.hide();
@@ -634,7 +765,7 @@ impl Panel {
 }
 
 mod close;
-mod cursor;
+pub(crate) mod cursor;
 mod items;
 mod layout;
 mod mouse;

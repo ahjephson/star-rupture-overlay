@@ -8,16 +8,17 @@ FONT 9, "Segoe UI"
 BEGIN
     LTEXT "Settings", 140, 16, 12, 285, 21
     CONTROL "", 155, "SysTabControl32", WS_TABSTOP, 16, 35, 288, 202
-    GROUPBOX "Startup", 160, 24, 54, 272, 36
+    GROUPBOX "Startup", 160, 24, 54, 272, 49
     CONTROL "Start with &Windows", 110, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 34, 65, 252, 10
     LTEXT "Wait in the tray until StarRupture starts.", 161, 47, 78, 239, 10
-    GROUPBOX "When the game closes", 162, 24, 96, 272, 36
+    CONTROL "Show startup &notification", 191, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 34, 89, 252, 10
+    GROUPBOX "When the game closes", 162, 24, 109, 272, 36
 
-    COMBOBOX 111, 34, 110, 252, 65, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    GROUPBOX "Desktop shortcut", 164, 24, 138, 272, 52
-    LTEXT "No shortcut created", 112, 34, 151, 156, 10
-    PUSHBUTTON "Create shortcut", 113, 196, 148, 90, 14
-    LTEXT "Starts the overlay and game through Steam. Shortcut changes apply immediately.", 165, 34, 166, 252, 20
+    COMBOBOX 111, 34, 123, 252, 65, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    GROUPBOX "Desktop shortcut", 164, 24, 151, 272, 52
+    LTEXT "No shortcut created", 112, 34, 164, 156, 10
+    PUSHBUTTON "Create shortcut", 113, 196, 161, 90, 14
+    LTEXT "Starts the overlay and game through Steam. Shortcut changes apply immediately.", 165, 34, 179, 252, 20
     CONTROL "Enable wave &timer", 180, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 24, 54, 262, 10
     GROUPBOX "Countdown format", 170, 24, 72, 272, 38
     COMBOBOX 156, 34, 87, 252, 65, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
@@ -42,6 +43,10 @@ BEGIN
     LTEXT "Scale", 168, 194, 179, 30, 10
     COMBOBOX 153, 226, 177, 60, 70, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     LTEXT "", 154, 34, 204, 252, 22
+    CONTROL "Enable Code&x", 187, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 24, 54, 262, 10
+    LTEXT "Open shortcut", 188, 24, 75, 101, 10
+    CONTROL "", 189, "msctls_hotkey32", WS_BORDER | WS_TABSTOP, 132, 72, 154, 14
+    LTEXT "Click the shortcut box, then press a key or key combination.", 190, 24, 94, 272, 12
     LTEXT "", 114, 16, 245, 288, 20
     PUSHBUTTON "Cancel", IDCANCEL, 197, 245, 50, 14
     DEFPUSHBUTTON "Save", IDOK, 254, 245, 50, 14

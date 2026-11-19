@@ -224,6 +224,16 @@ fn selected(state: &State) -> Preferences {
     let choice = unsafe { SendDlgItemMessageW(state.window.get(), 111, CB_GETCURSEL, 0, 0) };
     Preferences {
         wave_enabled: checked(state.window.get(), 180),
+        startup_notification: checked(state.window.get(), 191),
+        codex_enabled: checked(state.window.get(), 187),
+        codex_shortcut: {
+            let captured = captured_codex_shortcut(state);
+            if captured.validate().is_ok() {
+                captured
+            } else {
+                state.context.preferences.get().codex_shortcut
+            }
+        },
         compass: preferences::CompassSettings {
             arrival_enabled: checked(state.window.get(), 181),
             arrival_metres: distance_value(state.window.get(), 183),
@@ -288,38 +298,48 @@ fn checked_startup(state: &State) -> bool {
     // pointers.
     unsafe { SendDlgItemMessageW(state.window.get(), 110, BM_GETCHECK, 0, 0) as u32 == BST_CHECKED }
 }
-fn captured_shortcut(state: &State) -> preferences::RecipeSettings {
-    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
-    // initialized text/message buffers remain live until the call returns, with no retained Rust
-    // pointers.
-    let value = unsafe { SendDlgItemMessageW(state.window.get(), 151, HKM_GETHOTKEY, 0, 0) } as u16;
+fn read_shortcut(window: HWND, id: i32) -> (u16, u16) {
+    // SAFETY: This synchronous message reads a scalar value from an owned hotkey control.
+    let value = unsafe { SendDlgItemMessageW(window, id, HKM_GETHOTKEY, 0, 0) } as u16;
     let flags = value >> 8;
+    let modifiers = ((flags & HOTKEYF_ALT as u16 != 0) as u16)
+        | (((flags & HOTKEYF_CONTROL as u16 != 0) as u16) << 1)
+        | (((flags & HOTKEYF_SHIFT as u16 != 0) as u16) << 2);
+    (value & 0xff, modifiers)
+}
+fn captured_shortcut(state: &State) -> preferences::RecipeSettings {
+    let (key, modifiers) = read_shortcut(state.window.get(), 151);
     preferences::RecipeSettings {
-        key: value & 0xff,
-        modifiers: ((flags & HOTKEYF_ALT as u16 != 0) as u16)
-            | (((flags & HOTKEYF_CONTROL as u16 != 0) as u16) << 1)
-            | (((flags & HOTKEYF_SHIFT as u16 != 0) as u16) << 2),
+        key,
+        modifiers,
         ..preferences::RecipeSettings::default()
+    }
+}
+fn captured_codex_shortcut(state: &State) -> preferences::CodexShortcut {
+    let (key, modifiers) = read_shortcut(state.window.get(), 189);
+    preferences::CodexShortcut {
+        key,
+        modifiers,
     }
 }
 fn shortcut_text(state: &State) -> String {
     captured_shortcut(state).shortcut_label()
 }
 fn set_shortcut(window: HWND, recipe: preferences::RecipeSettings) {
-    let flags = ((recipe.modifiers & 1 != 0) as u16 * HOTKEYF_ALT as u16)
-        | ((recipe.modifiers & 2 != 0) as u16 * HOTKEYF_CONTROL as u16)
-        | ((recipe.modifiers & 4 != 0) as u16 * HOTKEYF_SHIFT as u16);
-    // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
-    // initialized text/message buffers remain live until the call returns, with no retained Rust
-    // pointers.
-    unsafe {
-        SendDlgItemMessageW(window, 151, HKM_SETHOTKEY, (recipe.key | (flags << 8)) as usize, 0);
-    }
+    write_shortcut(window, 151, recipe.key, recipe.modifiers);
+}
+fn write_shortcut(window: HWND, id: i32, key: u16, modifiers: u16) {
+    let flags = ((modifiers & 1 != 0) as u16 * HOTKEYF_ALT as u16)
+        | ((modifiers & 2 != 0) as u16 * HOTKEYF_CONTROL as u16)
+        | ((modifiers & 4 != 0) as u16 * HOTKEYF_SHIFT as u16);
+    // SAFETY: This sends a scalar shortcut value to the owned hotkey control.
+    unsafe { SendDlgItemMessageW(window, id, HKM_SETHOTKEY, (key | (flags << 8)) as usize, 0) };
 }
 fn dirty(state: &State) {
     let changed = checked_startup(state) != state.initial_startup.get()
         || selected(state) != state.context.preferences.get()
-        || (selected(state).recipe_tracker.enabled && captured_shortcut(state).validate().is_err());
+        || (selected(state).recipe_tracker.enabled && captured_shortcut(state).validate().is_err())
+        || (selected(state).codex_enabled && captured_codex_shortcut(state).validate().is_err());
     // SAFETY: The UI/fixture owns the dialog and its resource-template child handles; only scalar
     // enabled/theme/invalidation state is changed or queried, with no Rust pointer retained.
     unsafe {
@@ -338,7 +358,8 @@ fn settings_init(state: &State) {
     unsafe {
         EnableThemeDialogTexture(window, ETDT_ENABLE | ETDT_USETABTEXTURE);
     }
-    for (index, label) in ["General", "Wave timer", "Compass", "Recipe tracker"].iter().enumerate()
+    for (index, label) in
+        ["General", "Wave timer", "Compass", "Recipe tracker", "Codex"].iter().enumerate()
     {
         let mut label = desktop::wide(label);
         let item = TCITEMW {
@@ -402,6 +423,8 @@ fn settings_init(state: &State) {
     // SAFETY: These controls belong to this live dialog; messages retain no pointers.
     unsafe {
         SendDlgItemMessageW(window, 180, BM_SETCHECK, usize::from(values.wave_enabled), 0);
+        SendDlgItemMessageW(window, 191, BM_SETCHECK, usize::from(values.startup_notification), 0);
+        SendDlgItemMessageW(window, 187, BM_SETCHECK, usize::from(values.codex_enabled), 0);
         SendDlgItemMessageW(
             window,
             181,
@@ -447,6 +470,7 @@ fn settings_init(state: &State) {
     }
     text(window, 154, &state.context.recipe_status.borrow());
     set_shortcut(window, recipe);
+    write_shortcut(window, 189, values.codex_shortcut.key, values.codex_shortcut.modifiers);
     for label in
         ["Keep running in the tray", "Ask before exiting", "Exit the overlay automatically"]
     {
@@ -552,10 +576,11 @@ fn settings_tab(state: &State) {
     // SAFETY: The live tab control is queried synchronously with scalar parameters.
     let tab = unsafe { SendDlgItemMessageW(window, 155, TCM_GETCURSEL, 0, 0) };
     let groups = [
-        vec![110, 111, 112, 113, 160, 161, 162, 164, 165],
+        vec![110, 111, 112, 113, 160, 161, 162, 164, 165, 191],
         vec![180, 170, 156],
         vec![174, 175, 181, 182, 183, 184, 185, 186],
         std::iter::once(150).chain(RECIPE_FIELDS).collect(),
+        vec![187, 188, 189, 190],
     ];
     for (index, ids) in groups.into_iter().enumerate() {
         for id in ids {
@@ -569,6 +594,9 @@ fn settings_tab(state: &State) {
                         SW_HIDE
                     },
                 );
+                if index == 4 && id != 187 {
+                    EnableWindow(GetDlgItem(window, id), i32::from(checked(window, 187)));
+                }
                 if index == 1 && id != 180 {
                     EnableWindow(GetDlgItem(window, id), i32::from(checked(window, 180)));
                 }
@@ -586,6 +614,7 @@ fn settings_tab(state: &State) {
         0 => 226,
         1 => 146,
         2 => 206,
+        4 => 162,
         _ if has_status => 264,
         _ => 232,
     };
@@ -686,6 +715,13 @@ fn save_settings(state: &State) -> Result<()> {
     if preferences.recipe_tracker.enabled {
         captured_shortcut(state).validate()?;
     }
+    if preferences.codex_enabled {
+        captured_codex_shortcut(state).validate()?;
+    }
+    ensure!(
+        !preferences.codex_shortcut_conflicts(),
+        "Choose different shortcuts for the Codex and recipe tracker."
+    );
     preferences.recipe_tracker.validate()?;
     preferences.compass.validate()?;
     let desired = checked_startup(state);
@@ -1043,12 +1079,13 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
             match (state.kind, id) {
                 (
                     SETTINGS,
-                    110 | 111 | 150 | 151 | 152 | 153 | 156 | 157 | 174 | 180 | 181 | 183 | 185,
+                    110 | 111 | 150 | 151 | 152 | 153 | 156 | 157 | 174 | 180 | 181 | 183 | 185
+                    | 187 | 189 | 191,
                 ) if notification == BN_CLICKED
                     || notification == CBN_SELCHANGE
                     || notification == EN_CHANGE =>
                 {
-                    if matches!(id, 150 | 174 | 180 | 181) {
+                    if matches!(id, 150 | 174 | 180 | 181 | 187) {
                         settings_tab(state);
                     }
                     dirty(state);

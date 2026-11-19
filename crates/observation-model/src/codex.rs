@@ -10,6 +10,7 @@ pub struct NativeContext {
     pub keeper_class: String,
     pub buildings: Vec<BuildingRoot>,
     pub weapon_classes: Vec<String>,
+    pub weapon_mod_assets: Vec<String>,
     pub core_asset: String,
     pub defaults: Defaults,
 }
@@ -74,6 +75,12 @@ impl NativeContext {
         let mut classes = std::collections::BTreeSet::new();
         if !self.weapon_classes.iter().all(|c| class_path(c) && classes.insert(c)) {
             return Err("invalid or duplicate registered weapon class".into());
+        }
+        ids.clear();
+        if self.weapon_mod_assets.len() > 256
+            || !self.weapon_mod_assets.iter().all(|id| asset_id(id) && ids.insert(id))
+        {
+            return Err("invalid or duplicate registered weapon mod".into());
         }
         Ok(())
     }

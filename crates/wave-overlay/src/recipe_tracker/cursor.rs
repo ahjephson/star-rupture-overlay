@@ -1,7 +1,7 @@
 //! Owned copy of the cursor observed over the foreground game. Never changes game resources.
 use super::*;
 #[derive(Default)]
-pub(super) struct GameCursor {
+pub(crate) struct GameCursor {
     game: HWND,
     process: u32,
     source: HCURSOR,
@@ -47,7 +47,7 @@ impl GameCursor {
         self.source = source;
         self.owned = copied;
     }
-    pub(super) fn handle(&self) -> HCURSOR {
+    pub(crate) fn handle(&self) -> HCURSOR {
         if self.owned.is_null() {
             arrow()
         } else {

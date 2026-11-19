@@ -110,7 +110,23 @@ pub struct View {
     pub message: String,
     pub generation: u64,
 }
+pub fn valid_card(id: &str) -> bool {
+    if let Some(building) = id.strip_prefix("upgrade:") {
+        return crate::codex::asset_id(building);
+    }
+    if let Some(tier) = id.strip_prefix("core-tier:") {
+        return tier.parse::<u32>().is_ok_and(|tier| (1..64).contains(&tier));
+    }
+    if let Some(core) = id.strip_prefix("core:") {
+        return core.split_once(':').is_some_and(|(persistent, tier)| {
+            persistent.parse::<u32>().is_ok_and(|id| id != 0)
+                && tier.parse::<u32>().is_ok_and(|tier| (1..64).contains(&tier))
+        });
+    }
+    crate::codex::asset_id(id)
+}
 pub const MAX_PINS: usize = 3;
+pub const PIN_LIMIT_NOTICE: &str = "Three recipes are pinned. Close one before adding another.";
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Request {
     pub generation: u64,
@@ -123,7 +139,10 @@ pub struct Request {
 struct State {
     edited: bool,
     request: Request,
+    catalogue_selection: Option<String>,
     pins: Vec<View>,
+    cards: Vec<(String, u32)>,
+    retained: BTreeSet<String>,
     notice: String,
 }
 #[derive(Default)]
@@ -134,6 +153,7 @@ impl State {
     fn advance(&mut self) {
         self.request.generation = self.request.generation.wrapping_add(1);
         self.notice.clear();
+        self.catalogue_selection = None;
         for view in &mut self.pins {
             view.generation = self.request.generation;
             if let Some(snapshot) = &mut view.snapshot {
@@ -142,6 +162,7 @@ impl State {
         }
     }
     fn settle(&mut self) {
+        self.catalogue_selection = None;
         self.request.cursor = None;
         self.request.active = !self.pins.is_empty();
     }
@@ -149,6 +170,37 @@ impl State {
 impl Control {
     pub fn request(&self) -> Request {
         self.state.lock().unwrap_or_else(|e| e.into_inner()).request
+    }
+    /// Queue an exact recipe for a fresh world-bound research read.
+    pub fn select_catalogue(&self, id: &str) {
+        if !crate::codex::asset_id(id) {
+            return;
+        }
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.pins.iter().any(|view| view.snapshot.as_ref().is_some_and(|s| s.recipe_id == id)) {
+            return;
+        }
+        state.advance();
+        state.request.active = true;
+        state.request.cursor = None;
+        state.request.clear_outside = false;
+        state.edited = true;
+        state.catalogue_selection = Some(id.into());
+    }
+    pub fn reject_catalogue(&self, request: Request, notice: String) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.request == request && state.catalogue_selection.is_some() {
+            state.settle();
+            state.notice = notice;
+        }
+    }
+    pub fn catalogue_selection(&self, request: Request) -> Option<String> {
+        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.request == request {
+            state.catalogue_selection.clone()
+        } else {
+            None
+        }
     }
     pub fn toggle(&self) {
         self.toggle_at(None);
@@ -171,6 +223,8 @@ impl Control {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         state.advance();
         state.pins.clear();
+        state.cards.clear();
+        state.retained.clear();
         state.edited = true;
         state.settle();
     }
@@ -179,6 +233,8 @@ impl Control {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         state.advance();
         state.pins.clear();
+        state.cards.clear();
+        state.retained.clear();
         state.edited = false;
         state.settle();
     }
@@ -188,19 +244,32 @@ impl Control {
     }
     /// Only fresh guarded snapshots may be restored, and never over a user's action.
     pub fn restore(&self, request: Request, snapshots: Vec<Snapshot>) -> bool {
+        self.restore_catalogue(request, snapshots, Vec::new(), BTreeSet::new())
+    }
+
+    pub fn restore_catalogue(
+        &self,
+        request: Request,
+        snapshots: Vec<Snapshot>,
+        cards: Vec<(String, u32)>,
+        retained: BTreeSet<String>,
+    ) -> bool {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         let mut ids = BTreeSet::new();
         if state.edited
             || state.request != request
             || !state.pins.is_empty()
             || state.request.active
-            || snapshots.len() > MAX_PINS
+            || snapshots.len() + cards.len() > MAX_PINS
             || snapshots.iter().any(|s| s.recipe_id.is_empty() || !ids.insert(&s.recipe_id))
+            || cards.iter().any(|(id, pid)| *pid == 0 || !valid_card(id) || !ids.insert(id))
         {
             return false;
         }
         state.advance();
         state.edited = true;
+        state.cards = cards;
+        state.retained = retained;
         for mut snapshot in
             snapshots.into_iter().filter(|s| s.ingredients.iter().any(|i| i.remaining > 0))
         {
@@ -215,12 +284,82 @@ impl Control {
         state.settle();
         true
     }
-    pub fn remove(&self, id: &str) {
+    pub fn pin_card(&self, id: &str, process: u32) {
+        if process == 0 || !valid_card(id) {
+            return;
+        }
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        if !state.pins.iter().any(|p| p.snapshot.as_ref().is_some_and(|s| s.recipe_id == id)) {
+        if state.cards.iter().any(|(key, _)| key == id)
+            || state.pins.iter().any(|v| v.snapshot.as_ref().is_some_and(|s| s.recipe_id == id))
+        {
             return;
         }
         state.advance();
+        if state.pins.len() + state.cards.len() < MAX_PINS {
+            state.cards.push((id.into(), process));
+            state.edited = true;
+        } else {
+            state.notice = PIN_LIMIT_NOTICE.into();
+        }
+        state.settle();
+    }
+
+    pub fn remembered_ids(&self) -> Option<Vec<String>> {
+        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.request.cursor.is_some() || state.catalogue_selection.is_some() {
+            return None;
+        }
+        let mut ids: Vec<_> = state
+            .pins
+            .iter()
+            .filter_map(|view| view.snapshot.as_ref())
+            .map(|snap| {
+                if state.retained.contains(&snap.recipe_id) {
+                    format!("#tracked:{}", snap.recipe_id)
+                } else {
+                    snap.recipe_id.clone()
+                }
+            })
+            .collect();
+        ids.extend(state.cards.iter().map(|(id, _)| format!("#card:{id}")));
+        Some(ids)
+    }
+
+    pub fn settle_catalogue_as_card(&self, request: Request, pid: u32) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.request != request || pid == 0 {
+            return;
+        }
+        if let Some(id) = state.catalogue_selection.take() {
+            if state.pins.len() + state.cards.len() < MAX_PINS {
+                state.cards.push((id, pid));
+            } else {
+                state.notice = PIN_LIMIT_NOTICE.into();
+            }
+            state.settle();
+        }
+    }
+    pub fn card_ids(&self, process: u32) -> Vec<String> {
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .cards
+            .iter()
+            .filter(|(_, pid)| *pid == process)
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
+    pub fn remove(&self, id: &str) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if !state.cards.iter().any(|(key, _)| key == id)
+            && !state.pins.iter().any(|p| p.snapshot.as_ref().is_some_and(|s| s.recipe_id == id))
+        {
+            return;
+        }
+        state.advance();
+        state.cards.retain(|(key, _)| key != id);
+        state.retained.remove(id);
         state.pins.retain(|p| p.snapshot.as_ref().is_some_and(|s| s.recipe_id != id));
         state.settle();
     }
@@ -255,6 +394,12 @@ impl Control {
                 };
             }
             None => {
+                if state.retained.remove(id)
+                    && let Some(previous) = &state.pins[index].snapshot
+                {
+                    let process = previous.process;
+                    state.cards.push((id.into(), process));
+                }
                 state.pins.remove(index);
             }
         }
@@ -276,6 +421,8 @@ impl Control {
         }
         if request.clear_outside {
             state.pins.clear();
+            state.cards.clear();
+            state.retained.clear();
         }
         state.settle();
     }
@@ -291,8 +438,15 @@ impl Control {
                 .iter()
                 .position(|p| p.snapshot.as_ref().is_some_and(|s| s.recipe_id == next.recipe_id))
             {
+                state.retained.remove(&next.recipe_id);
                 state.pins.remove(index);
-            } else if state.pins.len() < MAX_PINS {
+            } else if let Some(index) = state.cards.iter().position(|(id, _)| id == &next.recipe_id)
+            {
+                state.cards.remove(index);
+            } else if state.pins.len() + state.cards.len() < MAX_PINS {
+                if state.catalogue_selection.as_deref() == Some(next.recipe_id.as_str()) {
+                    state.retained.insert(next.recipe_id.clone());
+                }
                 next.generation = request.generation;
                 state.pins.push(View {
                     snapshot: Some(next),
@@ -300,7 +454,7 @@ impl Control {
                     generation: request.generation,
                 });
             } else {
-                state.notice = "Three recipes are pinned. Close one before adding another.".into();
+                state.notice = PIN_LIMIT_NOTICE.into();
             }
         }
         state.settle();
@@ -321,6 +475,16 @@ impl Control {
             self.unavailable_for(request, &snapshot.recipe_id, message);
         }
     }
+    pub fn pinned_ids(&self, process: u32) -> Vec<String> {
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .pins
+            .iter()
+            .filter_map(|view| view.snapshot.as_ref().filter(|s| s.process == process))
+            .map(|snapshot| snapshot.recipe_id.clone())
+            .collect()
+    }
     pub fn views(&self) -> Vec<View> {
         self.state.lock().unwrap_or_else(|e| e.into_inner()).pins.clone()
     }
@@ -337,6 +501,46 @@ impl Control {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn upgrade_cards_share_capacity_and_persist_without_live_counts() {
+        let control = super::Control::default();
+        for id in ["core:42:2", "upgrade:/Game/Chimera/B_A", "/Game/Chimera/Recipe", "core:43:2"] {
+            control.pin_card(id, 7);
+        }
+        assert_eq!(control.card_ids(7).len(), 3);
+        assert!(control.card_ids(8).is_empty());
+        assert!(control.notice().contains("Three recipes"));
+        control.remove("core:42:2");
+        assert_eq!(
+            control.remembered_ids().unwrap(),
+            ["#card:upgrade:/Game/Chimera/B_A", "#card:/Game/Chimera/Recipe"]
+        );
+        control.reset_session();
+        assert!(control.card_ids(7).is_empty());
+        let request = control.restoration_request().unwrap();
+        assert!(control.restore_catalogue(
+            request,
+            Vec::new(),
+            vec![("core:42:2".into(), 8)],
+            Default::default()
+        ));
+        assert_eq!(control.card_ids(8), ["core:42:2"]);
+    }
+    #[test]
+    fn catalogue_requests_do_not_replace_or_clear_game_shortcut_requests() {
+        let control = super::Control::default();
+        let id = "/Game/Chimera/Recipe_Test";
+        control.select_catalogue(id);
+        let codex = control.request();
+        assert!(codex.active && codex.cursor.is_none() && !codex.clear_outside);
+        assert_eq!(control.catalogue_selection(codex).as_deref(), Some(id));
+        control.toggle_at(Some([1, 2]));
+        let game = control.request();
+        assert_eq!(control.catalogue_selection(codex), None);
+        assert_eq!(control.catalogue_selection(game), None);
+        control.reject_catalogue(codex, "Stale".into());
+        assert_eq!(control.request(), game);
+    }
     #[test]
     fn restoration_refreshes_generation_and_respects_manual_actions() {
         let c = Control::default();

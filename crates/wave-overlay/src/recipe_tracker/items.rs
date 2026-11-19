@@ -12,37 +12,53 @@ pub(super) struct Target {
 }
 pub(super) fn hit(
     views: &[View],
+    cards: &[crate::codex::pins::Card],
     geometry: layout::Layout,
     right: i32,
     top: i32,
     point: [i32; 2],
 ) -> Option<Target> {
-    for (panel, view) in views.iter().enumerate() {
-        let snapshot = view.snapshot.as_ref()?;
-        let left = right - geometry.width - (geometry.width + geometry.gap) * panel as i32;
-        for (ingredient, item) in snapshot.ingredients.iter().enumerate() {
-            let [x, y, size] = layout::tile(
-                geometry.width,
-                geometry.height,
-                snapshot.ingredients.len(),
+    let pitch = geometry.width + geometry.gap;
+    let offset = right - 1 - point[0];
+    if offset < 0 || offset % pitch >= geometry.width {
+        return None;
+    }
+    let panel = (offset / pitch) as usize;
+    let left = right - geometry.width - pitch * panel as i32;
+    let mut snapshots =
+        views.iter().filter_map(|view| Some((view.snapshot.as_ref()?, view.generation)));
+    let (live, generation, card) = if let Some((snapshot, generation)) = snapshots.nth(panel) {
+        (Some(snapshot), generation, None)
+    } else {
+        let count = views.iter().filter(|view| view.snapshot.is_some()).count();
+        (None, 0, Some(cards.get(panel.checked_sub(count)?)?))
+    };
+    let count =
+        live.map_or_else(|| card.unwrap().materials.len(), |snapshot| snapshot.ingredients.len());
+    for ingredient in 0..count {
+        let [x, y, size] = layout::tile(geometry.width, geometry.height, count, ingredient);
+        if (left + x..left + x + size).contains(&point[0])
+            && (top + y..top + y + size).contains(&point[1])
+        {
+            let (recipe, item) = if let Some(snapshot) = live {
+                (&snapshot.recipe_id, &snapshot.ingredients[ingredient].item_id)
+            } else {
+                let card = card.unwrap();
+                (&card.key, &card.materials[ingredient].amount.item)
+            };
+            return Some(Target {
+                panel,
                 ingredient,
-            );
-            if (left + x..left + x + size).contains(&point[0])
-                && (top + y..top + y + size).contains(&point[1])
-            {
-                return Some(Target {
-                    panel,
-                    ingredient,
-                    center: [left + x + size / 2, top + y + size / 2],
-                    recipe: snapshot.recipe_id.clone(),
-                    item: item.item_id.clone(),
-                    generation: view.generation,
-                });
-            }
+                center: [left + x + size / 2, top + y + size / 2],
+                recipe: recipe.clone(),
+                item: item.clone(),
+                generation,
+            });
         }
     }
     None
 }
+
 fn tooltip_position(center: [i32; 2], size: [i32; 2], bounds: [i32; 4]) -> [i32; 2] {
     let [left, top, right, bottom] = bounds;
     let x = if center[0] + size[0] <= right - 6 {
@@ -212,10 +228,11 @@ impl Hover {
         crate::stacking::follow_companion(self.window, anchor, game);
         Ok(())
     }
-    pub(super) fn follow(&mut self, game: HWND) {
+    pub(super) fn follow(&mut self, game: HWND, codex_window: HWND) {
         // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
         // identity themselves, and neither dereference Rust memory nor transfer ownership.
-        if unsafe { GetForegroundWindow() } != game {
+        let foreground = unsafe { GetForegroundWindow() };
+        if foreground != game && (codex_window.is_null() || foreground != codex_window) {
             self.hide();
             return;
         }
@@ -384,15 +401,15 @@ mod tests {
             let g = layout::fit([2560, 1440], 1, 1, 100, pause).unwrap();
             let [x, y, size] = layout::tile(g.width, g.height, 1, 0);
             let left = 1000 - g.width;
-            let target = hit(&views, g, 1000, 30, [left + x + 1, 30 + y + 1]).unwrap();
+            let target = hit(&views, &[], g, 1000, 30, [left + x + 1, 30 + y + 1]).unwrap();
             assert_eq!(target.item, "material");
             assert_eq!(target.center, [left + x + size / 2, 30 + y + size / 2]);
             assert_eq!(
                 Some(target),
-                hit(&views, g, 1000, 30, [left + x + size - 1, 30 + y + size - 1])
+                hit(&views, &[], g, 1000, 30, [left + x + size - 1, 30 + y + size - 1])
             );
-            assert!(hit(&views, g, 1000, 30, [left + x + size, 30 + y + 1]).is_none());
-            assert!(hit(&views, g, 1000, 30, [left + x + 1, 30 + y - 1]).is_none());
+            assert!(hit(&views, &[], g, 1000, 30, [left + x + size, 30 + y + 1]).is_none());
+            assert!(hit(&views, &[], g, 1000, 30, [left + x + 1, 30 + y - 1]).is_none());
         }
     }
     #[test]
@@ -401,7 +418,7 @@ mod tests {
         let now = Instant::now();
         let g = layout::fit([2560, 1440], 1, 1, 100, false).unwrap();
         let [x, y, _] = layout::tile(g.width, g.height, 1, 0);
-        let t = hit(&[view()], g, 1000, 0, [1000 - g.width + x + 1, y + 1]);
+        let t = hit(&[view()], &[], g, 1000, 0, [1000 - g.width + x + 1, y + 1]);
         assert!(!h.select(t.clone(), now));
         assert!(!h.select(t.clone(), now + Duration::from_millis(349)));
         assert!(h.select(t.clone(), now + Duration::from_millis(350)));

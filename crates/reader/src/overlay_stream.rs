@@ -683,7 +683,15 @@ fn run_feature(
                     budget.renew(5000);
                     let result: Result<_> = async {
                         let mut snapshots = Vec::new();
-                        for id in ids {
+                        let mut cards = Vec::new();
+                        let mut retained = std::collections::BTreeSet::new();
+                        for stored in ids {
+                            if let Some(id) = stored.strip_prefix("#card:") {
+                                cards.push((id.to_owned(), s.process.identity.pid));
+                                continue;
+                            }
+                            let tracked = stored.starts_with("#tracked:");
+                            let id = stored.strip_prefix("#tracked:").unwrap_or(&stored).to_owned();
                             if !t.catalogue.recipes.contains_key(&id) {
                                 continue;
                             }
@@ -699,23 +707,82 @@ fn run_feature(
                                 )
                                 .await?
                             {
-                                snapshots.push(snapshot);
+                                if tracked
+                                    && !snapshot.ingredients.iter().any(|item| item.remaining > 0)
+                                {
+                                    cards.push((id.clone(), s.process.identity.pid));
+                                } else {
+                                    if tracked {
+                                        retained.insert(id.clone());
+                                    }
+                                    snapshots.push(snapshot);
+                                }
+                            } else if tracked {
+                                cards.push((id.clone(), s.process.identity.pid));
                             }
                             s.live.menu(&s.process, &s.base).await?;
                         }
-                        Ok(snapshots)
+                        Ok((snapshots, cards, retained))
                     }
                     .await;
                     match result {
-                        Ok(snapshots) => {
+                        Ok((snapshots, cards, retained)) => {
                             hub.recipes(s.epoch, |r| {
-                                r.restored(&t.control, restore_request, snapshots)
+                                r.restored_catalogue(
+                                    &t.control,
+                                    restore_request,
+                                    snapshots,
+                                    cards,
+                                    retained,
+                                )
                             });
                         }
                         Err(e) => eprintln!("Recipe restoration deferred: {e:#}"),
                     }
                 }
-                if request.active && request.cursor.is_some() && Instant::now() >= recipe_due {
+                if let Some(id) = t.control.catalogue_selection(request)
+                    && Instant::now() >= recipe_due
+                {
+                    budget.renew(5000);
+                    let sample: Result<_> = async {
+                        s.live.menu(&s.process, &s.base).await?;
+                        let binding =
+                            recipe_binding.as_ref().context("Recipe tracker is preparing")?;
+                        anyhow::ensure!(
+                            t.catalogue.recipes.contains_key(&id),
+                            "Recipe research unavailable"
+                        );
+                        let sample = binding
+                            .sample(
+                                &s.live.context(),
+                                &s.base,
+                                s.live.world_address(),
+                                &id,
+                                &t.catalogue,
+                                request.generation,
+                            )
+                            .await?;
+                        s.live.menu(&s.process, &s.base).await?;
+                        Ok(sample)
+                    }
+                    .await;
+                    hub.with_epoch(s.epoch, || match sample {
+                        Ok(Some(snapshot))
+                            if snapshot.ingredients.iter().any(|i| i.remaining > 0) =>
+                        {
+                            t.control.captured(request, Some(snapshot))
+                        }
+                        Ok(_) => {
+                            t.control.settle_catalogue_as_card(request, s.process.identity.pid)
+                        }
+                        Err(error) => t.control.reject_catalogue(
+                            request,
+                            format!("{error:#}").chars().take(220).collect(),
+                        ),
+                    });
+                    recipe_due = Instant::now();
+                } else if request.active && request.cursor.is_some() && Instant::now() >= recipe_due
+                {
                     budget.renew(5000);
                     let selection = request.cursor.is_some();
                     let started = Instant::now();

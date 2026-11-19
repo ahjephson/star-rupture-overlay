@@ -130,16 +130,42 @@ fn key(context: &NativeContext) -> Result<String> {
     context.validate().map_err(anyhow::Error::msg)?;
     let mut c = context.clone();
     c.buildings.sort_by(|a, b| a.id.cmp(&b.id));
-    c.weapon_classes.sort();
     Ok(digest(&serde_json::to_vec(&c)?))
 }
-fn icon_ids(c: &Catalogue) -> BTreeSet<String> {
+fn required_icons(c: &Catalogue) -> BTreeSet<String> {
     c.items
         .values()
         .map(|v| v.icon.clone())
         .chain(c.buildings.values().map(|v| v.icon.clone()))
         .chain(c.recipes.values().map(|v| v.icon.clone()))
         .collect()
+}
+fn icon_ids(c: &Catalogue) -> BTreeSet<String> {
+    let mut icons = required_icons(c);
+    icons.extend(c.lock_icon.clone());
+    icons.extend(c.corporations.values().filter_map(|v| v.icon.clone()));
+    icons.extend(c.weapon_purchases.values().filter_map(|v| v.icon.clone()));
+    icons.extend(
+        c.weapon_purchases.values().flat_map(|v| v.mods.values().filter_map(|m| m.icon.clone())),
+    );
+    icons
+}
+fn discard_missing_optional_icons(c: &mut Catalogue, kept: &BTreeMap<String, Image>) {
+    let discard = |icon: &mut Option<String>| {
+        if icon.as_ref().is_some_and(|id| !kept.contains_key(id)) {
+            *icon = None;
+        }
+    };
+    discard(&mut c.lock_icon);
+    for corporation in c.corporations.values_mut() {
+        discard(&mut corporation.icon);
+    }
+    for weapon in c.weapon_purchases.values_mut() {
+        discard(&mut weapon.icon);
+        for upgrade in weapon.mods.values_mut() {
+            discard(&mut upgrade.icon);
+        }
+    }
 }
 fn safe_generation(s: &str) -> bool {
     s.starts_with("catalogue-")
@@ -246,7 +272,7 @@ impl Store {
         let store = retoc::iostore::open(&source.paks, Arc::new(retoc::Config::default()))?;
         let log = retoc::logging::Log::no_log();
         let mut archive = Archive::new(store.as_ref(), schemas, &log, stop)?;
-        let catalogue = normalize::build(&mut archive, context)?;
+        let mut catalogue = normalize::build(&mut archive, context)?;
         let key = key(&catalogue.context)?;
         let name = format!(
             "catalogue-{}-{}",
@@ -260,8 +286,16 @@ impl Store {
         let ids = icon_ids(&catalogue);
         ensure!(ids.len() <= 1024, "Catalogue icon count bound");
         let mut icon_bytes = 0usize;
+        let required = required_icons(&catalogue);
         for id in ids {
-            let bytes = archive.icon(&id).with_context(|| format!("Preparing icon {id}"))?;
+            let bytes = match archive.icon(&id) {
+                Ok(bytes) => bytes,
+                Err(error) if !required.contains(&id) && !stop.is_requested() => {
+                    eprintln!("Codex optional icon {id}: {error:#}");
+                    continue;
+                }
+                Err(error) => return Err(error.context(format!("Preparing icon {id}"))),
+            };
             let (width, height) = shape(&bytes)?;
             icon_bytes = icon_bytes.checked_add(bytes.len()).context("Icon byte overflow")?;
             ensure!(icon_bytes <= 256 * 1024 * 1024, "Catalogue icon disk budget");
@@ -275,6 +309,7 @@ impl Store {
                 },
             );
         }
+        discard_missing_optional_icons(&mut catalogue, &icons);
         let packages = archive.packages;
         drop(archive);
         drop(store);
@@ -345,12 +380,12 @@ mod cache_tests {
     use super::*;
     fn catalogue() -> Result<Catalogue> {
         Ok(serde_json::from_value(serde_json::json!({
-            "version":1,
-            "context":{"version":1,"gameHash":"a".repeat(64),"modeClass":"/Game/Chimera/Mode.Mode_C","stateClass":"/Game/Chimera/State.State_C","keeperClass":"/Game/Chimera/Keeper.Keeper_C","buildings":[{"id":"/Game/Chimera/Forge","category":1}],"weaponClasses":["/ChimeraWeapon/Pistol.Pistol_C"],"coreAsset":"/Game/Chimera/Core","defaults":{"addPlatform":false,"addPillar":false,"recipeSeconds":10.0,"craftingLoopSeconds":0.0,"overwriteRecipeSeconds":-1.0,"useCraftingProcessor":true}},
+            "version":7,"lock_icon":null,"corporations":{},
+            "context":{"version":1,"gameHash":"a".repeat(64),"modeClass":"/Game/Chimera/Mode.Mode_C","stateClass":"/Game/Chimera/State.State_C","keeperClass":"/Game/Chimera/Keeper.Keeper_C","buildings":[{"id":"/Game/Chimera/Forge","category":1}],"weaponClasses":["/ChimeraWeapon/Pistol.Pistol_C"],"weaponModAssets":[],"coreAsset":"/Game/Chimera/Core","defaults":{"addPlatform":false,"addPillar":false,"recipeSeconds":10.0,"craftingLoopSeconds":0.0,"overwriteRecipeSeconds":-1.0,"useCraftingProcessor":true}},
             "items":{"/Game/Chimera/Ore":{"name":"Calcium Ore","description":null,"icon":"/Game/Chimera/T_Ore"}},
             "recipes":{"/Game/Chimera/CR_Ore":{"name":"Ore","output":{"item":"/Game/Chimera/Ore","quantity":2},"inputs":[{"item":"/Game/Chimera/Ore","quantity":1}],"producers":["/Game/Chimera/Forge"],"base_seconds":10.0,"icon":"/Game/Chimera/T_Ore","unlock":{"kind":"Building"}}},
             "buildings":{"/Game/Chimera/Forge":{"name":"Forge","icon":"/Game/Chimera/T_Ore","category":1,"materials":[],"add_platform":false,"add_pillar":false,"unlocks":[{"kind":"Corporation","id":"/Game/Chimera/Corp","name":"Corporation","level":1,"collection":null}],"core_progression":false,"crafting":null}},
-            "core_tiers":[{"source_index":0,"materials":[],"cooling":100}],"excluded":{}
+            "weapon_purchases":{},"war_bond_currency":null,"equipment_material_names":{},"core_tiers":[{"source_index":0,"materials":[],"cooling":100}],"excluded":{}
         }))?)
     }
     struct Fixture {

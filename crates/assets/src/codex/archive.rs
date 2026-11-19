@@ -1,4 +1,4 @@
-use super::super::{load, object, properties};
+use super::super::{load, load_bounded, object, properties};
 use anyhow::{Context, Result, ensure};
 use retoc::{
     FPackageId, asset_conversion::FZenPackageContext, iostore::IoStoreTrait, logging::Log,
@@ -126,7 +126,12 @@ impl<'a> Archive<'a> {
         ensure!(!self.stop.is_requested(), "Catalogue icon preparation cancelled");
         ensure!(self.packages < 4096, "Catalogue package work bound");
         self.packages += 1;
-        let p = load(&self.context, *self.paths.get(id).context("Icon package")?)?;
+        // A 1024px BGRA texture alone occupies 4 MiB, before metadata or any smaller mip.
+        let p = load_bounded(
+            &self.context,
+            *self.paths.get(id).context("Icon package")?,
+            6 * 1024 * 1024,
+        )?;
         ensure!(p.header.exports.len() == 1, "Icon export count");
         let mut r = object(&p, 0, &self.schemas)?;
         let props = r.properties("Texture2D", 0)?;

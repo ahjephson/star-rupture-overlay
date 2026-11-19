@@ -33,6 +33,35 @@ pub struct Weapon {
     pub id: String,
     pub name: String,
 }
+/// Authored equipment costs. Ownership and current station visibility are live state.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WeaponPurchase {
+    pub icon: Option<String>,
+    pub description: Option<String>,
+    pub name: String,
+    pub ammo: String,
+    pub war_bonds: u32,
+    pub equip_materials: Vec<Amount>,
+    pub mods: BTreeMap<String, WeaponMod>,
+    pub slot_order: Vec<String>,
+}
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WeaponMod {
+    pub icon: Option<String>,
+    pub name: String,
+    pub slot: String,
+    pub sort_priority: i64,
+    pub war_bonds: u32,
+    pub equip_materials: Vec<Amount>,
+    pub default_for_weapon: bool,
+    pub registered_for_unlock: bool,
+    pub hidden_slot: bool,
+    pub provider: Option<String>,
+}
+pub(super) const ARMORY: &str = "/Game/Chimera/Buildings/Interiors/Armory/BD_Armory";
+pub(super) const WAR_BONDS: &str = "/Game/Chimera/Items/I_ArmoryToken";
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Recipe {
@@ -114,20 +143,46 @@ pub struct CoreTier {
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct Corporation {
+    pub name: String,
+    pub native_name: String,
+    pub icon: Option<String>,
+    pub description: Option<String>,
+    pub levels: Vec<CorporationLevel>,
+}
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CorporationLevel {
+    pub level: u32,
+    pub reputation: u32,
+    pub items: Vec<Amount>,
+    pub inventory_slots: u32,
+    pub features: Vec<String>,
+}
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Catalogue {
+    pub lock_icon: Option<String>,
     pub version: u32,
     pub context: NativeContext,
     pub items: BTreeMap<String, Item>,
     pub recipes: BTreeMap<String, Recipe>,
     pub buildings: BTreeMap<String, Building>,
     pub core_tiers: Vec<CoreTier>,
+    pub corporations: BTreeMap<String, Corporation>,
+    pub weapon_purchases: BTreeMap<String, WeaponPurchase>,
+    /// Native label for the currency players call War Bonds.
+    pub war_bond_currency: Option<String>,
+    pub equipment_material_names: BTreeMap<String, Option<String>>,
     pub excluded: BTreeMap<String, String>,
 }
 impl Catalogue {
     pub fn validate(&self) -> Result<()> {
         self.context.validate().map_err(anyhow::Error::msg)?;
         ensure!(
-            self.version == 1
+            self.version == 7
+                && self.lock_icon.as_ref().is_none_or(|id| asset_id(id))
+                && self.corporations.len() <= 32
                 && !self.items.is_empty()
                 && self.items.len() <= 4096
                 && !self.recipes.is_empty()
@@ -149,6 +204,23 @@ impl Catalogue {
             );
             Ok(())
         };
+        for (id, corporation) in &self.corporations {
+            ensure!(
+                asset_id(id)
+                    && valid_name(&corporation.name)
+                    && valid_name(&corporation.native_name)
+                    && corporation.icon.as_ref().is_none_or(|icon| asset_id(icon))
+                    && corporation.levels.len() <= 128,
+                "Invalid corporation metadata"
+            );
+            for level in &corporation.levels {
+                bill(&level.items)?;
+                ensure!(
+                    level.features.len() <= 32 && level.features.iter().all(|v| valid_name(v)),
+                    "Invalid corporation feature rewards"
+                );
+            }
+        }
         for (id, item) in &self.items {
             ensure!(
                 asset_id(id)
@@ -251,6 +323,75 @@ impl Catalogue {
                     "Unregistered ammunition weapon"
                 ),
                 _ => {}
+            }
+        }
+        ensure!(
+            self.equipment_material_names.len() <= 1024
+                && self.equipment_material_names.iter().all(|(id, name)| asset_id(id)
+                    && name
+                        .as_deref()
+                        .is_none_or(|s| valid_name(s) && s != "<MISSING STRING TABLE ENTRY>")),
+            "Invalid equipment material names"
+        );
+        let equipment_bill = |rows: &[Amount]| -> Result<()> {
+            let mut seen = std::collections::BTreeSet::new();
+            ensure!(
+                rows.len() <= 128
+                    && rows.iter().all(|row| row.quantity > 0
+                        && self.equipment_material_names.contains_key(&row.item)
+                        && seen.insert(&row.item)),
+                "Invalid equipment material requirement"
+            );
+            Ok(())
+        };
+        ensure!(self.weapon_purchases.len() <= 128, "Weapon purchase bound");
+        if !self.weapon_purchases.is_empty() {
+            ensure!(
+                self.buildings.contains_key(ARMORY)
+                    && self.war_bond_currency.as_deref().is_some_and(valid_name),
+                "Equipment station or currency missing"
+            );
+        }
+        for (id, weapon) in &self.weapon_purchases {
+            ensure!(
+                valid_name(&weapon.name)
+                    && self.items.contains_key(&weapon.ammo)
+                    && self
+                        .context
+                        .weapon_classes
+                        .iter()
+                        .any(|c| c.split_once('.').is_some_and(|(p, _)| p == id))
+                    && weapon.mods.len() <= 128,
+                "Unregistered weapon purchase"
+            );
+            equipment_bill(&weapon.equip_materials)?;
+            for (id, upgrade) in &weapon.mods {
+                ensure!(
+                    asset_id(id)
+                        && valid_name(&upgrade.name)
+                        && valid_name(&upgrade.slot)
+                        && upgrade.registered_for_unlock
+                            == self.context.weapon_mod_assets.contains(id)
+                        && (upgrade.default_for_weapon || upgrade.registered_for_unlock)
+                        && upgrade.provider.as_deref().is_none_or(asset_id),
+                    "Invalid weapon upgrade"
+                );
+                equipment_bill(&upgrade.equip_materials)?;
+            }
+        }
+        for recipe in self.recipes.values() {
+            if let Unlock::FirstWeaponPurchase {
+                weapons,
+            } = &recipe.unlock
+            {
+                ensure!(
+                    weapons.iter().all(|w| self
+                        .weapon_purchases
+                        .get(&w.id)
+                        .is_some_and(|purchase| purchase.ammo == recipe.output.item
+                            && purchase.name == w.name)),
+                    "Ammunition purchase route missing"
+                );
             }
         }
         for (i, tier) in self.core_tiers.iter().enumerate() {

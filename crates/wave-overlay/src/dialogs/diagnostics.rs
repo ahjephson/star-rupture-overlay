@@ -74,7 +74,33 @@ pub fn self_test(directory: &Path) -> Result<()> {
         SendDlgItemMessageW(window, 174, BM_SETCHECK, BST_CHECKED as usize, 0);
         SendMessageW(window, WM_COMMAND, 174, 0);
     }
-    check_feature_tabs(&dialogs.windows[0].0, directory)?;
+    let state = &dialogs.windows[0].0;
+    ensure!(
+        captured_codex_shortcut(state) == preferences::CodexShortcut::default(),
+        "Codex should default to plain K"
+    );
+    write_shortcut(window, 189, u16::from(b'J'), 2);
+    // SAFETY: This models the owned hotkey control's scalar change notification.
+    unsafe { SendMessageW(window, WM_COMMAND, 189 | ((EN_CHANGE as usize) << 16), 0) };
+    ensure!(
+        // SAFETY: This queries the enabled state of the diagnostic dialog's Save button.
+        unsafe { IsWindowEnabled(GetDlgItem(window, IDOK)) } != 0,
+        "Changing the Codex shortcut did not enable Save"
+    );
+    ensure!(
+        selected(state).codex_shortcut
+            == preferences::CodexShortcut {
+                key: u16::from(b'J'),
+                modifiers: 2
+            },
+        "Codex shortcut did not capture the changed binding"
+    );
+    let recipe = preferences::RecipeSettings::default();
+    write_shortcut(window, 189, recipe.key, recipe.modifiers);
+    ensure!(save_settings(state).is_err(), "Conflicting shortcuts were accepted");
+    let defaults = preferences::CodexShortcut::default();
+    write_shortcut(window, 189, defaults.key, defaults.modifiers);
+    check_feature_tabs(state, directory)?;
     capture(window, &directory.join("settings.bmp"))?;
     let mut general = RECT::default();
     // SAFETY: Win32 validates the borrowed handle where required; every output points to an
@@ -374,6 +400,7 @@ pub fn self_test(directory: &Path) -> Result<()> {
             "Restoring the shortcut did not clear dirty state"
         );
     }
+    ensure!(checked(window, 191), "Startup notifications should default to enabled");
     let mut selected_label = [0u16; 128];
     // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
     // initialized text/message buffers remain live until the call returns, with no retained Rust
@@ -424,6 +451,9 @@ pub fn self_test(directory: &Path) -> Result<()> {
     // initialized text/message buffers remain live until the call returns, with no retained Rust
     // pointers.
     unsafe {
+        SendDlgItemMessageW(window, 191, BM_SETCHECK, BST_UNCHECKED as usize, 0);
+        SendMessageW(window, WM_COMMAND, 191, 0);
+        assert_ne!(IsWindowEnabled(GetDlgItem(window, IDOK)), 0);
         SendDlgItemMessageW(window, 111, CB_SETCURSEL, 2, 0);
         SendDlgItemMessageW(window, 156, CB_SETCURSEL, 1, 0);
         set_shortcut(
@@ -445,6 +475,10 @@ pub fn self_test(directory: &Path) -> Result<()> {
         preferences::load(&context.preferences_path)?.compass.arrival_metres == 50
             && context.preferences.get().compass.departure_metres == 65,
         "Arrival distances did not persist through native controls"
+    );
+    ensure!(
+        !preferences::load(&context.preferences_path)?.startup_notification,
+        "Startup notification preference was not saved"
     );
     ensure!(
         preferences::load(&context.preferences_path)?.game_exit == GameExit::Exit,
@@ -739,12 +773,13 @@ fn check_feature_tabs(state: &State, directory: &Path) -> Result<()> {
     // SAFETY: Only the diagnostic-owned tab and checkbox controls are synchronously queried/changed.
     unsafe {
         ensure!(
-            SendDlgItemMessageW(window, 155, TCM_GETITEMCOUNT, 0, 0) == 4,
-            "Expected four settings tabs"
+            SendDlgItemMessageW(window, 155, TCM_GETITEMCOUNT, 0, 0) == 5,
+            "Expected five settings tabs"
         );
         for (tab, toggle, fields, name) in [
             (1, 180, &[170, 156][..], "wave"),
             (2, 174, &[175, 181, 182, 183, 184, 185, 186][..], "compass"),
+            (4, 187, &[188, 189, 190][..], "codex"),
         ] {
             SendDlgItemMessageW(window, 155, TCM_SETCURSEL, tab, 0);
             settings_tab(state);

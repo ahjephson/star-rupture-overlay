@@ -76,6 +76,7 @@ impl Remembered {
         active.retry_at = std::time::Instant::now() + std::time::Duration::from_secs(2);
         Some((request, active.ids.clone()))
     }
+    #[cfg(test)]
     pub fn restored(
         &mut self,
         control: &Control,
@@ -83,6 +84,21 @@ impl Remembered {
         snapshots: Vec<Snapshot>,
     ) {
         if control.restore(request, snapshots)
+            && let Some(active) = &mut self.active
+        {
+            active.pending = false;
+            active.retry_at = std::time::Instant::now();
+        }
+    }
+    pub fn restored_catalogue(
+        &mut self,
+        control: &Control,
+        request: starrupture_observation_model::recipe::Request,
+        snapshots: Vec<Snapshot>,
+        cards: Vec<(String, u32)>,
+        retained: std::collections::BTreeSet<String>,
+    ) {
+        if control.restore_catalogue(request, snapshots, cards, retained)
             && let Some(active) = &mut self.active
         {
             active.pending = false;
@@ -109,8 +125,9 @@ impl Remembered {
         {
             return Ok(());
         }
-        let ids: Vec<_> =
-            control.views().into_iter().filter_map(|v| v.snapshot.map(|s| s.recipe_id)).collect();
+        let Some(ids) = control.remembered_ids() else {
+            return Ok(());
+        };
         if ids == active.ids {
             return Ok(());
         }
@@ -130,17 +147,24 @@ fn validate(ids: &[String]) -> Result<()> {
     let mut seen = std::collections::BTreeSet::new();
     ensure!(
         ids.len() <= 3
-            && ids.iter().all(|id| id.starts_with("/Game/")
-                && id.len() <= 512
-                && !id.chars().any(char::is_control)
-                && seen.insert(id)),
+            && ids.iter().all(|id| {
+                if let Some(card) = id.strip_prefix("#card:") {
+                    return starrupture_observation_model::recipe::valid_card(card)
+                        && seen.insert(card);
+                }
+                let id = id.strip_prefix("#tracked:").unwrap_or(id);
+                id.starts_with("/Game/")
+                    && id.len() <= 512
+                    && !id.chars().any(char::is_control)
+                    && seen.insert(id)
+            }),
         "Invalid remembered recipe choices"
     );
     Ok(())
 }
 fn load(path: &Path) -> Result<Vec<String>> {
     let record: Record = crate::cache::read_json(path, 4096)?;
-    ensure!(record.version == 1, "Unsupported remembered recipes format");
+    ensure!(matches!(record.version, 1 | 2), "Unsupported remembered recipes format");
     validate(&record.recipes)?;
     Ok(record.recipes)
 }
@@ -152,7 +176,11 @@ fn save(path: &Path, ids: &[String]) -> Result<()> {
     let parent = path.parent().context("Recipe persistence directory")?;
     std::fs::create_dir_all(parent)?;
     let bytes = serde_json::to_vec(&Record {
-        version: 1,
+        version: if ids.iter().any(|id| id.starts_with('#')) {
+            2
+        } else {
+            1
+        },
         recipes: ids.to_vec(),
     })?;
     ensure!(bytes.len() <= 4096, "Remembered recipe file bound");

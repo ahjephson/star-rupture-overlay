@@ -9,7 +9,7 @@ use windows_sys::Win32::{
     UI::{Shell::ExtractIconExW, WindowsAndMessaging::*},
 };
 
-fn load(width: i32, height: i32) -> Result<HICON> {
+pub(crate) fn load(width: i32, height: i32) -> Result<HICON> {
     // Integer resource 1 is the sole group icon, also selected by Explorer.
     // SAFETY: These Win32 queries use scalar values or borrowed handles, validate native handle
     // identity themselves, and neither dereference Rust memory nor transfer ownership.

@@ -1,4 +1,8 @@
 //! Bounded native preparation inputs. No game functions are invoked.
+mod core;
+mod corporations;
+pub use core::Core;
+mod live;
 use anyhow::{Context, Result, ensure};
 use jmap::EClassCastFlags as K;
 use jmap_dumper::{
@@ -9,6 +13,7 @@ use jmap_dumper::{
         ZProperty, ZStructProperty,
     },
 };
+pub use live::{Progress, observe};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use starrupture_observation_model::{
@@ -227,6 +232,78 @@ async fn soft_asset_path(ctx: &Ctx, owner: u64, name: &str) -> Result<Value> {
         json!({"owner":before,"field":name,"offset":offset,"size":size,"value":candidates.remove(0),"scope":"finite reflected-field name-pair discovery; not a recurring app lookup"}),
     )
 }
+/// Read soft references without resolving/loading the pointed-to objects.
+async fn weapon_mod_assets(ctx: &Ctx, owner: u64) -> Result<Vec<String>> {
+    let before = stamp(ctx, owner).await?;
+    let class = before["class"].as_u64().context("Mod list owner class")?;
+    let array = field(ctx, class, "AvailableModsForUnlock").await?;
+    ensure!(
+        array.zfield().cast_flags().await?.contains(K::CASTCLASS_FArrayProperty)
+            && array.element_size().read().await? == 16,
+        "Weapon mod array layout"
+    );
+    let inner = array.cast::<jmap_dumper::objects::ZArrayProperty>().inner().read().await?;
+    ensure!(
+        inner.zfield().cast_flags().await?.contains(K::CASTCLASS_FSoftObjectProperty),
+        "Weapon mod reference type"
+    );
+    let stride = usize::try_from(inner.element_size().read().await?)?;
+    let width =
+        ctx.struct_member("FName", "Number").max(ctx.struct_member("FName", "ComparisonIndex")) + 4;
+    ensure!(
+        (16..=128).contains(&stride) && width >= 8 && width * 2 <= stride,
+        "Weapon mod reference size"
+    );
+    let at = owner + u64::try_from(array.offset_internal().read().await?)?;
+    let mut header = [0; 16];
+    ctx.read_buf(at, &mut header).await?;
+    let ptr = u64::from_le_bytes(header[..8].try_into()?);
+    let count = usize::try_from(i32::from_le_bytes(header[8..12].try_into()?))?;
+    let capacity = usize::try_from(i32::from_le_bytes(header[12..].try_into()?))?;
+    ensure!(count <= 256 && count <= capacity && capacity <= 8192, "Weapon mod array bound");
+    let mut bytes = vec![0; count * stride];
+    if count > 0 {
+        ctx.read_buf(ptr, &mut bytes).await?;
+    }
+    let mut name_offset = None;
+    let mut paths = Vec::with_capacity(count);
+    for index in 0..count {
+        let entry = ptr + u64::try_from(index * stride)?;
+        let mut found = None;
+        for offset in
+            (0..=stride - 2 * width).step_by(4).filter(|i| name_offset.is_none_or(|o| *i == o))
+        {
+            let Ok(package) = Ptr::<FName>::new(entry + offset as u64, ctx.clone())?.read().await
+            else {
+                continue;
+            };
+            if !starrupture_observation_model::codex::asset_id(&package) {
+                continue;
+            }
+            let leaf =
+                Ptr::<FName>::new(entry + (offset + width) as u64, ctx.clone())?.read().await?;
+            if package.rsplit('/').next() != Some(leaf.as_str()) {
+                continue;
+            }
+            ensure!(found.replace((offset, package)).is_none(), "Ambiguous weapon mod path");
+        }
+        let (offset, package) = found.context("Weapon mod soft reference unresolved")?;
+        name_offset = Some(offset);
+        paths.push(package);
+    }
+    let mut repeated = [0; 16];
+    ctx.read_buf(at, &mut repeated).await?;
+    ensure!(header == repeated, "Weapon mod array header changed");
+    if count > 0 {
+        let mut again = vec![0; bytes.len()];
+        ctx.read_buf(ptr, &mut again).await?;
+        ensure!(again == bytes, "Weapon mod references changed");
+    }
+    ensure!(stamp(ctx, owner).await? == before, "Weapon mod owner changed");
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
+}
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OwnerHint {
@@ -429,6 +506,7 @@ async fn capture(
         .iter()
         .map(|v| v["path"].as_str().map(str::to_owned).context("Registered weapon identity"))
         .collect::<Result<Vec<_>>>()?;
+    let weapon_mod_assets = weapon_mod_assets(ctx, component).await?;
     ensure!(
         crate::recipe::allocation(ctx, world).await? == world_proof
             && crate::recipe::allocation(ctx, controller.0.address).await? == controller
@@ -438,6 +516,7 @@ async fn capture(
             && ctx.read::<u64>(component + 32).await? == state,
         "Codex world changed during preparation"
     );
+
     let context = NativeContext {
         version: 1,
         game_hash: base.identity.executable_sha256.clone(),
@@ -446,6 +525,7 @@ async fn capture(
         keeper_class: crate::path(ctx, keeper_class).await?,
         buildings,
         weapon_classes,
+        weapon_mod_assets,
         core_asset: core["value"]["package"].as_str().context("Core asset")?.into(),
         defaults,
     };

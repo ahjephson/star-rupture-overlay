@@ -122,7 +122,7 @@ impl Binding {
         read.finish(ctx).await?;
         Ok(hovered)
     }
-    async fn menu_screen(
+    async fn displayed_screen(
         &self,
         ctx: &Ctx,
         base: &RuntimeCache,
@@ -170,6 +170,26 @@ impl Binding {
         if screen == 0 {
             return Ok(None);
         }
+        read.object(ctx, screen, Some(self.user_widget_class)).await?;
+        Ok(Some(screen))
+    }
+
+    pub(crate) async fn gameplay(&self, ctx: &Ctx, base: &RuntimeCache) -> Result<bool> {
+        let mut read = Read::default();
+        let screen = self.displayed_screen(ctx, base, &mut read).await?;
+        read.finish(ctx).await?;
+        Ok(screen.is_none())
+    }
+
+    async fn menu_screen(
+        &self,
+        ctx: &Ctx,
+        base: &RuntimeCache,
+        read: &mut Read,
+    ) -> Result<Option<u64>> {
+        let Some(screen) = self.displayed_screen(ctx, base, read).await? else {
+            return Ok(None);
+        };
         let screen_stamp = read.object(ctx, screen, Some(self.user_widget_class)).await?;
         if !class_is(ctx, screen_stamp.0.class, self.inventory_screen_class).await? {
             return Ok(None);

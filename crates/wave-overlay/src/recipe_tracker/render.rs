@@ -331,6 +331,7 @@ fn draw_panel(
                 None,
             );
             image_rect(&mut pixels, [w, h], &assets.header_frame, frame_rect, None);
+            lock(&mut pixels, [w, h], assets, width / 2, hy + header / 2, scale);
             texts.push(Text {
                 value: recipe.name.replacen(' ', "\n", 1),
                 rect: RECT {
@@ -490,6 +491,12 @@ fn draw_panel(
             layout: TextLayout::Centered,
         });
     }
+    finish_panel(surface, pixels, texts, frame);
+}
+
+fn finish_panel(surface: &Surface, mut pixels: Vec<u8>, texts: Vec<Text>, frame: layout::Frame) {
+    let (w, h) = (surface.width as usize, surface.height as usize);
+    let scale = surface.width as f64 / layout::WIDTH;
     // SAFETY: The Vec and owned top-down DIB are disjoint allocations of the same checked BGRA byte
     // length; only this UI thread accesses the bitmap.
     unsafe {
@@ -538,6 +545,138 @@ fn draw_panel(
         std::ptr::copy_nonoverlapping(pixels.as_ptr(), surface.bits, pixels.len());
     }
 }
+pub(super) fn render_card(
+    window: HWND,
+    assets: &Assets,
+    card: &crate::codex::pins::Card,
+    extent: [i32; 2],
+    frame: layout::Frame,
+    catalogue: &starrupture_assets::codex::Catalogue,
+    hovered: Option<usize>,
+) -> Result<()> {
+    let [width, height] = extent;
+    let surface = Surface::new(width, height)?;
+    let dimensions = [width as usize, height as usize];
+    let mut pixels = [29, 27, 24, 235].repeat(dimensions[0] * dimensions[1]);
+    let scale = width as f64 / layout::WIDTH;
+    let header = (62.0 * scale) as i32;
+    let hx = (width - header) / 2;
+    let hy = layout::controls(width) as i32;
+    let bounds = [hx, hy, header, (74.0 * scale).round() as i32];
+    image_rect(&mut pixels, dimensions, &assets.header_background, bounds, None);
+    if let Some(icon) = assets.card_images.get(&card.icon) {
+        image(
+            &mut pixels,
+            dimensions,
+            icon,
+            hx + 2,
+            hy + 2,
+            header - 4,
+            (card.locked == Some(true)).then_some([130, 130, 130]),
+        );
+    }
+    image_rect(&mut pixels, dimensions, &assets.header_frame, bounds, None);
+    let text = |value, left, top, right, bottom, size, colour| Text {
+        value,
+        rect: RECT {
+            left,
+            top,
+            right,
+            bottom,
+        },
+        size,
+        colour,
+        outline: true,
+        layout: TextLayout::Centered,
+    };
+    let mut texts = vec![text(
+        card.name.clone(),
+        4,
+        hy + (80.0 * scale) as i32,
+        width - 4,
+        hy + (124.0 * scale) as i32,
+        (13.0 * scale) as i32,
+        [245, 244, 240],
+    )];
+    if card.locked == Some(true) {
+        lock(&mut pixels, dimensions, assets, width / 2, hy + header / 2, scale);
+    }
+    let count = card.materials.len();
+    for (index, material) in card.materials.iter().enumerate() {
+        let [x, y, tile] = layout::tile(width, height, count, index);
+        let colour = if hovered == Some(index) {
+            [129, 141, 155, 255]
+        } else {
+            [107, 119, 133, 255]
+        };
+        fill_tile(&mut pixels, dimensions, [x, y, tile, tile], colour);
+        if let Some(item) = catalogue.items.get(&material.amount.item)
+            && let Some(icon) = assets.card_images.get(&item.icon)
+        {
+            image(&mut pixels, dimensions, icon, x + 2, y + 2, tile - 4, None);
+        }
+        let quantity = material.amount.quantity;
+        if card.locked != Some(false) || card.key.starts_with("core-tier:") {
+            let count = if card.locked == Some(false) {
+                format!("×{quantity}")
+            } else {
+                material.submitted.map_or_else(
+                    || format!("— / {quantity}"),
+                    |count| format!("{count} / {quantity}"),
+                )
+            };
+            texts.push(text(
+                count,
+                x,
+                y + tile - (24.0 * scale) as i32,
+                x + tile,
+                y + tile,
+                (17.0 * scale).max(10.0) as i32,
+                [235, 231, 227],
+            ));
+        }
+    }
+    finish_panel(&surface, pixels, texts, frame);
+    present(window, &surface)
+}
+
+fn fill_tile(pixels: &mut [u8], dimensions: [usize; 2], bounds: [i32; 4], colour: [u8; 4]) {
+    let [width, height] = dimensions;
+    let [x, y, w, h] = bounds;
+    for yy in y.max(0)..(y + h).min(height as i32) {
+        for xx in x.max(0)..(x + w).min(width as i32) {
+            pixels[(yy as usize * width + xx as usize) * 4..][..4].copy_from_slice(&colour);
+        }
+    }
+}
+
+fn lock(pixels: &mut [u8], dimensions: [usize; 2], assets: &Assets, x: i32, y: i32, scale: f64) {
+    if let Some(lock) = assets.lock_icon.as_ref().and_then(|key| assets.card_images.get(key)) {
+        let size = (32.0 * scale).round().max(12.0) as i32;
+        image(pixels, dimensions, lock, x - size / 2, y - size / 2, size, None);
+    } else {
+        let unit = (scale * 2.0).round().max(1.0) as i32;
+        draw_lock(pixels, dimensions, x, y - unit * 4, unit);
+    }
+}
+fn draw_lock(pixels: &mut [u8], dimensions: [usize; 2], center: i32, top: i32, unit: i32) {
+    let white = [235, 239, 240, 255];
+    for (x, y, w, h) in [(-2, 0, 4, 1), (-3, 1, 1, 4), (2, 1, 1, 4), (-4, 4, 8, 5)] {
+        fill_tile(
+            pixels,
+            dimensions,
+            [center + x * unit, top + y * unit, w * unit, h * unit],
+            white,
+        );
+    }
+    fill_tile(
+        pixels,
+        dimensions,
+        [center - unit / 2, top + 6 * unit, unit, 2 * unit],
+        [30, 27, 24, 255],
+    );
+}
+
 pub(super) fn render(
     window: HWND,
     assets: &Assets,

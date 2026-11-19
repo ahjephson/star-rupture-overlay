@@ -330,16 +330,13 @@ pub(super) fn build(archive: &mut Archive<'_>, context: NativeContext) -> Result
             },
         );
     }
+    let weapon_purchases = weapon_purchases(archive, &context, &text)?;
     let mut weapons: BTreeMap<String, Vec<Weapon>> = BTreeMap::new();
-    for c in &context.weapon_classes {
-        let pkg = c.split('.').next().context("Weapon package")?;
-        let e = archive.one(pkg, "@CDO")?;
-        if !e.props["AmmoItem"].is_null() {
-            weapons.entry(id(&e.props["AmmoItem"])?).or_default().push(Weapon {
-                id: pkg.into(),
-                name: text.get(&e.props["ItemName"])?,
-            });
-        }
+    for (id, weapon) in &weapon_purchases {
+        weapons.entry(weapon.ammo.clone()).or_default().push(Weapon {
+            id: id.clone(),
+            name: weapon.name.clone(),
+        });
     }
     let mut recipes = BTreeMap::new();
     for (r, producers) in links {
@@ -421,6 +418,30 @@ pub(super) fn build(archive: &mut Archive<'_>, context: NativeContext) -> Result
     for t in &core_tiers {
         add(&t.materials)
     }
+    let equip_ids = weapon_purchases
+        .values()
+        .flat_map(|weapon| {
+            weapon
+                .equip_materials
+                .iter()
+                .chain(weapon.mods.values().flat_map(|upgrade| &upgrade.equip_materials))
+        })
+        .map(|amount| amount.item.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut equipment_material_names = BTreeMap::new();
+    for id in equip_ids {
+        let equip = archive.one(id, "@CDO")?;
+        let name = text.optional(&equip.props["ItemName"])?;
+        // A packaged placeholder is not a name that the station displays.
+        equipment_material_names
+            .insert(id.to_owned(), name.filter(|s| s != "<MISSING STRING TABLE ENTRY>"));
+    }
+    let war_bond_currency = if weapon_purchases.is_empty() {
+        None
+    } else {
+        let currency = archive.one(WAR_BONDS, "@CDO")?;
+        Some(text.get(&currency.props["ItemName"])?)
+    };
     let mut items = BTreeMap::new();
     for i in required {
         let p = archive.one(&i, "@CDO")?.props;
@@ -433,17 +454,214 @@ pub(super) fn build(archive: &mut Archive<'_>, context: NativeContext) -> Result
             },
         );
     }
+    let mut corporation_records = BTreeMap::new();
+    for (key, data) in corporations {
+        let mut levels = Vec::new();
+        for level in rows(&data["Levels"])? {
+            // Some rewards use non-item classes with no catalogue item presentation.
+            let mut rewards = BTreeMap::<String, u32>::new();
+            for row in rows(&level["ItemRewards"])? {
+                let package = id(&row["Item"])?;
+                if !items.contains_key(&package) {
+                    let Some(asset) = archive
+                        .exports(&package, "@CDO")
+                        .ok()
+                        .and_then(|mut rows| (rows.len() == 1).then(|| rows.swap_remove(0).props))
+                    else {
+                        continue;
+                    };
+                    let (Ok(name), Ok(icon)) =
+                        (text.get(&asset["ItemName"]), id(&asset["ItemIcon"]["ResourceObject"]))
+                    else {
+                        continue;
+                    };
+                    items.insert(
+                        package.clone(),
+                        Item {
+                            name,
+                            icon,
+                            description: text.optional(&asset["ItemDescription"]).ok().flatten(),
+                        },
+                    );
+                }
+                let quantity = number(&row["Amount"])?;
+                if quantity > 0 {
+                    let total = rewards.entry(package).or_default();
+                    *total = total.checked_add(quantity).context("Corporation reward quantity")?;
+                }
+            }
+            levels.push(CorporationLevel {
+                level: number(&level["Level"])?,
+                reputation: number(&level["ReputationRequired"])?,
+                items: rewards
+                    .into_iter()
+                    .map(|(item, quantity)| Amount {
+                        item,
+                        quantity,
+                    })
+                    .collect(),
+                features: rows(&level["FeatureRewards"])?
+                    .iter()
+                    .filter_map(|value| {
+                        let (_, feature) = value.as_str()?.split_once("::")?;
+                        Some(
+                            match feature {
+                                "BuildingDrone" => "Builder drone",
+                                "MedTool" => "Med tool",
+                                "BiggerInventory" => "Expanded inventory",
+                                "Dash" => "Dash",
+                                "Grenade" => "Grenades",
+                                "Map" => "Map",
+                                _ => return None,
+                            }
+                            .into(),
+                        )
+                    })
+                    .collect(),
+                inventory_slots: level["InventorySlotRewards"]
+                    .as_u64()
+                    .unwrap_or_default()
+                    .try_into()?,
+            });
+        }
+        corporation_records.insert(
+            key,
+            Corporation {
+                name: text.get(&data["DisplayText"])?,
+                native_name: data["Name"].as_str().context("Corporation native name")?.into(),
+                icon: id(&data["Icon"]["ResourceObject"]).ok(),
+                description: text.optional(&data["Description"]).ok().flatten(),
+                levels,
+            },
+        );
+    }
+    let corporations = corporation_records;
     let catalogue = Catalogue {
-        version: 1,
+        version: 7,
+        lock_icon: [
+            "/Game/Chimera/UI/CommonAssets/Textures/SR_Locked_icon",
+            "/Game/Chimera/UI/Buildings/Crafting/Textures/SR_lockedIcon2",
+        ]
+        .into_iter()
+        .find(|path| archive.paths.contains_key(*path))
+        .map(str::to_owned),
         context,
         items,
         recipes,
         buildings,
         core_tiers,
+        corporations,
+        weapon_purchases,
+        war_bond_currency,
+        equipment_material_names,
         excluded,
     };
     catalogue.validate()?;
     Ok(catalogue)
+}
+fn weapon_mod(archive: &mut Archive<'_>, id: &str) -> Result<Value> {
+    let mut exports = archive.exports(id, "CrWeaponModDataAsset")?;
+    if exports.is_empty() {
+        exports = archive.exports(id, "CrSightWeaponModDataAsset")?;
+    }
+    ensure!(exports.len() == 1, "Weapon modification export: {id}");
+    Ok(exports.swap_remove(0).props)
+}
+
+fn mod_tag<'a>(value: &'a Value, field: &str) -> Result<&'a str> {
+    value[field]["TagName"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .with_context(|| format!("Missing {field} tag"))
+}
+
+fn weapon_purchases(
+    archive: &mut Archive<'_>,
+    context: &NativeContext,
+    text: &Text,
+) -> Result<BTreeMap<String, WeaponPurchase>> {
+    let registered = context.weapon_mod_assets.iter().map(String::as_str).collect::<BTreeSet<_>>();
+    let mut mods = BTreeMap::new();
+    for &package in &registered {
+        mods.insert(package.to_owned(), weapon_mod(archive, package)?);
+    }
+    let mut result = BTreeMap::new();
+    for class in &context.weapon_classes {
+        let (package, class_name) = class.split_once('.').context("Weapon class identity")?;
+        let export = archive.one(package, "@CDO")?;
+        ensure!(export.name.strip_prefix("Default__") == Some(class_name), "Weapon CDO identity");
+        let p = export.props;
+        if p["AmmoItem"].is_null() {
+            continue;
+        }
+        let mut defaults = BTreeSet::new();
+        let mut slot_order = Vec::new();
+        let mut family = None;
+        for row in rows(&p["DefaultMods"])? {
+            let package = id(&row["Value"]["package"])?;
+            if !mods.contains_key(&package) {
+                mods.insert(package.clone(), weapon_mod(archive, &package)?);
+            }
+            let def = &mods[&package];
+            let tag = mod_tag(def, "CompatibleWeapon")?;
+            ensure!(
+                family.as_deref().is_none_or(|family| family == tag),
+                "Conflicting default weapon mod compatibility"
+            );
+            ensure!(
+                row["Key"]["TagName"].as_str() == Some(mod_tag(def, "ModSlot")?),
+                "Default weapon mod slot mismatch"
+            );
+            family = Some(tag.to_owned());
+            slot_order.push(mod_tag(def, "ModSlot")?.to_owned());
+            defaults.insert(package);
+        }
+        let hidden = rows(&p["ModSlotsToHideInArmory"])?;
+        let mut upgrades = BTreeMap::new();
+        for (id_key, data) in &mods {
+            let is_default = defaults.contains(id_key);
+            let is_registered = registered.contains(id_key.as_str());
+            if !is_default
+                && (!is_registered || family.as_deref() != Some(mod_tag(data, "CompatibleWeapon")?))
+            {
+                continue;
+            }
+            let slot = mod_tag(data, "ModSlot")?;
+            upgrades.insert(
+                id_key.clone(),
+                WeaponMod {
+                    icon: id(&data["ModIcon"]["package"]).ok(),
+                    name: text.get(&data["ModDisplayNameName"])?,
+                    slot: slot.into(),
+                    sort_priority: data["DisplaySortPriority"].as_i64().unwrap_or(0),
+                    war_bonds: number(&data["UnlockTokenCost"])?,
+                    equip_materials: bill(&data["RequiredItemsToApplyMod"], "Key", "Value")?,
+                    default_for_weapon: is_default,
+                    registered_for_unlock: is_registered,
+                    hidden_slot: hidden.iter().any(|record| record["TagName"] == slot),
+                    provider: if data["DefaultProvider"].is_null() {
+                        None
+                    } else {
+                        Some(id(&data["DefaultProvider"])?)
+                    },
+                },
+            );
+        }
+        result.insert(
+            package.into(),
+            WeaponPurchase {
+                icon: id(&p["ItemIcon"]["ResourceObject"]).ok(),
+                description: text.optional(&p["ItemDescription"]).ok().flatten(),
+                name: text.get(&p["ItemName"])?,
+                ammo: id(&p["AmmoItem"])?,
+                war_bonds: number(&p["UnlockTokenCost"])?,
+                equip_materials: bill(&p["RequiredItemsToApplyWeapon"], "Key", "Value")?,
+                mods: upgrades,
+                slot_order,
+            },
+        );
+    }
+    Ok(result)
 }
 #[cfg(test)]
 mod tests {

@@ -23,7 +23,10 @@ pub enum GameExit {
 #[serde(rename_all = "camelCase", deny_unknown_fields, default)]
 pub struct Preferences {
     pub compass_enabled: bool,
+    pub codex_enabled: bool,
+    pub codex_shortcut: CodexShortcut,
     pub wave_enabled: bool,
+    pub startup_notification: bool,
     pub compass: CompassSettings,
     pub countdown_format: starrupture_observation_model::wave::CountdownFormat,
     pub game_exit: GameExit,
@@ -68,11 +71,53 @@ pub struct RecipeSettings {
     pub position: u8,
     pub scale: u16,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct CodexShortcut {
+    pub key: u16,
+    pub modifiers: u16,
+}
+impl Default for CodexShortcut {
+    fn default() -> Self {
+        Self {
+            key: u16::from(b'K'),
+            modifiers: 0,
+        }
+    }
+}
+impl CodexShortcut {
+    pub fn validate(self) -> Result<()> {
+        validate_shortcut_key(self.key)?;
+        ensure!(self.modifiers & !7 == 0, "Use Alt, Ctrl or Shift in the shortcut.");
+        Ok(())
+    }
+}
+
+fn validate_shortcut_key(key: u16) -> Result<()> {
+    ensure!(
+        (0x30..=0x39).contains(&key)
+            || (0x41..=0x5a).contains(&key)
+            || (0x70..=0x7a).contains(&key),
+        "Choose a letter, top-row number or F1–F11 shortcut."
+    );
+    Ok(())
+}
+impl Preferences {
+    pub fn codex_shortcut_conflicts(self) -> bool {
+        self.codex_enabled
+            && self.recipe_tracker.enabled
+            && self.codex_shortcut.key == self.recipe_tracker.key
+            && self.codex_shortcut.modifiers == self.recipe_tracker.modifiers
+    }
+}
 impl Default for Preferences {
     fn default() -> Self {
         Self {
             compass_enabled: true,
+            codex_enabled: true,
+            codex_shortcut: CodexShortcut::default(),
             wave_enabled: true,
+            startup_notification: true,
             compass: CompassSettings::default(),
             countdown_format: Default::default(),
             game_exit: Default::default(),
@@ -112,12 +157,7 @@ impl RecipeSettings {
         parts.join("+")
     }
     pub fn validate(self) -> Result<()> {
-        ensure!(
-            (0x30..=0x39).contains(&self.key)
-                || (0x41..=0x5a).contains(&self.key)
-                || (0x70..=0x7a).contains(&self.key),
-            "Choose a letter, top-row number or F1–F11 shortcut."
-        );
+        validate_shortcut_key(self.key)?;
         ensure!(
             self.modifiers & !7 == 0 && self.modifiers & 3 != 0,
             "Include Alt or Ctrl in the shortcut."
@@ -183,11 +223,13 @@ pub fn load(path: &Path) -> Result<Preferences> {
         serde_json::from_slice(&bytes).context("Could not read preferences")?;
     preferences.recipe_tracker.validate()?;
     preferences.compass.validate()?;
+    preferences.codex_shortcut.validate()?;
     Ok(preferences)
 }
 pub fn save(path: &Path, preferences: Preferences) -> Result<()> {
     preferences.recipe_tracker.validate()?;
     preferences.compass.validate()?;
+    preferences.codex_shortcut.validate()?;
     let parent = path.parent().context("Preferences directory unavailable")?;
     fs::create_dir_all(parent)?;
     let temporary = path.with_extension(format!("{}.tmp", std::process::id()));

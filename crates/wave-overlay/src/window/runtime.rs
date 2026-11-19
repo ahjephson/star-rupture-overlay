@@ -100,6 +100,7 @@ impl Runtime {
             ));
         }
         if !desired.any() {
+            app.pause_position = false;
             self.presence(app);
         }
         eprintln!(

@@ -5,7 +5,7 @@ use serde_json::json;
 use starrupture_observation_model::shutdown::StopSignal;
 use std::{path::Path, sync::Arc};
 mod mappings;
-mod runtime;
+pub(crate) mod runtime;
 pub trait AssetSetup: Send {
     fn enabled(&self) -> bool;
     fn cached(&mut self, executable: &Path, game_hash: &str) -> Result<Option<Tracker>>;

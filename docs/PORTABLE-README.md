@@ -4,6 +4,8 @@ A rupture countdown, compass and recipe research sidebar for StarRupture. Extrac
 
 Right-click the overlay icon in the Windows notification area for Settings, positioning controls, About and Exit. Double-click it to open Settings. The icon may be under the hidden icons arrow. You can start the game from the tray menu or create a Play StarRupture with Overlay desktop shortcut in Settings.
 
+The overlay shows a brief splash at launch and sends a Windows notification when ready. Turn off **Show startup notification** in Settings under **General → Startup**.
+
 ## Recipe tracker
 
 With the game focused, hover over an unfinished recipe in the recipe station and press Alt+X, or double-click its icon or name. Pin up to three recipes. Selecting an already pinned recipe unpins it; pressing the shortcut outside the station clears all pins. Each panel also has a close button and closes automatically when research completes. Your pins are remembered separately for each local world.
