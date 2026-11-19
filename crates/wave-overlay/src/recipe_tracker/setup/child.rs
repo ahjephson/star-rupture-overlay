@@ -50,9 +50,24 @@ pub(super) fn run_executable(
     stop: &StopSignal,
     enabled: &std::sync::atomic::AtomicBool,
 ) -> Result<()> {
+    run_asset_executable(executable, "--prepare-recipe-assets", request, error, stop, enabled)
+}
+pub(crate) fn run_asset_executable(
+    executable: &Path,
+    operation: &str,
+    request: &Path,
+    error: &Path,
+    stop: &StopSignal,
+    enabled: &std::sync::atomic::AtomicBool,
+) -> Result<()> {
+    ensure!(
+        matches!(operation, "--prepare-recipe-assets" | "--prepare-codex-assets"),
+        "Unknown asset preparation operation"
+    );
     let line = format!(
-        "{} --prepare-recipe-assets {}",
+        "{} {} {}",
         quoted(&executable.to_string_lossy()),
+        operation,
         quoted(&request.to_string_lossy())
     );
     run_process(executable, &line, error, stop, enabled)

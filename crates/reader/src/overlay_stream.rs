@@ -118,27 +118,7 @@ async fn attach(
         supported: true,
     });
 
-    let path = directory.join("session.json");
-    let cached = crate::cache::read_json::<Cache>(&path, 100000)
-        .ok()
-        .filter(|c| cache_matches(c, &process.identity));
-    let base = if let Some(c) = cached {
-        let c = RuntimeCache::new(c)?;
-        if sample(&process, &c).await.is_ok() {
-            c
-        } else {
-            RuntimeCache::new(discover(&process).await?)?
-        }
-    } else {
-        RuntimeCache::new(discover(&process).await?)?
-    };
-    sample(&process, &base).await?;
-    let temporary = directory.join(format!("resident-session-{}.tmp", std::process::id()));
-    std::fs::write(&temporary, serde_json::to_vec(&base.record)?)?;
-    if path.exists() {
-        std::fs::remove_file(&path)?;
-    }
-    std::fs::rename(temporary, &path)?;
+    let base = load_base(&process, directory).await?;
     let live = live_context::resident::Resident::open(&process, &base, directory).await?;
     Ok(Session {
         process,
@@ -146,6 +126,33 @@ async fn attach(
         epoch: 0,
         live,
     })
+}
+pub(crate) async fn load_base(
+    process: &platform::Process,
+    directory: &Path,
+) -> Result<RuntimeCache> {
+    let path = directory.join("session.json");
+    let cached = crate::cache::read_json::<Cache>(&path, 100000)
+        .ok()
+        .filter(|c| cache_matches(c, &process.identity));
+    let base = if let Some(c) = cached {
+        let c = RuntimeCache::new(c)?;
+        if sample(process, &c).await.is_ok() {
+            c
+        } else {
+            RuntimeCache::new(discover(process).await?)?
+        }
+    } else {
+        RuntimeCache::new(discover(process).await?)?
+    };
+    sample(process, &base).await?;
+    let temporary = directory.join(format!("resident-session-{}.tmp", std::process::id()));
+    std::fs::write(&temporary, serde_json::to_vec(&base.record)?)?;
+    if path.exists() {
+        std::fs::remove_file(&path)?;
+    }
+    std::fs::rename(temporary, &path)?;
+    Ok(base)
 }
 pub fn run(
     directory: &Path,
@@ -544,7 +551,9 @@ fn run_feature(
                     preparation.preparing();
                     budget.renew(120000);
                     let started = Instant::now();
-                    let mappings = crate::recipe::asset_mappings(&s.live.context()).await?;
+                    let mappings = hub
+                        .schemas
+                        .get(&s.live.context(), &s.process.identity.executable_sha256)?;
                     eprintln!(
                         "Recipe asset schema prepared in {} ms.",
                         started.elapsed().as_millis()

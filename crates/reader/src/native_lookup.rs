@@ -14,6 +14,13 @@ use std::{
     sync::Mutex,
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
+pub(crate) const CODEX_CLASSES: [&str; 5] = [
+    "/Script/Chimera.CrBuildingData",
+    "/Script/Chimera.CrItemRecipeData",
+    "/Script/Chimera.CrBuildingCraftingTrait",
+    "/Script/Chimera.CrBaseCoreSettings",
+    "/Script/Chimera.SharedQuestItemsListComponent",
+];
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 struct Record {
@@ -112,8 +119,12 @@ impl Record {
         ensure!(
             self.version == 1
                 && self.game_hash == hash
-                && self.definitions.len() == wanted.len()
-                && self.definitions.keys().eq(wanted.iter())
+                && self.definitions.len() <= wanted.len() + CODEX_CLASSES.len()
+                && wanted.iter().all(|p| self.definitions.contains_key(p))
+                && self
+                    .definitions
+                    .keys()
+                    .all(|p| wanted.contains(p) || CODEX_CLASSES.contains(&p.as_str()))
                 && !self.managers.is_empty()
                 && self.managers.len() <= 16,
             "Invalid native index cache shape/build"
@@ -156,7 +167,7 @@ async fn indexed(ctx: &Ctx, index: u32) -> Result<Option<u64>> {
 }
 // Default objects are metadata templates, not live instances. Validate their exact
 // UClass-owned identity separately; ordinary allocation guards remain unchanged.
-async fn default_proof(
+pub(crate) async fn default_proof(
     ctx: &Ctx,
     address: u64,
     class: u64,
@@ -292,6 +303,21 @@ impl Lookup {
     /// Runs on a dedicated native worker. This lock serializes only index-cache loading/recovery,
     /// never frame publication. Native read futures execute synchronously on this same thread.
     pub fn resolve(&self, ctx: &Ctx, base: &RuntimeCache) -> Result<Vec<(usize, u64)>> {
+        self.resolve_required(ctx, base, false)
+    }
+    pub(crate) fn resolve_codex(
+        &self,
+        ctx: &Ctx,
+        base: &RuntimeCache,
+    ) -> Result<Vec<(usize, u64)>> {
+        self.resolve_required(ctx, base, true)
+    }
+    fn resolve_required(
+        &self,
+        ctx: &Ctx,
+        base: &RuntimeCache,
+        codex: bool,
+    ) -> Result<Vec<(usize, u64)>> {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         smol::block_on(async {
             ensure!(
@@ -309,11 +335,12 @@ impl Lookup {
                     .filter(|r| r.validate(hash).is_ok());
             }
             if let Some(record) = &state.record
+                && (!codex || CODEX_CLASSES.iter().all(|p| record.definitions.contains_key(*p)))
                 && let Some(result) = targets(ctx, record, &instance).await?
             {
                 instance.check(ctx, base).await?;
                 eprintln!(
-                    "Recipe metadata indexed lookup: {} objects; no recovery scan.",
+                    "Shared native metadata indexed lookup: {} objects; no recovery scan.",
                     result.len()
                 );
                 return Ok(result);
@@ -335,7 +362,8 @@ impl Lookup {
                 attempts + 1
             );
             let began = Instant::now();
-            let wanted = recipe::definition_paths();
+            let mut wanted = recipe::definition_paths();
+            wanted.extend(CODEX_CLASSES.iter().map(|p| (*p).to_owned()));
             let names: BTreeSet<_> = wanted.iter().filter_map(|p| p.rsplit('.').next()).collect();
             let mut definitions = BTreeMap::new();
             let mut managers = Vec::new();
@@ -368,6 +396,10 @@ impl Lookup {
                 managers,
             };
             record.validate(hash)?;
+            ensure!(
+                !codex || CODEX_CLASSES.iter().all(|p| record.definitions.contains_key(*p)),
+                "Required codex metadata missing"
+            );
             let result = targets(ctx, &record, &instance)
                 .await?
                 .context("Recovered native indices did not validate")?;

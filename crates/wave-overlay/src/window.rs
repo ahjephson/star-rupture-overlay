@@ -884,12 +884,16 @@ pub fn run() -> Result<()> {
     let mut launch_game = false;
     if let Some(first) = args.next() {
         if first == "--prepare-recipe-assets"
+            || first == "--prepare-codex-assets"
             || first == "--self-test-asset-wait"
             || first == "--self-test-asset-wait-child"
         {
             let path = args.next().ok_or("Missing asset operation path")?;
             if args.next().is_some() {
                 return Err("Unexpected asset operation argument".into());
+            }
+            if first == "--prepare-codex-assets" {
+                return Ok(starrupture_assets::codex::run(std::path::Path::new(&path))?);
             }
             if first == "--prepare-recipe-assets" {
                 return Ok(starrupture_assets::run(std::path::Path::new(&path))?);
@@ -898,6 +902,13 @@ pub fn run() -> Result<()> {
                 std::path::Path::new(&path),
                 first == "--self-test-asset-wait-child",
             )?);
+        }
+        if first == "--self-test-codex" {
+            let dir = args.next().ok_or("Missing catalogue diagnostic directory")?;
+            if args.next().is_some() {
+                return Err("Unexpected catalogue argument".into());
+            }
+            return Ok(crate::codex::self_test(std::path::Path::new(&dir))?);
         }
         if first == "--self-test-asset-disabled" {
             let dir = args.next().ok_or("Missing disabled asset setup directory")?;

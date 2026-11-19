@@ -28,6 +28,7 @@ struct State {
 pub(super) struct Hub {
     state: Mutex<State>,
     pub definitions: Arc<crate::native_lookup::Lookup>,
+    pub schemas: crate::schema::Store,
 }
 pub(super) struct Batch {
     pub revision: u64,
@@ -68,6 +69,7 @@ impl Hub {
                 fatal: None,
             }),
             definitions: Arc::new(crate::native_lookup::Lookup::new(directory)),
+            schemas: crate::schema::Store::new(directory),
         }
     }
     pub fn activate(

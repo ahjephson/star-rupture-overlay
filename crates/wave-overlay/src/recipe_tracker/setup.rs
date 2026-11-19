@@ -105,7 +105,7 @@ pub(super) fn diagnostic_assets() -> Result<PathBuf> {
     );
     Ok(directory)
 }
-pub(super) fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
+pub(crate) fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
     let file = fs::File::open(path)?;
     ensure!(file.metadata()?.len() <= limit, "Local setup file exceeds size bound");
     let mut bytes = Vec::new();
@@ -348,6 +348,15 @@ fn self_test_impl(directory: &Path, enabled: bool) -> Result<()> {
         }))?,
     )?;
     Ok(())
+}
+pub(crate) fn run_catalogue_child(
+    executable: &Path,
+    request: &Path,
+    error: &Path,
+    stop: &StopSignal,
+    enabled: &std::sync::atomic::AtomicBool,
+) -> Result<()> {
+    child::run_asset_executable(executable, "--prepare-codex-assets", request, error, stop, enabled)
 }
 
 #[cfg(test)]

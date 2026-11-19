@@ -639,6 +639,7 @@ mod items;
 mod layout;
 mod mouse;
 mod setup;
+pub(crate) use setup::read_bounded as read_asset_input;
 pub use setup::{
     self_test as self_test_asset_setup, self_test_cancel as self_test_asset_cancel,
     self_test_disabled as self_test_asset_disabled,
@@ -737,6 +738,7 @@ pub fn diagnostic_catalogue() -> Result<std::path::PathBuf> {
 pub fn asset_wait_fixture(path: &std::path::Path, child: bool) -> anyhow::Result<()> {
     setup::wait_fixture(path, child)
 }
+pub(crate) use setup::run_catalogue_child;
 
 #[cfg(test)]
 mod image_tests {
