@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.1.0 — 2026-11-19
+
+Windows x64 release for StarRupture Update 3: Custom Game. The overlay runs alongside the Steam game and reads game data locally.
+
+### Codex and recipe pins
+
+- Press **K** in gameplay to open the searchable Codex. Browse production recipes, buildings, interiors, equipment, and corporation levels and rewards. The shortcut is configurable in Settings.
+- Compare recipes for the same output and follow links between ingredients, machines, and corporation unlocks. Base Core shows upgrade costs for unlocked levels and the next available upgrade.
+- Pin production recipes, machine upgrades, or Base Core upgrade costs from the Codex. Track up to three pins across the Codex and Recipe Station, and restore your selections per local world. Recipe pins have individual close buttons, material tooltips, and optional double-click pinning in the Recipe Station.
+
+### Compass, wave timer, and startup
+
+- The compass shows your heading, personal map marker, distance, and a configurable arrival cue.
+- The wave timer supports Rarely, Normal, and Often fire-wave settings and can show hours when needed or total minutes. The Pre-wave countdown now appears before the first rupture.
+- Startup shows a brief splash and an optional Windows notification. The app prepares the Codex in the background after connecting to a loaded world.
+- Manage the wave timer, compass, recipe tracker, and Codex separately in Settings.
+
 ## 1.1.0-update3.1 — 2026-11-17
 
 ### Added
