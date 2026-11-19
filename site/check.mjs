@@ -40,7 +40,7 @@ for (const path of ['index.html', ...pages.map(page => `guides/${page.slug}.html
 const home = await readFile(new URL('index.html', root), 'utf8');
 assert.match(home, /Update 2:<\/strong> one pinned recipe, controlled by keyboard shortcut/);
 assert.match(home, /Update 3:<\/strong> up to three pins/);
-assert.match(home, /href="https:\/\/github.com\/ahjephson\/star-rupture-overlay\/releases\/tag\/v1\.1\.1">Download for Update 3/);
+assert.match(home, /href="https:\/\/github.com\/ahjephson\/star-rupture-overlay\/releases\/tag\/v1\.1\.2">Download for Update 3/);
 assert.doesNotMatch(home, /v1\.1\.0-update3\.1|UPDATE 3 PREVIEW|UPDATE 3 PRE-RELEASE/);
 const codexTabs = [...home.matchAll(/<input type="radio" name="codex-tab" id="codex-tab-([a-z]+)"( checked)?>/g)];
 assert.deepEqual(codexTabs.map(match => match[1]), ['production', 'buildings', 'interiors', 'equipment', 'corporations']);
