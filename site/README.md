@@ -6,7 +6,7 @@ The layout follows WebFile's charcoal and amber product-site style. The two full
 
 Run `node site/build.mjs` after editing `site/guides.mjs` or the homepage header/footer, then `node site/check.mjs`. Four generated guides cover installation, feature usage, settings and troubleshooting. All five pages stay noindex. Serve `site/website/` to preview them; generated guide HTML must be rebuilt after source changes.
 
-Version distinctions were checked against `main` (`ab9aafd`) and `update3` (`dc51b16`), including recipe state, preferences, settings resources and mouse controls. Update 2 has one keyboard-controlled recipe pin. Update 3 adds three pins, double-click controls, remembered local-world selections and a Personal Markers compass. The Update 3 card links to the public Steam-compatible overlay release `v1.1.2`. The five Codex carousel slides use supplied Update 3 game captures encoded as WebP. The stable card points to the available Update 2 release.
+Version distinctions were checked against `main` (`ab9aafd`) and `update3` (`dc51b16`), including recipe state, preferences, settings resources and mouse controls. Update 2 has one keyboard-controlled recipe pin. Update 3 adds three pins, double-click controls, remembered local-world selections and a Personal Markers compass. Each download card links to its Windows x64 ZIP through the personal-site Worker and to the corresponding GitHub release notes. The Update 3 card uses `v1.1.2`. The five Codex carousel slides use supplied Update 3 game captures encoded as WebP. The stable card points to the available Update 2 release.
 
 An Update 2 single-recipe capture would help illustrate the version difference. Do not fabricate screenshots of the app.
 
