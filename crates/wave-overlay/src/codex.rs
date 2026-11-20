@@ -114,6 +114,7 @@ pub fn self_test(directory: &Path, live: bool) -> Result<()> {
             "buildings": sample.buildings, "recipes": sample.recipes, "research": sample.research,
             "upgradeSubmissions": sample.upgrade_submissions,
             "ownedEquipment": sample.owned_equipment, "corporations": sample.corporations,
+            "corporationReputation": sample.corporation_reputation,
             "highestUnlockedCoreTier": sample.highest_unlocked_core_tier,
             "cores": sample.cores.iter().map(|core| [core.id, core.tier_index, core.capacity]).collect::<Vec<_>>(),
             "tabs": tabs, "heatResistantSheet": hrs, "elapsedMillis":live_started.elapsed().as_millis()
@@ -131,6 +132,7 @@ pub fn self_test(directory: &Path, live: bool) -> Result<()> {
         research: Default::default(),
         upgrade_submissions: Default::default(),
         corporations: Default::default(),
+        corporation_reputation: Default::default(),
         cores: Vec::new(),
         highest_unlocked_core_tier: None,
     };

@@ -439,6 +439,7 @@ mod tests {
             finished_ms: clock_ms(),
             pin: None,
             pin_known: true,
+            map_unlocked: None,
             menu_open: false,
         }))
     }

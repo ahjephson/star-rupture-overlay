@@ -35,6 +35,7 @@ pub struct Preferences {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields, default)]
 pub struct CompassSettings {
+    pub wait_for_map: bool,
     pub arrival_enabled: bool,
     pub arrival_metres: u16,
     pub departure_metres: u16,
@@ -42,6 +43,7 @@ pub struct CompassSettings {
 impl Default for CompassSettings {
     fn default() -> Self {
         Self {
+            wait_for_map: true,
             arrival_enabled: true,
             arrival_metres: 25,
             departure_metres: 35,
@@ -49,6 +51,10 @@ impl Default for CompassSettings {
     }
 }
 impl CompassSettings {
+    pub fn allows_map_state(self, unlocked: Option<bool>) -> bool {
+        !self.wait_for_map || unlocked == Some(true)
+    }
+
     pub fn validate(self) -> Result<()> {
         ensure!(
             (1..=1000).contains(&self.arrival_metres),
@@ -368,6 +374,7 @@ mod feature_preferences_tests {
         let configured = Preferences {
             wave_enabled: false,
             compass: CompassSettings {
+                wait_for_map: false,
                 arrival_enabled: false,
                 arrival_metres: 50,
                 departure_metres: 65,
@@ -377,6 +384,19 @@ mod feature_preferences_tests {
         let bytes = serde_json::to_vec(&configured).unwrap();
         assert_eq!(serde_json::from_slice::<Preferences>(&bytes).unwrap(), configured);
     }
+    #[test]
+    fn compass_can_wait_for_positive_map_unlock_evidence() {
+        let after_unlock = CompassSettings::default();
+        let from_start = CompassSettings {
+            wait_for_map: false,
+            ..after_unlock
+        };
+        for state in [None, Some(false), Some(true)] {
+            assert!(from_start.allows_map_state(state));
+            assert_eq!(after_unlock.allows_map_state(state), state == Some(true));
+        }
+    }
+
     #[test]
     fn arrival_configuration_rejects_ambiguous_or_unbounded_thresholds() {
         for (arrival_metres, departure_metres) in

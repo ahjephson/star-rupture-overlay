@@ -122,6 +122,30 @@ impl<'a> Archive<'a> {
         let table = r.string_table()?;
         Ok((format!("{id}.{}", p.header.name_map.get(p.header.exports[0].object_name)?), table))
     }
+    pub fn data_table(&mut self, id: &str, row_schema: &str) -> Result<Vec<Value>> {
+        ensure!(!self.stop.is_requested(), "Catalogue preparation cancelled");
+        ensure!(self.packages < 4096, "Catalogue package work bound");
+        self.packages += 1;
+        let p = load_bounded(
+            &self.context,
+            *self.paths.get(id).context("Data table package")?,
+            1024 * 1024,
+        )?;
+        ensure!(
+            p.header.exports.len() == 1
+                && properties::schema_for_export(&p.header, 0)? == "DataTable",
+            "Expected a single data table"
+        );
+        let mut r = object(&p, 0, &self.schemas)?;
+        let props = r.properties("DataTable", 0)?;
+        ensure!(
+            props["RowStruct"].as_str().and_then(|path| path.rsplit('.').next())
+                == Some(row_schema),
+            "Unexpected data table row schema"
+        );
+        r.data_table_rows(row_schema)
+    }
+
     pub fn icon(&mut self, id: &str) -> Result<Vec<u8>> {
         ensure!(!self.stop.is_requested(), "Catalogue icon preparation cancelled");
         ensure!(self.packages < 4096, "Catalogue package work bound");

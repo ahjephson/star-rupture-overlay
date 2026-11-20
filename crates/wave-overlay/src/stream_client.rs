@@ -379,6 +379,7 @@ mod tests {
             heading: 359.,
             pin: None,
             pin_known: true,
+            map_unlocked: None,
             menu_open: false,
         };
         sink.accept(message(Payload::Compass(Some(sample)), 3, now)).unwrap();

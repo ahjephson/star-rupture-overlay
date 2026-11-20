@@ -1,10 +1,17 @@
 use super::*;
 
+#[derive(Default)]
+pub(super) struct Readings {
+    pub levels: BTreeMap<String, u32>,
+    pub reputation: BTreeMap<String, u32>,
+}
+
 pub(super) struct Corporations {
     owner: live::Reference,
     rows: live::Array,
     name: usize,
     level: usize,
+    reputation: usize,
     hidden: usize,
     hidden_mask: u8,
 }
@@ -35,12 +42,15 @@ impl Corporations {
         let st = inner.cast::<ZStructProperty>().struct_().read().await?.address();
         let name = field(ctx, st, "Name").await?;
         let level = field(ctx, st, "Level").await?;
+        let reputation = field(ctx, st, "Reputation").await?;
         let hidden = field(ctx, st, "bHidden").await?;
         ensure!(
             name.zfield().cast_flags().await?.contains(K::CASTCLASS_FNameProperty)
                 && name.element_size().read().await? == 8
                 && level.zfield().cast_flags().await?.contains(K::CASTCLASS_FIntProperty)
                 && level.element_size().read().await? == 4
+                && reputation.zfield().cast_flags().await?.contains(K::CASTCLASS_FIntProperty)
+                && reputation.element_size().read().await? == 4
                 && hidden.zfield().cast_flags().await?.contains(K::CASTCLASS_FBoolProperty)
                 && hidden.element_size().read().await? == 1,
             "Corporation column types"
@@ -48,9 +58,14 @@ impl Corporations {
         let hidden_mask = hidden.cast::<ZBoolProperty>().field_mask().read().await?;
         let name = name.offset_internal().read().await? as usize;
         let level = level.offset_internal().read().await? as usize;
+        let reputation = reputation.offset_internal().read().await? as usize;
         let hidden = hidden.offset_internal().read().await? as usize;
         ensure!(
-            name + 8 <= stride && level + 4 <= stride && hidden < stride && hidden_mask != 0,
+            name + 8 <= stride
+                && level + 4 <= stride
+                && reputation + 4 <= stride
+                && hidden < stride
+                && hidden_mask != 0,
             "Corporation column bounds"
         );
         Ok(Self {
@@ -62,16 +77,17 @@ impl Corporations {
             },
             name,
             level,
+            reputation,
             hidden,
             hidden_mask,
         })
     }
 
-    pub(super) async fn read(&self, ctx: &Ctx) -> Result<BTreeMap<String, u32>> {
+    pub(super) async fn read(&self, ctx: &Ctx) -> Result<Readings> {
         self.owner.check(ctx).await?;
         let (data, header, bytes) = self.rows.bytes(ctx).await?;
         ensure!(bytes.len() / self.rows.stride <= 32, "Corporation count bound");
-        let mut result = BTreeMap::new();
+        let mut result = Readings::default();
         for (i, row) in bytes.chunks_exact(self.rows.stride).enumerate() {
             if row[self.hidden] & self.hidden_mask != 0 {
                 continue;
@@ -80,9 +96,16 @@ impl Corporations {
             let name = Ptr::<FName>::new(name_at, ctx.clone())?.read().await?;
             let level = u32::from_le_bytes(row[self.level..self.level + 4].try_into()?);
             ensure!(
-                name.len() <= 128 && level <= 128 && result.insert(name, level).is_none(),
+                name.len() <= 128
+                    && level <= 128
+                    && result.levels.insert(name.clone(), level).is_none(),
                 "Corporation level/identity bounds"
             );
+            let reputation =
+                i32::from_le_bytes(row[self.reputation..self.reputation + 4].try_into()?);
+            if let Ok(reputation) = u32::try_from(reputation) {
+                result.reputation.insert(name, reputation);
+            }
         }
         ensure!(self.rows.bytes(ctx).await? == (data, header, bytes), "Corporations changed");
         self.owner.check(ctx).await?;

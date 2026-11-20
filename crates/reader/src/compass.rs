@@ -41,6 +41,8 @@ struct CachedPin {
 }
 pub(crate) struct Binding {
     pin_cache: Option<CachedPin>,
+    map_unlock: Option<lookup::MapUnlock>,
+    map_cache: Option<(Instant, Option<bool>)>,
     fields: BTreeMap<(&'static str, &'static str), (u64, u64)>,
     custom_mask: u8,
     custom_flag: u64,
@@ -49,7 +51,8 @@ impl Binding {
     pub(crate) async fn discover(ctx: &Ctx, base: &RuntimeCache, world: u64) -> Result<Self> {
         let mut fields = BTreeMap::new();
         let mut native_guard = None;
-        for (index, address) in lookup::objects(ctx, base, world).await? {
+        let (objects, map_unlock) = lookup::objects(ctx, base, world).await?;
+        for (index, address) in objects {
             let obj = Ptr::<UObject>::new(address, ctx.clone())?;
             if obj.internal_index().read().await.ok() != Some(index as i32) {
                 continue;
@@ -151,6 +154,8 @@ impl Binding {
             custom_mask,
             custom_flag,
             pin_cache: None,
+            map_unlock,
+            map_cache: None,
         };
         for (f, off) in [("MarkerPosition", 0), ("PlayerName", 8)] {
             ensure!(
@@ -235,6 +240,12 @@ impl Binding {
                 known,
             });
         }
+        if let Some(binding) = &self.map_unlock
+            && self.map_cache.is_none_or(|(at, _)| at.elapsed() >= Duration::from_millis(500))
+        {
+            self.map_cache = Some((Instant::now(), binding.read(ctx, state).await.ok()));
+        }
+        let map_unlocked = self.map_cache.and_then(|(_, value)| value);
         let cached = &self.pin_cache;
         let cached = cached.as_ref().expect("Pin cache initialized above");
         let pin_known = cached.known;
@@ -261,6 +272,7 @@ impl Binding {
             heading: (rotation[1] + 90.).rem_euclid(360.),
             pin,
             pin_known,
+            map_unlocked,
             menu_open: menu,
         })
     }

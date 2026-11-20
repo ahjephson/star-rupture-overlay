@@ -13,6 +13,7 @@ pub struct Progress {
     pub upgrade_submissions: UpgradeSubmissions,
     pub owned_equipment: BTreeSet<String>,
     pub corporations: BTreeMap<String, u32>,
+    pub corporation_reputation: BTreeMap<String, u32>,
     pub cores: Vec<super::Core>,
     pub highest_unlocked_core_tier: Option<u32>,
 }
@@ -325,6 +326,8 @@ pub fn observe(
                     .read_with_submissions(&ctx, &mut hints, true, Some(upgrade_recipes))
                     .await
                     .context("Codex research list")?;
+                let corporation_state =
+                    corporations.read(&ctx).await.context("Codex corporation progress")?;
                 let progress = Progress {
                     buildings: buildings
                         .read(&ctx, &mut hints, true)
@@ -337,10 +340,8 @@ pub fn observe(
                     research,
                     upgrade_submissions,
                     owned_equipment,
-                    corporations: corporations
-                        .read(&ctx)
-                        .await
-                        .context("Codex corporation progress")?,
+                    corporations: corporation_state.levels,
+                    corporation_reputation: corporation_state.reputation,
                     cores: placed_cores,
                     highest_unlocked_core_tier,
                 };

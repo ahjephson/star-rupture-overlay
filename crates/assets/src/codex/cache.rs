@@ -385,7 +385,7 @@ mod cache_tests {
     static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(0);
     fn catalogue() -> Result<Catalogue> {
         Ok(serde_json::from_value(serde_json::json!({
-            "version":9,"lock_icon":null,"corporations":{},
+            "version":10,"lock_icon":null,"corporations":{},
             "context":{"version":2,"gameHash":"a".repeat(64),"stateClass":"/Game/Chimera/State.State_C","keeperClass":"/Game/Chimera/Keeper.Keeper_C","buildings":[{"id":"/Game/Chimera/Forge","category":1}],"weaponClasses":["/ChimeraWeapon/Pistol.Pistol_C"],"weaponModAssets":[],"coreAsset":"/Game/Chimera/Core","defaults":{"addPlatform":false,"addPillar":false,"recipeSeconds":10.0,"craftingLoopSeconds":0.0,"overwriteRecipeSeconds":-1.0,"useCraftingProcessor":true}},
             "items":{
                 "/Game/Chimera/Ore":{"name":"Calcium Ore","description":null,"icon":"/Game/Chimera/T_Ore"},

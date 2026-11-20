@@ -23,13 +23,15 @@ BEGIN
     GROUPBOX "Countdown format", 170, 24, 72, 272, 38
     COMBOBOX 156, 34, 87, 252, 65, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     CONTROL "Enable &compass", 174, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 24, 54, 262, 10
-    GROUPBOX "Waypoint arrival", 175, 24, 72, 272, 98
-    CONTROL "Show arrival cue", 181, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 34, 86, 252, 10
-    LTEXT "Arrive within (metres)", 182, 34, 107, 170, 10
-    EDITTEXT 183, 214, 104, 72, 14, ES_NUMBER | ES_AUTOHSCROLL | WS_TABSTOP
-    LTEXT "Clear arrival beyond (metres)", 184, 34, 127, 170, 10
-    EDITTEXT 185, 214, 124, 72, 14, ES_NUMBER | ES_AUTOHSCROLL | WS_TABSTOP
-    LTEXT "The gap prevents the cue flickering near your destination.", 186, 34, 146, 252, 18
+    LTEXT "Show compass", 192, 24, 76, 96, 10
+    COMBOBOX 193, 132, 73, 154, 52, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    GROUPBOX "Waypoint arrival", 175, 24, 96, 272, 98
+    CONTROL "Show arrival cue", 181, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 34, 110, 252, 10
+    LTEXT "Arrive within (metres)", 182, 34, 131, 170, 10
+    EDITTEXT 183, 214, 128, 72, 14, ES_NUMBER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT "Clear arrival beyond (metres)", 184, 34, 151, 170, 10
+    EDITTEXT 185, 214, 148, 72, 14, ES_NUMBER | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT "The gap prevents the cue flickering near your destination.", 186, 34, 170, 252, 18
     CONTROL "Enable recipe &tracker", 150, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 24, 54, 262, 10
     GROUPBOX "Pinning", 172, 24, 72, 272, 86
     LTEXT "Pin / clear shortcut", 166, 34, 85, 94, 10

@@ -1,6 +1,7 @@
 //! Bounded reflection reached from current owned controller, camera and game state.
 use super::*;
-use jmap_dumper::objects::{UField, ZProperty};
+use jmap::EClassCastFlags as K;
+use jmap_dumper::objects::{FNameData, UField, ZEnumProperty, ZObjectProperty, ZProperty};
 use std::collections::BTreeSet;
 async fn native(ctx: &Ctx, mut address: u64, wanted: &str) -> Result<Ptr<UStruct>> {
     let mut seen = BTreeSet::new();
@@ -55,11 +56,108 @@ async fn structure(ctx: &Ctx, property: Ptr<ZProperty>, wanted: &str) -> Result<
     ensure!(crate::path(ctx, class.address()).await? == wanted, "Navigation nested type changed");
     Ok(class.cast())
 }
+pub(super) struct MapUnlock {
+    state: u64,
+    owner_field: u64,
+    owner_class: u64,
+    flags_offset: u64,
+    mask: u8,
+}
+
+impl MapUnlock {
+    async fn bind(ctx: &Ctx, state: u64, game_class: &Ptr<UStruct>) -> Result<Self> {
+        let owner = property(game_class, "CorporationsOwner").await?;
+        ensure!(
+            owner.zfield().cast_flags().await?.contains(K::CASTCLASS_FObjectProperty)
+                && owner.element_size().read().await? == 8,
+            "Map unlock owner reference type"
+        );
+        let class = owner.cast::<ZObjectProperty>().property_class().read().await?;
+        let class = native(ctx, class.address(), "/Script/Chimera.CrCorporationsOwner").await?;
+        let flags = property(&class, "UnlockedFeaturesFlags").await?;
+        ensure!(
+            flags.zfield().cast_flags().await?.contains(K::CASTCLASS_FEnumProperty)
+                && flags.element_size().read().await? == 1,
+            "Map unlock feature flags type"
+        );
+        let enumeration = flags
+            .cast::<ZEnumProperty>()
+            .enum_()
+            .read()
+            .await?
+            .context("Map unlock feature enumeration missing")?;
+        let allocation = recipe::allocation(ctx, enumeration.address()).await?;
+        ensure!(
+            crate::path(ctx, enumeration.address()).await?
+                == "/Script/Chimera.ECrCorporationUnlockedFeatures",
+            "Map unlock enumeration identity"
+        );
+        // Match the bounded enum layouts supported by the reflected name reader.
+        let layout = ctx.get_struct("UEnum");
+        let offset = |name| {
+            layout.members.iter().find(|member| member.name == name).map(|member| member.offset)
+        };
+        let names_size = offset("CppForm")
+            .zip(offset("Names"))
+            .and_then(|(end, start)| end.checked_sub(start))
+            .context("Map unlock enum layout")?;
+        let count = if names_size >= 24 {
+            enumeration.names().cast::<FNameData>().num_values().read().await?
+        } else {
+            i32::try_from(enumeration.names().len().await?)?
+        };
+        ensure!((1..=64).contains(&count), "Map unlock enumeration size");
+        let names = enumeration.read_names().await?;
+        ensure!(names.len() == count as usize, "Map unlock enumeration changed");
+        let mut map_values = names.iter().filter_map(|(name, value)| {
+            (name.rsplit("::").next() == Some("Map")).then_some(*value)
+        });
+        let mask = u8::try_from(map_values.next().context("Map unlock bit missing")?)?;
+        ensure!(
+            mask.is_power_of_two()
+                && map_values.next().is_none()
+                && recipe::allocation(ctx, enumeration.address()).await? == allocation,
+            "Map unlock flag mask"
+        );
+        Ok(Self {
+            state,
+            owner_field: state + owner.offset_internal().read().await? as u64,
+            owner_class: class.address(),
+            flags_offset: flags.offset_internal().read().await? as u64,
+            mask,
+        })
+    }
+
+    pub(super) async fn read(&self, ctx: &Ctx, state: u64) -> Result<bool> {
+        ensure!(self.state == state, "Map unlock game state changed");
+        let owner: u64 = ctx.read(self.owner_field).await?;
+        let allocation = recipe::allocation(ctx, owner).await?;
+        if allocation.0.class != self.owner_class {
+            ensure!(
+                native(ctx, allocation.0.class, "/Script/Chimera.CrCorporationsOwner")
+                    .await?
+                    .address()
+                    == self.owner_class,
+                "Map unlock corporation owner type changed"
+            );
+        }
+        let address = owner + self.flags_offset;
+        let flags: u8 = ctx.read(address).await?;
+        ensure!(
+            ctx.read::<u8>(address).await? == flags
+                && ctx.read::<u64>(self.owner_field).await? == owner
+                && recipe::allocation(ctx, owner).await? == allocation,
+            "Map unlock observation changed"
+        );
+        Ok(flags & self.mask != 0)
+    }
+}
+
 pub(super) async fn objects(
     ctx: &Ctx,
     base: &RuntimeCache,
     world: u64,
-) -> Result<Vec<(usize, u64)>> {
+) -> Result<(Vec<(usize, u64)>, Option<MapUnlock>)> {
     let controller = recipe::allocation(ctx, base.controller.address).await?;
     ensure!(controller.0 == base.controller, "Navigation lookup controller changed");
     let pc = native(ctx, controller.0.class, "/Script/Engine.PlayerController").await?;
@@ -135,5 +233,5 @@ pub(super) async fn objects(
             && pointer(ctx, world, &world_class, "GameState").await? == game,
         "Navigation lookup ownership changed"
     );
-    Ok(result)
+    Ok((result, MapUnlock::bind(ctx, game, &game_class).await.ok()))
 }

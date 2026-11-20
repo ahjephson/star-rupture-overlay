@@ -366,6 +366,20 @@ impl Reader<'_> {
         ensure!(self.i32()? == 0, "Object GUID tail unsupported");
         Ok(())
     }
+    pub fn data_table_rows(&mut self, row_schema: &str) -> Result<Vec<Value>> {
+        self.object_tail()?;
+        let count = self.count()?;
+        ensure!(count <= 1024, "Data table row bound");
+        let mut names = std::collections::BTreeSet::new();
+        let mut rows = Vec::with_capacity(count);
+        for _ in 0..count {
+            ensure!(names.insert(self.name()?), "Duplicate data table row");
+            rows.push(self.properties(row_schema, 0)?);
+        }
+        ensure!(self.pos == self.bytes.len(), "Data table tail");
+        Ok(rows)
+    }
+
     pub fn string_table(&mut self) -> Result<Value> {
         self.object_tail()?;
         let namespace = self.string()?;

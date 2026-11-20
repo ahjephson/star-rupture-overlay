@@ -235,6 +235,10 @@ fn selected(state: &State) -> Preferences {
             }
         },
         compass: preferences::CompassSettings {
+            // SAFETY: This synchronous scalar query targets the owned Compass dropdown.
+            wait_for_map: unsafe {
+                SendDlgItemMessageW(state.window.get(), 193, CB_GETCURSEL, 0, 0)
+            } == 1,
             arrival_enabled: checked(state.window.get(), 181),
             arrival_metres: distance_value(state.window.get(), 183),
             departure_metres: distance_value(state.window.get(), 185),
@@ -422,6 +426,16 @@ fn settings_init(state: &State) {
     let values = state.context.preferences.get();
     // SAFETY: These controls belong to this live dialog; messages retain no pointers.
     unsafe {
+        for label in ["From the start", "After map unlock"] {
+            SendDlgItemMessageW(
+                window,
+                193,
+                CB_ADDSTRING,
+                0,
+                desktop::wide(label).as_ptr() as isize,
+            );
+        }
+        SendDlgItemMessageW(window, 193, CB_SETCURSEL, usize::from(values.compass.wait_for_map), 0);
         SendDlgItemMessageW(window, 180, BM_SETCHECK, usize::from(values.wave_enabled), 0);
         SendDlgItemMessageW(window, 191, BM_SETCHECK, usize::from(values.startup_notification), 0);
         SendDlgItemMessageW(window, 187, BM_SETCHECK, usize::from(values.codex_enabled), 0);
@@ -578,7 +592,7 @@ fn settings_tab(state: &State) {
     let groups = [
         vec![110, 111, 112, 113, 160, 161, 162, 164, 165, 191],
         vec![180, 170, 156],
-        vec![174, 175, 181, 182, 183, 184, 185, 186],
+        vec![174, 192, 193, 175, 181, 182, 183, 184, 185, 186],
         std::iter::once(150).chain(RECIPE_FIELDS).collect(),
         vec![187, 188, 189, 190],
     ];
@@ -601,8 +615,8 @@ fn settings_tab(state: &State) {
                     EnableWindow(GetDlgItem(window, id), i32::from(checked(window, 180)));
                 }
                 if index == 2 && id != 174 {
-                    let enabled =
-                        checked(window, 174) && (id == 175 || id == 181 || checked(window, 181));
+                    let enabled = checked(window, 174)
+                        && (matches!(id, 175 | 181 | 192 | 193) || checked(window, 181));
                     EnableWindow(GetDlgItem(window, id), i32::from(enabled));
                 }
             }
@@ -613,7 +627,7 @@ fn settings_tab(state: &State) {
     let base_height = match tab {
         0 => 226,
         1 => 146,
-        2 => 206,
+        2 => 230,
         4 => 162,
         _ if has_status => 264,
         _ => 232,
@@ -1085,7 +1099,7 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
                 (
                     SETTINGS,
                     110 | 111 | 150 | 151 | 152 | 153 | 156 | 157 | 174 | 180 | 181 | 183 | 185
-                    | 187 | 189 | 191,
+                    | 187 | 189 | 191 | 193,
                 ) if notification == BN_CLICKED
                     || notification == CBN_SELCHANGE
                     || notification == EN_CHANGE =>

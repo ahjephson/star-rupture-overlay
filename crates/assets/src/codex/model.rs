@@ -150,6 +150,7 @@ pub struct Corporation {
     pub icon: Option<String>,
     pub description: Option<String>,
     pub levels: Vec<CorporationLevel>,
+    pub exports: BTreeMap<u32, BTreeMap<String, u32>>,
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -197,7 +198,7 @@ impl Catalogue {
     pub fn validate(&self) -> Result<()> {
         self.context.validate().map_err(anyhow::Error::msg)?;
         ensure!(
-            self.version == 9
+            self.version == 10
                 && self.lock_icon.as_ref().is_none_or(|id| asset_id(id))
                 && self.corporations.len() <= 32
                 && !self.items.is_empty()
@@ -229,6 +230,17 @@ impl Catalogue {
                     && corporation.icon.as_ref().is_none_or(|icon| asset_id(icon))
                     && corporation.levels.len() <= 128,
                 "Invalid corporation metadata"
+            );
+            ensure!(
+                corporation.exports.len() <= 128
+                    && corporation.exports.iter().all(|(tier, items)| {
+                        (1..=128).contains(tier)
+                            && items.len() <= 128
+                            && items
+                                .iter()
+                                .all(|(id, value)| *value > 0 && self.items.contains_key(id))
+                    }),
+                "Invalid corporation exports"
             );
             for level in &corporation.levels {
                 bill(&level.items)?;

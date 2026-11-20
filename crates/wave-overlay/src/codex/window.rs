@@ -7,7 +7,13 @@ use anyhow::{Result, ensure};
 use starrupture_assets::codex::{Icon, Prepared};
 use starrupture_observation_model::recipe::{MAX_PINS, PIN_LIMIT_NOTICE};
 use starrupture_overlay_reader::{codex::Progress, recipe::Tracker};
-use std::{collections::BTreeMap, ffi::c_void, mem::size_of, ptr::null_mut, sync::Arc};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    ffi::c_void,
+    mem::size_of,
+    ptr::null_mut,
+    sync::Arc,
+};
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
@@ -26,10 +32,15 @@ const INK: u32 = rgb(249, 248, 244);
 pub(super) const DIM: u32 = rgb(164, 161, 157);
 pub(super) const CYAN: u32 = rgb(125, 225, 232);
 const ORANGE: u32 = rgb(252, 159, 62);
-const RESET_SEARCH: u32 = WM_APP + 3;
+const BROWSER_BACK_COMMAND: u32 = 1; // APPCOMMAND_BROWSER_BACKWARD
+const BROWSER_FORWARD_COMMAND: u32 = 2; // APPCOMMAND_BROWSER_FORWARD
+const HISTORY_LIMIT: usize = 64;
 pub(super) const FOOTER_CLICK: u32 = WM_APP + 4;
 pub(super) const PANEL: u32 = rgb(12, 11, 10);
 const TILE: u32 = rgb(39, 38, 37);
+const SEARCH_BACKGROUND: u32 = rgb(33, 31, 29);
+const DISABLED_SEARCH_BACKGROUND: u32 = rgb(24, 23, 22);
+const SEARCH_HINT: &str = "Search this tab";
 
 const WIDTH: i32 = 1140;
 const HEIGHT: i32 = 756;
@@ -112,17 +123,87 @@ pub(super) struct Window {
     game_focused: bool,
 }
 
+#[derive(Clone)]
+struct Location {
+    tab: Tab,
+    query: String,
+    entry: Option<Entry>,
+    top: usize,
+    scroll: i32,
+    other_scroll: i32,
+    detail_tab: usize,
+    corporation_level: Option<u32>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Direction {
+    Back,
+    Forward,
+}
+
+impl Direction {
+    fn bounds(self) -> RECT {
+        match self {
+            Self::Back => rect(125, 23, 203, 52),
+            Self::Forward => rect(211, 23, 323, 52),
+        }
+    }
+}
+
+#[derive(Default)]
+struct History {
+    links: VecDeque<(Location, Location)>,
+    position: usize,
+}
+
+impl History {
+    fn follow(&mut self, source: Location, destination: Location) {
+        self.links.truncate(self.position);
+        if self.links.len() == HISTORY_LIMIT {
+            self.links.pop_front();
+        }
+        self.links.push_back((source, destination));
+        self.position = self.links.len();
+    }
+
+    fn can_step(&self, direction: Direction) -> bool {
+        match direction {
+            Direction::Back => self.position > 0,
+            Direction::Forward => self.position < self.links.len(),
+        }
+    }
+
+    fn step(&mut self, direction: Direction) -> Option<&Location> {
+        if !self.can_step(direction) {
+            return None;
+        }
+        match direction {
+            Direction::Back => {
+                self.position -= 1;
+                Some(&self.links[self.position].0)
+            }
+            Direction::Forward => {
+                let destination = &self.links[self.position].1;
+                self.position += 1;
+                Some(destination)
+            }
+        }
+    }
+}
+
 struct State {
     edit: HWND,
     close_requested: bool,
     close_pressed: Option<Hit>,
     search_brush: Brush,
+    disabled_search_brush: Brush,
     cursor: Cursor,
     tab: Tab,
     query: String,
     prepared: Arc<Prepared>,
     progress: Arc<Progress>,
     rows: Vec<Row>,
+    history: History,
     selected: usize,
     top: usize,
     scroll: i32,
@@ -150,16 +231,74 @@ struct State {
 }
 
 impl State {
-    fn refresh(&mut self, keep: Option<Entry>) {
-        self.rows = view::rows(&self.prepared.catalogue, &self.progress, self.tab, &self.query);
-        if self.tab == Tab::Production
-            && let Some(Entry::Item(id)) = &keep
-            && let Some(item) = view::item_row(&self.prepared.catalogue, id)
-        {
-            self.rows.insert(0, item);
+    fn location(&self) -> Location {
+        Location {
+            tab: self.tab,
+            query: self.query.clone(),
+            entry: self.rows.get(self.selected).map(|row| row.key.clone()),
+            top: self.top,
+            scroll: self.scroll,
+            other_scroll: self.other_scroll,
+            detail_tab: self.detail_tab,
+            corporation_level: self.corporation_level,
         }
-        let selected =
-            keep.and_then(|key| self.rows.iter().position(|row| row.key == key)).unwrap_or(0);
+    }
+
+    fn navigate(&mut self, direction: Direction) -> bool {
+        let Some(previous) = self.history.step(direction).cloned() else {
+            return false;
+        };
+        self.tab = previous.tab;
+        self.query = previous.query;
+        self.corporation_level = previous.corporation_level;
+        self.top = 0;
+        self.refresh(previous.entry.clone());
+        if previous
+            .entry
+            .as_ref()
+            .zip(self.rows.get(self.selected))
+            .is_some_and(|(entry, row)| entry.same_location(&row.key))
+        {
+            self.restore_viewport(
+                previous.top,
+                previous.scroll,
+                previous.other_scroll,
+                previous.detail_tab,
+            );
+            if direction == Direction::Forward {
+                self.reveal_selection();
+            }
+        }
+        self.hover = None;
+        true
+    }
+
+    fn restore_viewport(&mut self, top: usize, scroll: i32, other_scroll: i32, detail_tab: usize) {
+        self.top = top.min(self.rows.len().saturating_sub(self.visible_rows()));
+        if self.detail_tabs {
+            self.detail_tab = 1 - detail_tab;
+            self.other_scroll = other_scroll.min(self.scroll_max());
+            self.detail_tab = detail_tab;
+        }
+        self.scroll = scroll.min(self.scroll_max());
+    }
+
+    fn open_row(&mut self, index: usize) {
+        if self.selected != index {
+            self.corporation_level = None;
+            self.select(index);
+        }
+    }
+
+    fn refresh(&mut self, keep: Option<Entry>) {
+        let (rows, selected) = view::selection(
+            &self.prepared.catalogue,
+            &self.progress,
+            self.tab,
+            &self.query,
+            keep.as_ref(),
+        );
+        self.rows = rows;
         self.select(selected);
     }
 
@@ -169,12 +308,7 @@ impl State {
         self.scroll = 0;
         self.other_scroll = 0;
         self.detail_tab = 0;
-        let count = self.visible_rows();
-        if index < self.top {
-            self.top = index;
-        } else if index >= self.top + count {
-            self.top = index + 1 - count;
-        }
+        self.reveal_selection();
         self.details = self
             .rows
             .get(index)
@@ -188,13 +322,27 @@ impl State {
             .is_some_and(|detail| detail.docked)
             .then(|| self.details.pop())
             .flatten();
-        self.top = self.top.min(self.rows.len().saturating_sub(count));
         self.detail_tabs = self.details.iter().any(|row| row.produced)
             && self.rows.get(index).is_some_and(|row| {
                 matches!(&row.key, Entry::Building(id) if self.prepared.catalogue.buildings[id]
                     .unlocks.iter().any(|rule| matches!(rule, starrupture_assets::codex::BuildingUnlock::Upgrade { .. })))
             });
         self.measure_details();
+        if self.tab == Tab::Corporations
+            && let Some(index) =
+                view::corporation_level_index(&self.details, self.corporation_level)
+        {
+            let offset = self.heights[..index].iter().map(|size| size.height).sum::<i32>();
+            self.scroll = offset.min(self.scroll_max());
+        }
+    }
+
+    fn reveal_selection(&mut self) {
+        let count = self.visible_rows();
+        self.top = self
+            .top
+            .clamp((self.selected + 1).saturating_sub(count), self.selected)
+            .min(self.rows.len().saturating_sub(count));
     }
 
     fn visible_rows(&self) -> usize {
@@ -247,12 +395,14 @@ impl Window {
             close_requested: false,
             close_pressed: None,
             cursor,
-            search_brush: Brush::new(rgb(33, 31, 29)),
+            search_brush: Brush::new(SEARCH_BACKGROUND),
+            disabled_search_brush: Brush::new(DISABLED_SEARCH_BACKGROUND),
             tab: Tab::Production,
             query: String::new(),
             prepared,
             progress,
             rows: Vec::new(),
+            history: History::default(),
             selected: 0,
             top: 0,
             scroll: 0,
@@ -324,7 +474,7 @@ impl Window {
             ensure!(!edit.is_null(), "Unable to create Codex search");
             SendMessageW(edit, WM_SETFONT, result.state.text.0 as usize, 0);
             SendMessageW(edit, EM_SETLIMITTEXT, 96, 0);
-            let hint = wide("Search this tab");
+            let hint = wide(SEARCH_HINT);
             SendMessageW(edit, EM_SETCUEBANNER, 1, hint.as_ptr() as isize);
             let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut State;
             (*ptr).edit = edit;
@@ -360,18 +510,20 @@ impl Window {
         let keep = self.state.rows.get(self.state.selected).map(|row| row.key.clone());
         self.state.progress = progress;
         let top = self.state.top;
+        let selection_visible =
+            (top..top + self.state.visible_rows()).contains(&self.state.selected);
         let (scroll, other_scroll, tab) =
             (self.state.scroll, self.state.other_scroll, self.state.detail_tab);
         self.state.refresh(keep.clone());
-        if keep.as_ref() == self.state.rows.get(self.state.selected).map(|row| &row.key) {
-            self.state.top =
-                top.min(self.state.rows.len().saturating_sub(self.state.visible_rows()));
-            if self.state.detail_tabs {
-                self.state.detail_tab = 1 - tab;
-                self.state.other_scroll = other_scroll.min(self.state.scroll_max());
-                self.state.detail_tab = tab;
+        if keep
+            .as_ref()
+            .zip(self.state.rows.get(self.state.selected))
+            .is_some_and(|(entry, row)| entry.same_location(&row.key))
+        {
+            self.state.restore_viewport(top, scroll, other_scroll, tab);
+            if selection_visible {
+                self.state.reveal_selection();
             }
-            self.state.scroll = scroll.min(self.state.scroll_max());
         }
         // SAFETY: Invalidation queues paint for the owned window.
         unsafe { InvalidateRect(self.hwnd, std::ptr::null(), 0) };
@@ -410,7 +562,7 @@ impl Window {
     }
 
     pub fn show(&mut self, game: HWND) {
-        let edit = self.state.edit;
+        let focus = self.focus_target();
         // SAFETY: The parent and child HWNDs are live; native messages retain no Rust borrow.
         unsafe {
             let mut anchor = POINT::default();
@@ -430,7 +582,7 @@ impl Window {
             }
             ShowWindow(self.hwnd, SW_SHOW);
             SetForegroundWindow(self.hwnd);
-            SetFocus(edit);
+            SetFocus(focus);
         }
     }
 
@@ -449,11 +601,19 @@ impl Window {
                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
                 );
                 if SetForegroundWindow(self.hwnd) != 0 {
-                    SetFocus(self.state.edit);
+                    SetFocus(self.focus_target());
                 }
             }
         }
         self.game_focused = focused;
+    }
+
+    fn focus_target(&self) -> HWND {
+        if self.state.tab.search_enabled() {
+            self.state.edit
+        } else {
+            self.hwnd
+        }
     }
 
     pub fn matches_game_scale(&self, game: HWND) -> bool {
@@ -534,9 +694,20 @@ impl Window {
         }
     }
     pub fn key(&mut self, message: &MSG) -> bool {
-        if message.message != WM_KEYDOWN
-            || (message.hwnd != self.hwnd && message.hwnd != self.state.edit)
-        {
+        if !self.handles(message.hwnd) {
+            return false;
+        }
+        if message.message == WM_SYSKEYDOWN && message.lParam & (1 << 29) != 0 {
+            let command = match message.wParam as u16 {
+                VK_LEFT => BROWSER_BACK_COMMAND,
+                VK_RIGHT => BROWSER_FORWARD_COMMAND,
+                _ => return false,
+            };
+            // SAFETY: The command carries scalar values and targets the owned window.
+            unsafe { PostMessageW(self.hwnd, WM_APPCOMMAND, 0, (command << 16) as isize) };
+            return true;
+        }
+        if message.message != WM_KEYDOWN {
             return false;
         }
         let next = match message.wParam as u16 {
@@ -545,7 +716,7 @@ impl Window {
             _ => return false,
         };
         if next < self.state.rows.len() {
-            self.state.select(next);
+            self.state.open_row(next);
             // SAFETY: The Codex owns the HWND.
             unsafe { InvalidateRect(self.hwnd, std::ptr::null(), 0) };
         }
@@ -852,6 +1023,7 @@ const TILE_GAP: i32 = 8;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Hit {
+    Navigate(Direction),
     Row(usize),
     Detail(usize),
     Tile(usize, usize),
@@ -1078,6 +1250,11 @@ impl State {
 
     fn hit(&self, x: i32, y: i32) -> Option<Hit> {
         let within = |r: RECT| (r.left..r.right).contains(&x) && (r.top..r.bottom).contains(&y);
+        for direction in [Direction::Back, Direction::Forward] {
+            if within(direction.bounds()) && self.history.can_step(direction) {
+                return Some(Hit::Navigate(direction));
+            }
+        }
         if within(close_bounds()) {
             return Some(Hit::Close);
         }
@@ -1133,11 +1310,9 @@ impl State {
 
     fn activate(&mut self, hit: Hit) -> bool {
         let link = match hit {
+            Hit::Navigate(direction) => return self.navigate(direction),
             Hit::Row(index) => {
-                if self.selected != index {
-                    self.corporation_level = None;
-                    self.select(index);
-                }
+                self.open_row(index);
                 return false;
             }
             Hit::Pin => {
@@ -1166,23 +1341,25 @@ impl State {
             Hit::Tile(..) | Hit::Close | Hit::CloseHint => None,
         };
         if let Some((tab, entry)) = link {
-            self.corporation_level = match hit {
+            let corporation_level = match hit {
                 Hit::Detail(index) => self.details[index].corporation_level,
                 _ => None,
             };
+            if self.tab == tab
+                && self.rows.get(self.selected).is_some_and(|row| row.key == entry)
+                && self.corporation_level == corporation_level
+            {
+                return false;
+            }
+            let source = self.location();
+            self.corporation_level = corporation_level;
             self.tab = tab;
-            self.query.clear();
+            if tab.search_enabled() {
+                self.query.clear();
+            }
             self.top = 0;
             self.refresh(Some(entry));
-            if let Some(level) = self.corporation_level {
-                let heading = format!("Level {level}");
-                if let Some(index) =
-                    self.details.iter().position(|row| row.section && row.heading == heading)
-                {
-                    let offset = self.heights[..index].iter().map(|size| size.height).sum::<i32>();
-                    self.scroll = offset.min(self.scroll_max());
-                }
-            }
+            self.history.follow(source, self.location());
             self.hover = None;
             return true;
         }
@@ -1458,6 +1635,18 @@ fn paint(dc: HDC, s: &mut State) {
     let split = s.split();
     d.polygon(&outline(0, 0, w - 1, h - 1), PANEL, DIM);
     d.label(&s.title, "CODEX", rect(22, 23, 180, 61), INK, DT_SINGLELINE);
+    for (direction, label) in [(Direction::Back, "‹ Back"), (Direction::Forward, "Forward ›")] {
+        let bounds = direction.bounds();
+        let colour = if !s.history.can_step(direction) {
+            rgb(99, 96, 92)
+        } else if s.hover == Some(Hit::Navigate(direction)) {
+            d.fill(bounds, rgb(33, 67, 71));
+            CYAN
+        } else {
+            INK
+        };
+        d.label(&s.text, label, bounds, colour, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    }
     d.close_button(s.hover == Some(Hit::Close));
     d.fill(rect(22, 88, w - 22, 89), DIM);
     for (i, tab) in Tab::ALL.into_iter().enumerate() {
@@ -1582,7 +1771,32 @@ fn paint(dc: HDC, s: &mut State) {
             inner,
         );
         if s.producer.is_none() {
-            d.label(&s.small, &row.summary, rect(x + 86, 153, w - 21, 177), DIM, inner);
+            d.label(&s.small, &row.summary, rect(x + 86, 153, w - 21, 173), DIM, inner);
+            if let Entry::Corporation(id) = &row.key
+                && let Some((current, target)) =
+                    super::view::corporation_progress(&s.prepared.catalogue, &s.progress, id)
+            {
+                let label = format!(
+                    "{} / {} reputation",
+                    super::view::reputation_text(current),
+                    super::view::reputation_text(target),
+                );
+                d.label(
+                    &s.small,
+                    &label,
+                    rect(x + 86, 153, w - 23, 173),
+                    CYAN,
+                    DT_RIGHT | DT_VCENTER | DT_SINGLELINE,
+                );
+                let left = x + 86;
+                let right = w - 23;
+                d.fill(rect(left, 176, right, 182), rgb(53, 59, 63));
+                let width =
+                    i64::from(right - left) * i64::from(current.min(target)) / i64::from(target);
+                if width > 0 {
+                    d.fill(rect(left, 176, left + width as i32, 182), CYAN);
+                }
+            }
         }
         if let Some(button) = s.pin_button {
             let bounds = s.pin_bounds();
@@ -1725,6 +1939,8 @@ unsafe extern "system" fn proc(hwnd: HWND, message: u32, w: WPARAM, l: LPARAM) -
     }
     // SAFETY: The valid State belongs to this HWND and is accessed exclusively on its UI thread.
     let s = unsafe { &mut *pointer };
+    let mut sync_search = false;
+    let mut result = 0;
     match message {
         WM_PAINT => {
             // SAFETY: Paint buffers/DCs live until EndPaint. Clip children excludes the search control.
@@ -1752,16 +1968,25 @@ unsafe extern "system" fn proc(hwnd: HWND, message: u32, w: WPARAM, l: LPARAM) -
             unsafe { SetCursor(s.cursor.borrow().handle()) };
             return 1;
         }
+        WM_CTLCOLORSTATIC if l as HWND == s.edit && !s.tab.search_enabled() => {
+            // SAFETY: The Edit control supplies a live drawing context.
+            unsafe { SetBkColor(w as HDC, DISABLED_SEARCH_BACKGROUND) };
+            return s.disabled_search_brush.0 as isize;
+        }
         WM_CTLCOLOREDIT if l as HWND == s.edit => {
             // SAFETY: The Edit control supplies a live drawing context.
             unsafe {
                 SetTextColor(w as HDC, INK);
-                SetBkColor(w as HDC, rgb(33, 31, 29));
+                SetBkColor(w as HDC, SEARCH_BACKGROUND);
             }
             return s.search_brush.0 as isize;
         }
         WM_ERASEBKGND => return 1,
-        WM_COMMAND if ((w >> 16) & 0xffff) == EN_CHANGE as usize && !s.edit.is_null() => {
+        WM_COMMAND
+            if ((w >> 16) & 0xffff) == EN_CHANGE as usize
+                && l as HWND == s.edit
+                && s.tab.search_enabled() =>
+        {
             let mut buffer = [0u16; 97];
             // SAFETY: The bounded writable buffer matches the search limit.
             let read = unsafe { GetWindowTextW(s.edit, buffer.as_mut_ptr(), buffer.len() as i32) };
@@ -1773,12 +1998,15 @@ unsafe extern "system" fn proc(hwnd: HWND, message: u32, w: WPARAM, l: LPARAM) -
                 s.refresh(None);
             }
         }
-        RESET_SEARCH => {
-            let edit = s.edit;
-            // SAFETY: The live Edit control copies terminated text before returning. The
-            // State borrow ends above before the synchronous change notification.
-            unsafe { SetWindowTextW(edit, wide("").as_ptr()) };
-            return 0;
+        WM_APPCOMMAND => {
+            let direction = match (l as u32 >> 16) & !FAPPCOMMAND_MASK {
+                BROWSER_BACK_COMMAND => Direction::Back,
+                BROWSER_FORWARD_COMMAND => Direction::Forward,
+                // SAFETY: Win32 dispatches commands the Codex does not handle.
+                _ => return unsafe { DefWindowProcW(hwnd, message, w, l) },
+            };
+            sync_search = s.navigate(direction);
+            result = 1;
         }
         WM_LBUTTONDOWN => {
             let x = s.scale.logical(l as i16 as i32);
@@ -1787,11 +2015,14 @@ unsafe extern "system" fn proc(hwnd: HWND, message: u32, w: WPARAM, l: LPARAM) -
             if s.close_pressed.is_some() {
                 return 0;
             } else if (65..89).contains(&y) && x >= 22 {
-                if let Some(&tab) = Tab::ALL.get(((x - 22) / 136) as usize) {
+                if let Some(&tab) = Tab::ALL.get(((x - 22) / 136) as usize)
+                    && s.tab != tab
+                {
                     s.tab = tab;
                     s.top = 0;
                     s.corporation_level = None;
                     s.refresh(None);
+                    sync_search = true;
                 }
             } else if let Some((index, scrollbar)) = s
                 .scrollbars()
@@ -1809,11 +2040,8 @@ unsafe extern "system" fn proc(hwnd: HWND, message: u32, w: WPARAM, l: LPARAM) -
                     s.scroll = scrollbar.offset(y);
                 }
                 s.hover = None;
-            } else if let Some(hit) = s.hit(x, y)
-                && s.activate(hit)
-            {
-                // SAFETY: Queues a scalar change for the owned edit control.
-                unsafe { PostMessageW(hwnd, RESET_SEARCH, 0, 0) };
+            } else if let Some(hit) = s.hit(x, y) {
+                sync_search = s.activate(hit);
             }
         }
         WM_MOUSEMOVE => {
@@ -1893,12 +2121,72 @@ unsafe extern "system" fn proc(hwnd: HWND, message: u32, w: WPARAM, l: LPARAM) -
         // SAFETY: This queues repaint for the live Codex window.
         unsafe { InvalidateRect(hwnd, std::ptr::null(), 0) };
     }
-    0
+    if sync_search {
+        let edit = s.edit;
+        let enabled = s.tab.search_enabled();
+        let query = wide(if enabled {
+            &s.query
+        } else {
+            ""
+        });
+        let hint = wide(if enabled {
+            SEARCH_HINT
+        } else {
+            ""
+        });
+        // SAFETY: The State borrow has ended. The owned windows receive only scalars and
+        // live UTF-16 buffers. Synchronous edit notifications see the selected tab.
+        unsafe {
+            let was_enabled = IsWindowEnabled(edit) != 0;
+            if !enabled && GetFocus() == edit {
+                SetFocus(hwnd);
+            }
+            EnableWindow(edit, i32::from(enabled));
+            SendMessageW(edit, EM_SETCUEBANNER, 1, hint.as_ptr() as isize);
+            SetWindowTextW(edit, query.as_ptr());
+            if enabled && !was_enabled && GetFocus() == hwnd {
+                SetFocus(edit);
+            }
+        }
+    }
+    result
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn history_retraces_link_endpoints_and_discards_forward_after_a_new_link() {
+        use Direction::{Back, Forward};
+
+        let location = |item: &str, scroll| Location {
+            tab: Tab::Production,
+            query: item.into(),
+            entry: Some(Entry::Item(item.into())),
+            top: 0,
+            scroll,
+            other_scroll: 0,
+            detail_tab: 0,
+            corporation_level: None,
+        };
+        let mut history = History::default();
+        assert!(history.step(Back).is_none());
+        history.follow(location("recipe", 120), location("ingredient", 0));
+        history.follow(location("building", 36), location("corporation", 54));
+        assert_eq!(history.step(Back).unwrap().query, "building");
+        assert_eq!(history.step(Back).unwrap().scroll, 120);
+        assert!(history.step(Back).is_none());
+        assert_eq!(history.step(Forward).unwrap().query, "ingredient");
+        assert_eq!(history.step(Forward).unwrap().scroll, 54);
+        assert!(history.step(Forward).is_none());
+
+        assert_eq!(history.step(Back).unwrap().query, "building");
+        history.follow(location("building", 36), location("material", 0));
+        assert!(history.step(Forward).is_none());
+        assert_eq!(history.step(Back).unwrap().query, "building");
+        assert_eq!(history.step(Forward).unwrap().query, "material");
+    }
 
     #[test]
     fn codex_matches_game_menu_proportions_across_resolutions() {

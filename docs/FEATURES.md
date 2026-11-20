@@ -26,7 +26,7 @@ A floating compass at the top centre follows your viewing direction. The fixed c
 
 Within 25 metres of your personal pin by default, its marker turns cyan-blue and the distance changes to **ARRIVED** in the same colour. The cue clears beyond 35 metres, or when you move or remove the pin. In **Settings > Compass**, change both distances or turn the arrival cue off. The departure distance must exceed the arrival distance to prevent flickering near the boundary. Arrival uses horizontal distance, so check elevation yourself.
 
-The compass remains available without a pin. It hides when the game loses focus, during pause, while the game UI cursor is visible, and when current navigation readings are unavailable. In **Settings > Compass**, turn the compass on or off.
+The compass remains available without a pin. It hides when the game loses focus, during pause, while the game UI cursor is visible, and when current navigation readings are unavailable. In **Settings > Compass**, turn the compass on or off and choose when it appears. The default, **After map unlock**, waits for the map reward from Moon Energy Corporation level 3. Choose **From the start** to show the compass earlier.
 
 ## Recipe research sidebar
 

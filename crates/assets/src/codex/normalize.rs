@@ -378,6 +378,8 @@ pub(super) fn build(archive: &mut Archive<'_>, context: NativeContext) -> Result
             },
         );
     }
+    let export_rows = archive
+        .data_table("/Game/Chimera/Corporations/ExporterItemsDataTable", "CrExporterItemRow")?;
     let core = archive.one(&context.core_asset, "CrBaseCoreDataAsset")?;
     let core_tiers = rows(&core.props["BaseCoreLevels"])?
         .iter()
@@ -443,6 +445,9 @@ pub(super) fn build(archive: &mut Archive<'_>, context: NativeContext) -> Result
         let currency = archive.one(WAR_BONDS, "@CDO")?;
         Some(text.get(&currency.props["ItemName"])?)
     };
+    for row in &export_rows {
+        required.insert(id(&row["Item"])?);
+    }
     let mut items = BTreeMap::new();
     for i in required {
         let p = archive.one(&i, "@CDO")?.props;
@@ -525,20 +530,46 @@ pub(super) fn build(archive: &mut Archive<'_>, context: NativeContext) -> Result
                     .try_into()?,
             });
         }
+        let native_name = data["Name"].as_str().context("Corporation native name")?;
+        let value_field = match native_name {
+            "FutureCorporation" => Some("FutureValue"),
+            "SelenianCorporation" => Some("SelenianValue"),
+            "GriffithsCorporation" => Some("GriffithsValue"),
+            "MoonCorporation" => Some("MoonValue"),
+            "CleverCorporation" => Some("CleverValue"),
+            _ => None,
+        };
+        let mut exports = BTreeMap::<u32, BTreeMap<String, u32>>::new();
+        if let Some(value_field) = value_field {
+            for row in &export_rows {
+                if row[value_field].is_null() {
+                    continue;
+                }
+                let value = number(&row[value_field])?;
+                if value > 0 {
+                    let tier = exports.entry(number(&row["Level"])?).or_default();
+                    ensure!(
+                        tier.insert(id(&row["Item"])?, value).is_none(),
+                        "Duplicate corporation export"
+                    );
+                }
+            }
+        }
         corporation_records.insert(
             key,
             Corporation {
                 name: text.get(&data["DisplayText"])?,
-                native_name: data["Name"].as_str().context("Corporation native name")?.into(),
+                native_name: native_name.into(),
                 icon: id(&data["Icon"]["ResourceObject"]).ok(),
                 description: text.optional(&data["Description"]).ok().flatten(),
                 levels,
+                exports,
             },
         );
     }
     let corporations = corporation_records;
     let catalogue = Catalogue {
-        version: 9,
+        version: 10,
         lock_icon: [
             "/Game/Chimera/UI/CommonAssets/Textures/SR_Locked_icon",
             "/Game/Chimera/UI/Buildings/Crafting/Textures/SR_lockedIcon2",

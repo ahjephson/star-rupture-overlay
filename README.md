@@ -48,7 +48,7 @@ The [features guide](docs/FEATURES.md) covers the rupture countdown, recipe coun
 
 ### Codex
 
-Press **K** during gameplay to open the Codex. Search Production, Buildings, Interiors, Equipment, or Corporations. Select an entry to see its materials, machine, or unlock requirements. Different recipes for the same output appear as separate entries. The Codex uses the current world's unlocks and marks visible locked entries with a padlock.
+Press **K** during gameplay to open the Codex. Search Production, Buildings, and Interiors, or browse Equipment and Corporations. Select an entry to see its materials, machine, or unlock requirements. Different recipes for the same output appear as separate entries. The Codex uses the current world's unlocks and marks visible locked entries with a padlock. Use **Back** and **Forward** to retrace links followed in the details pane. The side buttons on your mouse and **Alt+Left** or **Alt+Right** work too.
 
 The overlay prepares the Codex in the background when it attaches to a loaded world. Press **Esc** or **Tab** in the Codex to close it. Opening a game menu or station also closes it. The Codex stays open when you switch to another app. Change the shortcut or disable the feature in **Settings → Codex**.
 

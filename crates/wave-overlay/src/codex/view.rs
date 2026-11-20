@@ -1,6 +1,7 @@
 //! Joins authored catalogue rows to the current game's positive visibility evidence.
 use starrupture_assets::codex::{Amount, BuildingUnlock, Catalogue, Unlock};
 use starrupture_overlay_reader::codex::Progress;
+use std::collections::BTreeSet;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Tab {
@@ -14,6 +15,10 @@ pub(super) enum Tab {
 impl Tab {
     pub const ALL: [Self; 5] =
         [Self::Production, Self::Buildings, Self::Interiors, Self::Equipment, Self::Corporations];
+
+    pub fn search_enabled(self) -> bool {
+        !matches!(self, Self::Corporations | Self::Equipment)
+    }
 
     pub fn label(self) -> &'static str {
         match self {
@@ -37,6 +42,26 @@ pub(super) enum Entry {
     Building(String),
     Weapon(String),
     Corporation(String),
+}
+
+impl Entry {
+    pub(super) fn same_location(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Self::Recipe {
+                    id,
+                    machine,
+                    ..
+                },
+                Self::Recipe {
+                    id: other_id,
+                    machine: other_machine,
+                    ..
+                },
+            ) => id == other_id && machine == other_machine,
+            _ => self == other,
+        }
+    }
 }
 
 pub(super) struct Row {
@@ -97,9 +122,106 @@ impl Row {
     }
 }
 
-pub(super) fn item_row(c: &Catalogue, id: &str) -> Option<Row> {
+pub(super) fn reputation_text(value: u32) -> String {
+    if value > 10_000 {
+        format!("{:.1}K", f64::from(value) / 1000.0)
+    } else {
+        value.to_string()
+    }
+}
+
+pub(super) fn corporation_progress(c: &Catalogue, p: &Progress, id: &str) -> Option<(u32, u32)> {
+    let corporation = c.corporations.get(id)?;
+    let current = p.corporations.get(&corporation.native_name)?;
+    let next = corporation.levels.iter().find(|level| level.level == current + 1)?;
+    let reputation = p.corporation_reputation.get(&corporation.native_name)?;
+    (next.reputation > 0).then_some((*reputation, next.reputation))
+}
+
+fn item_row(c: &Catalogue, id: &str) -> Option<Row> {
     let item = c.items.get(id)?;
-    Some(Row::new(Entry::Item(id.into()), &item.name, String::new(), Some(&item.icon), false))
+    Some(Row::new(
+        Entry::Item(id.into()),
+        &item.name,
+        item.description.clone().unwrap_or_else(|| "Material".into()),
+        Some(&item.icon),
+        false,
+    ))
+}
+
+fn compare_rows(a: &Row, b: &Row) -> std::cmp::Ordering {
+    a.locked
+        .cmp(&b.locked)
+        .then_with(|| a.title.cmp(&b.title))
+        .then_with(|| a.summary.cmp(&b.summary))
+}
+
+pub(super) fn selection(
+    c: &Catalogue,
+    p: &Progress,
+    tab: Tab,
+    query: &str,
+    target: Option<&Entry>,
+) -> (Vec<Row>, usize) {
+    let mut listed = rows(c, p, tab, query);
+    let Some(target) = target else {
+        return (listed, 0);
+    };
+    if let Some(index) = listed.iter().position(|row| row.key.same_location(target)) {
+        return (listed, index);
+    }
+    let item_id = match target {
+        Entry::Item(id) => Some(id),
+        Entry::Recipe {
+            id,
+            ..
+        } => c.recipes.get(id).map(|recipe| &recipe.output.item),
+        _ => None,
+    };
+    if tab == Tab::Production
+        && let Some(item_id) = item_id
+    {
+        if let Some(index) = listed.iter().position(|row| match &row.key {
+            Entry::Recipe {
+                id,
+                ..
+            } => c.recipes[id].output.item == *item_id,
+            Entry::Item(id) => id == item_id,
+            _ => false,
+        }) {
+            return (listed, index);
+        }
+        // A linked material can be known before its production recipe becomes visible.
+        if let Some(item) = item_row(c, item_id) {
+            let index = listed.partition_point(|row| compare_rows(row, &item).is_lt());
+            listed.insert(index, item);
+            return (listed, index);
+        }
+    }
+    (listed, 0)
+}
+
+fn recipe_lock(p: &Progress, id: &str, unlock: &Unlock) -> Option<bool> {
+    match unlock {
+        Unlock::FirstWeaponPurchase {
+            weapons,
+        } => (weapons.iter().any(|weapon| owned(p, &weapon.id)) && p.recipes.contains(id))
+            .then_some(false),
+        Unlock::Research {
+            ..
+        } if p.research.contains(id) => Some(true),
+        _ => p.recipes.contains(id).then_some(false),
+    }
+}
+
+fn delivery_locked(c: &Catalogue, p: &Progress, item: &str) -> bool {
+    let mut recipes = c.recipes.iter().filter(|(_, recipe)| recipe.output.item == item).peekable();
+    // A gathered item can have no recipe. Any available production route unlocks an item.
+    recipes.peek().is_some()
+        && !recipes.any(|(id, recipe)| {
+            recipe_lock(p, id, &recipe.unlock) == Some(false)
+                && recipe.producers.iter().any(|machine| p.buildings.contains(machine))
+        })
 }
 
 pub(super) fn rows(c: &Catalogue, p: &Progress, tab: Tab, query: &str) -> Vec<Row> {
@@ -107,34 +229,8 @@ pub(super) fn rows(c: &Catalogue, p: &Progress, tab: Tab, query: &str) -> Vec<Ro
     match tab {
         Tab::Production => {
             for (id, recipe) in &c.recipes {
-                let locked = match &recipe.unlock {
-                    Unlock::FirstWeaponPurchase {
-                        weapons,
-                    } => {
-                        if !weapons.iter().any(|weapon| owned(p, &weapon.id))
-                            || !p.recipes.contains(id)
-                        {
-                            continue;
-                        }
-                        false
-                    }
-                    Unlock::Research {
-                        ..
-                    } => {
-                        if p.research.contains(id) {
-                            true
-                        } else if p.recipes.contains(id) {
-                            false
-                        } else {
-                            continue;
-                        }
-                    }
-                    Unlock::Building | Unlock::Default => {
-                        if !p.recipes.contains(id) {
-                            continue;
-                        }
-                        false
-                    }
+                let Some(locked) = recipe_lock(p, id, &recipe.unlock) else {
+                    continue;
                 };
                 // Extraction recipe art depicts the deposit. Show the item you collect.
                 let icon = if recipe.inputs.is_empty() {
@@ -163,6 +259,22 @@ pub(super) fn rows(c: &Catalogue, p: &Progress, tab: Tab, query: &str) -> Vec<Ro
                     ));
                 }
             }
+            let recipe_outputs: BTreeSet<_> =
+                c.recipes.values().map(|recipe| &recipe.output.item).collect();
+            let materials: BTreeSet<_> = c
+                .recipes
+                .values()
+                .flat_map(|recipe| &recipe.inputs)
+                .chain(
+                    c.buildings
+                        .values()
+                        .filter(|building| building.core_progression)
+                        .flat_map(|building| &building.materials),
+                )
+                .chain(c.core_tiers.iter().flat_map(|tier| &tier.materials))
+                .map(|amount| &amount.item)
+                .collect();
+            result.extend(materials.difference(&recipe_outputs).filter_map(|id| item_row(c, id)));
         }
         Tab::Buildings | Tab::Interiors => {
             for (id, building) in &c.buildings {
@@ -229,11 +341,13 @@ pub(super) fn rows(c: &Catalogue, p: &Progress, tab: Tab, query: &str) -> Vec<Ro
             }
         }
     }
-    let terms: Vec<_> = query.split_whitespace().map(str::to_lowercase).collect();
-    result.retain(|row| {
-        let searchable = format!("{} {}", row.title, row.summary).to_lowercase();
-        terms.iter().all(|term| searchable.contains(term))
-    });
+    if tab.search_enabled() && !query.is_empty() {
+        let terms: Vec<_> = query.split_whitespace().map(str::to_lowercase).collect();
+        result.retain(|row| {
+            let searchable = format!("{} {}", row.title, row.summary).to_lowercase();
+            terms.iter().all(|term| searchable.contains(term))
+        });
+    }
     if tab == Tab::Corporations {
         result.sort_by_key(|row| {
             let Entry::Corporation(id) = &row.key else {
@@ -245,12 +359,7 @@ pub(super) fn rows(c: &Catalogue, p: &Progress, tab: Tab, query: &str) -> Vec<Ro
                 .unwrap_or(CORPORATE_TERMINAL_ORDER.len())
         });
     } else if tab != Tab::Equipment {
-        result.sort_by(|a, b| {
-            a.locked
-                .cmp(&b.locked)
-                .then_with(|| a.title.cmp(&b.title))
-                .then_with(|| a.summary.cmp(&b.summary))
-        });
+        result.sort_by(compare_rows);
     }
     result
 }
@@ -283,6 +392,19 @@ pub(super) struct Detail {
     pub link: Option<(Tab, Entry)>,
     pub corporation_level: Option<u32>,
     pub level_status: Option<LevelStatus>,
+}
+
+pub(super) fn corporation_level_index(
+    details: &[Detail],
+    target_level: Option<u32>,
+) -> Option<usize> {
+    match target_level {
+        Some(level) => {
+            let heading = format!("Level {level}");
+            details.iter().position(|row| row.level_status.is_some() && row.heading == heading)
+        }
+        None => details.iter().position(|row| row.level_status == Some(LevelStatus::Next)),
+    }
 }
 
 pub(super) fn details(
@@ -441,7 +563,7 @@ pub(super) fn details(
             let building = &c.buildings[id];
             if !building.materials.is_empty() || building.add_platform || building.add_pillar {
                 section(&mut details, "Construction");
-                add_materials(&mut details, "", &building.materials, false);
+                add_materials(&mut details, "", &building.materials, building.core_progression);
             }
             if building.add_platform || building.add_pillar {
                 add(
@@ -675,16 +797,35 @@ pub(super) fn details(
                 add(
                     &mut details,
                     "",
-                    format!(
-                        "{} reputation",
-                        if level.reputation > 10_000 {
-                            format!("{:.1}K", f64::from(level.reputation) / 1000.0)
-                        } else {
-                            level.reputation.to_string()
-                        }
-                    ),
+                    format!("{} reputation", reputation_text(level.reputation)),
                     None,
                 );
+                if status == LevelStatus::Next
+                    && let Some(exports) = corporation.exports.get(&current)
+                    && !exports.is_empty()
+                {
+                    let remaining = corporation_progress(c, p, id)
+                        .map(|(reputation, target)| target.saturating_sub(reputation));
+                    section(&mut details, "Delivery options");
+                    let mut items: Vec<_> = exports.iter().collect();
+                    items.sort_by_key(|(item, reputation)| {
+                        (std::cmp::Reverse(**reputation), c.items[*item].name.as_str())
+                    });
+                    for (item_id, reputation) in items {
+                        let item = &c.items[item_id];
+                        let mut gain = format!("{} reputation each", reputation_text(*reputation));
+                        if let Some(remaining) = remaining.filter(|value| *value > 0) {
+                            let count = remaining.div_ceil(*reputation);
+                            gain.push_str(&format!(" · {count} to reach Level {}", level.level));
+                        }
+                        add(&mut details, &gain, item.name.clone(), Some(&item.icon));
+                        let detail = details.last_mut().unwrap();
+                        detail.warm_icon = true;
+                        detail.locked = delivery_locked(c, p, item_id);
+                        detail.link = Some((Tab::Production, Entry::Item(item_id.clone())));
+                    }
+                    section(&mut details, "Rewards");
+                }
                 for (key, building) in &c.buildings {
                     if building.unlocks.iter().any(|rule| match rule {
                         BuildingUnlock::Corporation {
@@ -774,7 +915,7 @@ mod tests {
             crafting: None,
         };
         let c = Catalogue {
-            version: 9,
+            version: 10,
             lock_icon: None,
             context: NativeContext {
                 version: 2,
@@ -832,6 +973,7 @@ mod tests {
             recipes: BTreeSet::from(["faster".into(), "alternative".into()]),
             research: BTreeSet::from(["base".into()]),
             upgrade_submissions: BTreeMap::new(),
+            corporation_reputation: BTreeMap::new(),
             owned_equipment: BTreeSet::new(),
             corporations: BTreeMap::new(),
             cores: Vec::new(),
@@ -854,6 +996,7 @@ mod tests {
                 native_name: native_name.into(),
                 icon: None,
                 description: None,
+                exports: BTreeMap::new(),
                 levels: (1..=6)
                     .map(|level| CorporationLevel {
                         level,
@@ -866,7 +1009,7 @@ mod tests {
             },
         );
         progress.corporations.insert(native_name.into(), 2);
-        let row = rows(&catalogue, &progress, Tab::Corporations, "").remove(0);
+        let row = rows(&catalogue, &progress, Tab::Corporations, "nonmatching search").remove(0);
         let headings = |progress: &Progress| {
             details(&catalogue, progress, &row, Some(6))
                 .into_iter()
@@ -893,14 +1036,47 @@ mod tests {
             ]
         );
 
+        let levels = details(&catalogue, &progress, &row, Some(6));
+        for (target, expected) in [(None, "Level 4"), (Some(6), "Level 6")] {
+            let index = corporation_level_index(&levels, target).unwrap();
+            assert_eq!(levels[index].heading, expected);
+        }
+
         progress.corporations.insert(native_name.into(), 6);
+        assert!(
+            corporation_level_index(&details(&catalogue, &progress, &row, None), None).is_none()
+        );
         assert_eq!(headings(&progress).len(), 5);
         assert!(
             headings(&progress).iter().all(|(_, status)| *status == Some(LevelStatus::Unlocked))
         );
 
+        progress.corporations.insert(native_name.into(), 2);
+        progress.corporation_reputation.insert(native_name.into(), 2476);
+        catalogue.corporations.get_mut(id).unwrap().exports = BTreeMap::from([
+            (2, BTreeMap::from([("sheet".into(), 50)])),
+            (3, BTreeMap::from([("sheet".into(), 200)])),
+        ]);
+        assert_eq!(corporation_progress(&catalogue, &progress, id), Some((2476, 3000)));
+        let next = details(&catalogue, &progress, &row, None);
+        let deliveries: Vec<_> =
+            next.iter().filter(|detail| detail.heading.contains("reputation each")).collect();
+        assert_eq!(deliveries.len(), 1);
+        assert_eq!(deliveries[0].heading, "50 reputation each · 11 to reach Level 3");
+        assert!(deliveries[0].locked);
+        assert!(
+            matches!(&deliveries[0].link, Some((Tab::Production, Entry::Item(id))) if id == "sheet")
+        );
+
+        progress.buildings.insert("v2".into());
+        let delivery = details(&catalogue, &progress, &row, None);
+        assert!(
+            !delivery.iter().find(|row| row.heading.contains("reputation each")).unwrap().locked
+        );
+        assert!(!delivery_locked(&catalogue, &progress, "gathered-item"));
+
         progress.corporations.clear();
-        assert!(headings(&progress).is_empty());
+        assert!(details(&catalogue, &progress, &row, None).is_empty());
     }
 
     #[test]
@@ -1008,6 +1184,66 @@ mod tests {
     }
 
     #[test]
+    fn item_links_select_the_existing_recipe_and_history_keeps_its_variant() {
+        let (catalogue, mut progress) = fixture();
+        progress.buildings.insert("v2".into());
+        let target = Entry::Item("sheet".into());
+        let (listed, selected) =
+            selection(&catalogue, &progress, Tab::Production, "", Some(&target));
+        assert_eq!(listed.len(), 3);
+        let entry = listed[selected].key.clone();
+        assert!(matches!(&entry, Entry::Recipe { id, .. } if id != "base"));
+        assert!(listed[selected].summary.starts_with("Furnace v2"));
+
+        let target = Entry::Recipe {
+            id: "base".into(),
+            machine: "v1".into(),
+            locked: true,
+        };
+        progress.research.remove("base");
+        progress.recipes.insert("base".into());
+        let (listed, selected) =
+            selection(&catalogue, &progress, Tab::Production, "", Some(&target));
+        assert_eq!(listed.len(), 3);
+        assert!(!listed[selected].locked);
+        assert!(listed[selected].key.same_location(&target));
+        assert!(listed[selected].summary.starts_with("Furnace  ·"));
+    }
+
+    #[test]
+    fn meteor_heart_is_searchable_and_base_core_links_to_its_normal_row() {
+        use starrupture_assets::codex::Item;
+
+        let (mut catalogue, progress) = fixture();
+        let meteor = "/Game/Chimera/Items/I_MeteorCore";
+        catalogue.items.insert(
+            meteor.into(),
+            Item {
+                name: "Meteor Heart".into(),
+                description: Some("Molten Core of a Meteor.".into()),
+                icon: "meteor-icon".into(),
+            },
+        );
+        let core = catalogue.buildings.get_mut("v1").unwrap();
+        core.core_progression = true;
+        core.materials.push(Amount {
+            item: meteor.into(),
+            quantity: 1,
+        });
+        let building = rows(&catalogue, &progress, Tab::Buildings, "Furnace").remove(0);
+        let source = details(&catalogue, &progress, &building, None);
+        let (_, target) = source.iter().find_map(|detail| detail.link.as_ref()).unwrap();
+        let (listed, selected) =
+            selection(&catalogue, &progress, Tab::Production, "meteor heart", Some(target));
+        assert_eq!(listed.len(), 1);
+        let row = &listed[selected];
+        assert!(matches!(&row.key, Entry::Item(id) if id == meteor));
+        assert_eq!(row.summary, "Molten Core of a Meteor.");
+        assert_eq!(row.icon.as_deref(), Some("meteor-icon"));
+        assert!(super::super::pins::key(&catalogue, &row.key).is_none());
+    }
+
+    #[test]
     fn linked_item_shows_each_visible_recipe_and_works_without_any() {
         let (catalogue, mut progress) = fixture();
         let item = item_row(&catalogue, "sheet").unwrap();
@@ -1081,6 +1317,7 @@ mod tests {
                     icon: None,
                     description: None,
                     levels: Vec::new(),
+                    exports: BTreeMap::new(),
                 },
             );
             progress.corporations.insert(native_name.into(), 1);
@@ -1218,7 +1455,7 @@ mod tests {
         p.buildings.insert("/Game/Chimera/Buildings/Interiors/Armory/BD_Armory".into());
         c.context.weapon_classes.push("weapon.Weapon_C".into());
         p.owned_equipment.insert("weapon".into());
-        let row = rows(&c, &p, Tab::Equipment, "").remove(0);
+        let row = rows(&c, &p, Tab::Equipment, "nonmatching search").remove(0);
         let view = details(&c, &p, &row, None);
         assert!(view.iter().any(|row| row.body == "2 × Gear"));
         assert!(view.iter().any(|row| row.section && row.heading == "Magazine"));

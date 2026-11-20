@@ -75,9 +75,13 @@ impl Panel {
         enabled: bool,
     ) -> Result<()> {
         let now = starrupture_wave_core::formatting::now_ms().max(0) as u64;
-        let Some(sample) =
-            value.filter(|s| enabled && focused(game) && s.valid(now) && !s.menu_open)
-        else {
+        let Some(sample) = value.filter(|s| {
+            enabled
+                && self.settings.allows_map_state(s.map_unlocked)
+                && focused(game)
+                && s.valid(now)
+                && !s.menu_open
+        }) else {
             self.hide();
             return Ok(());
         };
@@ -546,6 +550,7 @@ pub(crate) fn self_test(directory: &std::path::Path) -> Result<()> {
         heading: 0.,
         pin: None,
         pin_known: true,
+        map_unlocked: None,
         menu_open: false,
     };
     let mut surface = Surface::new(560, 98)?;

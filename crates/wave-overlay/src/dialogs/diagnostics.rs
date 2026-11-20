@@ -782,7 +782,7 @@ fn check_feature_tabs(state: &State, directory: &Path) -> Result<()> {
         );
         for (tab, toggle, fields, name) in [
             (1, 180, &[170, 156][..], "wave"),
-            (2, 174, &[175, 181, 182, 183, 184, 185, 186][..], "compass"),
+            (2, 174, &[175, 181, 182, 183, 184, 185, 186, 192, 193][..], "compass"),
             (4, 187, &[188, 189, 190][..], "codex"),
         ] {
             SendDlgItemMessageW(window, 155, TCM_SETCURSEL, tab, 0);
@@ -814,6 +814,15 @@ fn check_feature_tabs(state: &State, directory: &Path) -> Result<()> {
         selected(state).compass == preferences::CompassSettings::default(),
         "Arrival defaults changed"
     );
+    // SAFETY: The dropdown and the Save button belong to the diagnostic window.
+    unsafe {
+        ensure!(SendDlgItemMessageW(window, 193, CB_GETCOUNT, 0, 0) == 2, "Compass mode count");
+        SendDlgItemMessageW(window, 193, CB_SETCURSEL, 0, 0);
+        SendMessageW(window, WM_COMMAND, 193 | ((CBN_SELCHANGE as usize) << 16), 0);
+        ensure!(!selected(state).compass.wait_for_map, "From the start mode did not update");
+        ensure!(IsWindowEnabled(GetDlgItem(window, IDOK)) != 0, "Compass mode did not enable Save");
+        SendDlgItemMessageW(window, 193, CB_SETCURSEL, 1, 0);
+    }
     text(window, 183, "50");
     text(window, 185, "40");
     ensure!(save_settings(state).is_err(), "Reversed arrival distances were saved");

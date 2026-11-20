@@ -28,6 +28,7 @@ pub struct Sample {
     pub heading: f64,
     pub pin: Option<Pin>,
     pub pin_known: bool,
+    pub map_unlocked: Option<bool>,
     pub menu_open: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
@@ -159,6 +160,7 @@ mod tests {
             heading: 0.,
             pin: None,
             pin_known: true,
+            map_unlocked: None,
             menu_open: false,
         };
         assert!(s.valid(1010));
