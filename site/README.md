@@ -24,7 +24,7 @@ The two silent H.264 demos show recipe tracking (20 seconds, with amber double-c
 
 The `Product website` workflow in `.github/workflows/website.yml` runs only when manually dispatched. Its `publish` input defaults to false: that builds, tests and saves a Pages artifact without deploying it. Pushes, tags and application releases do not publish the site.
 
-At launch, commit the reviewed website and workflow, enable GitHub Actions as the repository's Pages source, and allow the chosen branch in the `github-pages` environment. Run the workflow on the reviewed commit with `publish` enabled. Confirm the product page, guides and assets at `https://ahjephson.github.io/star-rupture-overlay/` before releasing the proxy.
+At launch, commit the reviewed website and workflow, enable GitHub Actions as the repository's Pages source, and allow the chosen branch in the `github-pages` environment. Get the site owner’s explicit approval for the reviewed changes before enabling `publish`. Confirm the product page, guides and assets at `https://ahjephson.github.io/star-rupture-overlay/` before releasing the proxy.
 
 The separate personal-site Worker mounts `/star-rupture-overlay/` at the GitHub Pages origin. Its source lives in `ahjephson/ahjephson.dev`; its production configuration and manual release workflow live in `lantean-code/infrastructure`. Release that Worker through infrastructure after the Pages origin is working. No new DNS record or Cloudflare asset upload is needed for this product site. Verify the public product page, guide navigation, image downloads, sitemap and missing-page status after launch.
 
