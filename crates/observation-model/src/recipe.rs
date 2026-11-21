@@ -110,7 +110,17 @@ pub struct View {
     pub message: String,
     pub generation: u64,
 }
+pub fn corporation_delivery_card(id: &str) -> Option<(u32, &str)> {
+    let (level, corporation) = id.strip_prefix("delivery:")?.split_once(':')?;
+    let level = level.parse().ok()?;
+    ((2..=128).contains(&level) && crate::codex::asset_id(corporation))
+        .then_some((level, corporation))
+}
+
 pub fn valid_card(id: &str) -> bool {
+    if id.starts_with("delivery:") {
+        return corporation_delivery_card(id).is_some();
+    }
     if let Some(building) = id.strip_prefix("upgrade:") {
         return crate::codex::asset_id(building);
     }

@@ -1233,6 +1233,8 @@ impl State {
         DetailSize {
             height: (heading + body + 16).max(if detail.icon.is_some() {
                 58
+            } else if detail.pin.is_some() {
+                46
             } else {
                 36
             }),
@@ -1509,6 +1511,8 @@ fn paint_detail(
         let bounds = detail_pin_bounds(top);
         let label = if s.pinned.contains(key) {
             "Unpin"
+        } else if key.starts_with("delivery:") {
+            "Pin deliveries"
         } else {
             "Pin upgrade"
         };

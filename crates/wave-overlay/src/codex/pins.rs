@@ -1,4 +1,5 @@
 use starrupture_assets::codex::{Amount, BuildingUnlock, Catalogue, Unlock};
+use starrupture_observation_model::recipe::corporation_delivery_card;
 use starrupture_overlay_reader::codex::Progress;
 
 pub(crate) struct Card {
@@ -12,6 +13,7 @@ pub(crate) struct Card {
 pub(crate) struct Material {
     pub amount: Amount,
     pub submitted: Option<u32>,
+    pub locked: bool,
 }
 
 pub(super) fn key(c: &Catalogue, entry: &super::view::Entry) -> Option<String> {
@@ -55,7 +57,49 @@ pub(super) fn highest_core_tier(c: &Catalogue, p: &Progress) -> Option<u32> {
     p.highest_unlocked_core_tier.filter(|highest| (*highest as usize) < c.core_tiers.len())
 }
 
+pub(crate) fn delivery_complete(c: &Catalogue, p: &Progress, key: &str) -> bool {
+    let Some((level, id)) = corporation_delivery_card(key) else {
+        return false;
+    };
+    c.corporations.get(id).and_then(|corp| p.corporations.get(&corp.native_name)).is_some_and(
+        |current| {
+            *current >= level
+                || (current.checked_add(1) == Some(level)
+                    && super::view::corporation_progress(c, p, id)
+                        .is_some_and(|(rep, target)| rep >= target))
+        },
+    )
+}
+
 pub(crate) fn card(c: &Catalogue, p: &Progress, key: String) -> Option<Card> {
+    if let Some((level, id)) = corporation_delivery_card(&key) {
+        let corporation = c.corporations.get(id)?;
+        let current = *p.corporations.get(&corporation.native_name)?;
+        let (rep, target) = super::view::corporation_progress(c, p, id)?;
+        let remaining = target.checked_sub(rep)?;
+        let exports = corporation.exports.get(&current)?;
+        if current.checked_add(1) != Some(level) || remaining == 0 || exports.is_empty() {
+            return None;
+        }
+        let materials = super::view::delivery_options(c, exports)
+            .into_iter()
+            .map(|(item, reputation)| Material {
+                amount: Amount {
+                    item: item.clone(),
+                    quantity: remaining.div_ceil(*reputation),
+                },
+                submitted: None,
+                locked: super::view::delivery_locked(c, p, item),
+            })
+            .collect();
+        return Some(Card {
+            key,
+            name: corporation.name.clone(),
+            icon: corporation.icon.clone().unwrap_or_default(),
+            locked: None,
+            materials,
+        });
+    }
     if let Some(id) = key.strip_prefix("upgrade:") {
         let building = c.buildings.get(id)?;
         let (recipe, materials) = building.unlocks.iter().find_map(|unlock| match unlock {
@@ -75,6 +119,7 @@ pub(crate) fn card(c: &Catalogue, p: &Progress, key: String) -> Option<Card> {
                 .iter()
                 .cloned()
                 .map(|amount| Material {
+                    locked: false,
                     submitted: p.upgrade_submissions.get(recipe).and_then(|items| {
                         items.iter().find(|(item, _)| *item == amount.item).map(|(_, count)| *count)
                     }),
@@ -133,6 +178,7 @@ pub(crate) fn card(c: &Catalogue, p: &Progress, key: String) -> Option<Card> {
                     Material {
                         amount,
                         submitted,
+                        locked: false,
                     }
                 })
                 .collect(),
@@ -173,6 +219,7 @@ fn unobserved(amounts: Vec<Amount>) -> Vec<Material> {
         .map(|amount| Material {
             amount,
             submitted: None,
+            locked: false,
         })
         .collect()
 }

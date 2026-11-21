@@ -214,7 +214,7 @@ fn recipe_lock(p: &Progress, id: &str, unlock: &Unlock) -> Option<bool> {
     }
 }
 
-fn delivery_locked(c: &Catalogue, p: &Progress, item: &str) -> bool {
+pub(super) fn delivery_locked(c: &Catalogue, p: &Progress, item: &str) -> bool {
     let mut recipes = c.recipes.iter().filter(|(_, recipe)| recipe.output.item == item).peekable();
     // A gathered item can have no recipe. Any available production route unlocks an item.
     recipes.peek().is_some()
@@ -222,6 +222,17 @@ fn delivery_locked(c: &Catalogue, p: &Progress, item: &str) -> bool {
             recipe_lock(p, id, &recipe.unlock) == Some(false)
                 && recipe.producers.iter().any(|machine| p.buildings.contains(machine))
         })
+}
+
+pub(super) fn delivery_options<'a>(
+    c: &Catalogue,
+    exports: &'a std::collections::BTreeMap<String, u32>,
+) -> Vec<(&'a String, &'a u32)> {
+    let mut items: Vec<_> = exports.iter().collect();
+    items.sort_by_key(|(item, reputation)| {
+        (std::cmp::Reverse(**reputation), c.items[*item].name.as_str())
+    });
+    items
 }
 
 pub(super) fn rows(c: &Catalogue, p: &Progress, tab: Tab, query: &str) -> Vec<Row> {
@@ -806,12 +817,12 @@ pub(super) fn details(
                 {
                     let remaining = corporation_progress(c, p, id)
                         .map(|(reputation, target)| target.saturating_sub(reputation));
+                    if remaining.is_some_and(|value| value > 0) {
+                        details.last_mut().unwrap().pin =
+                            Some(format!("delivery:{}:{id}", level.level));
+                    }
                     section(&mut details, "Delivery options");
-                    let mut items: Vec<_> = exports.iter().collect();
-                    items.sort_by_key(|(item, reputation)| {
-                        (std::cmp::Reverse(**reputation), c.items[*item].name.as_str())
-                    });
-                    for (item_id, reputation) in items {
+                    for (item_id, reputation) in delivery_options(c, exports) {
                         let item = &c.items[item_id];
                         let mut gain = format!("{} reputation each", reputation_text(*reputation));
                         if let Some(remaining) = remaining.filter(|value| *value > 0) {
@@ -987,7 +998,7 @@ mod tests {
         use starrupture_assets::codex::{Corporation, CorporationLevel};
 
         let (mut catalogue, mut progress) = fixture();
-        let id = "example";
+        let id = "/Game/Chimera/Corporations/Test";
         let native_name = "Example";
         catalogue.corporations.insert(
             id.into(),
@@ -1064,6 +1075,14 @@ mod tests {
         assert_eq!(deliveries.len(), 1);
         assert_eq!(deliveries[0].heading, "50 reputation each · 11 to reach Level 3");
         assert!(deliveries[0].locked);
+        let pin = next.iter().find_map(|row| row.pin.clone()).unwrap();
+        assert_eq!(pin, format!("delivery:3:{id}"));
+        assert!(starrupture_observation_model::recipe::valid_card(&pin));
+        let card = super::super::pins::card(&catalogue, &progress, pin.clone()).unwrap();
+        assert_eq!(card.materials[0].amount.quantity, 11);
+        assert!(card.materials[0].locked);
+        assert!(card.materials[0].submitted.is_none());
+        assert!(!super::super::pins::delivery_complete(&catalogue, &progress, &pin));
         assert!(
             matches!(&deliveries[0].link, Some((Tab::Production, Entry::Item(id))) if id == "sheet")
         );
@@ -1074,6 +1093,19 @@ mod tests {
             !delivery.iter().find(|row| row.heading.contains("reputation each")).unwrap().locked
         );
         assert!(!delivery_locked(&catalogue, &progress, "gathered-item"));
+
+        progress.corporation_reputation.insert(native_name.into(), 2900);
+        let card = super::super::pins::card(&catalogue, &progress, pin.clone()).unwrap();
+        assert_eq!(card.materials[0].amount.quantity, 2);
+        assert!(!card.materials[0].locked);
+
+        progress.corporation_reputation.insert(native_name.into(), 3000);
+        assert!(super::super::pins::delivery_complete(&catalogue, &progress, &pin));
+        assert!(super::super::pins::card(&catalogue, &progress, pin.clone()).is_none());
+
+        progress.corporations.insert(native_name.into(), 3);
+        progress.corporation_reputation.clear();
+        assert!(super::super::pins::delivery_complete(&catalogue, &progress, &pin));
 
         progress.corporations.clear();
         assert!(details(&catalogue, &progress, &row, None).is_empty());

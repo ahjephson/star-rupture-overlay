@@ -602,7 +602,9 @@ pub(super) fn render_card(
         lock(&mut pixels, dimensions, assets, width / 2, hy + header / 2, scale);
     }
     let count = card.materials.len();
-    let core_upgrade = card.key.starts_with("core-tier:") || card.key.starts_with("core:");
+    let quantity_only = card.key.starts_with("core-tier:")
+        || card.key.starts_with("core:")
+        || card.key.starts_with("delivery:");
     for (index, material) in card.materials.iter().enumerate() {
         let [x, y, tile] = layout::tile(width, height, count, index);
         let colour = if hovered == Some(index) {
@@ -612,7 +614,7 @@ pub(super) fn render_card(
         };
         fill_tile(&mut pixels, dimensions, [x, y, tile, tile], colour);
         let quantity = material.amount.quantity;
-        let complete = !core_upgrade
+        let complete = !quantity_only
             && card.locked != Some(false)
             && material.submitted.is_some_and(|count| count >= quantity);
         if let Some(item) = catalogue.items.get(&material.amount.item)
@@ -625,8 +627,11 @@ pub(super) fn render_card(
                 x + 2,
                 y + 2,
                 tile - 4,
-                complete.then_some([110, 110, 110]),
+                (complete || material.locked).then_some([110, 110, 110]),
             );
+        }
+        if material.locked {
+            lock(&mut pixels, dimensions, assets, x + tile / 2, y + tile / 2, scale);
         }
         if complete {
             let tick = (27.0 * scale) as i32;
@@ -639,8 +644,8 @@ pub(super) fn render_card(
                 tick,
                 Some([117, 224, 230]),
             );
-        } else if core_upgrade || card.locked != Some(false) {
-            let count = if core_upgrade {
+        } else if quantity_only || card.locked != Some(false) {
+            let count = if quantity_only {
                 quantity.to_string()
             } else {
                 material.submitted.map_or_else(
