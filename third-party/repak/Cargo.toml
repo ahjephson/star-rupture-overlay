@@ -14,7 +14,7 @@ keywords = ["unreal-engine", "pak", "unrealpak"]
 aes = "0.8.4"
 base64 = "0.22.1"
 strum = { version = "0.27", features = ["derive"] }
-sha1 = "0.10"
+sha1 = "0.11"
 hex = "0.4"
 
 # The profile that 'cargo dist' will build with
