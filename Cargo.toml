@@ -13,7 +13,7 @@ repository = "https://github.com/ahjephson/star-rupture-overlay"
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
-sha2 = "0.10"
+sha2 = "0.11"
 
 [profile.release]
 strip = true
