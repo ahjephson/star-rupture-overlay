@@ -40,7 +40,7 @@ for (const path of ['index.html', ...pages.map(page => `guides/${page.slug}.html
 const home = await readFile(new URL('index.html', root), 'utf8');
 assert.match(home, /Update 2:<\/strong> one pinned recipe, controlled by keyboard shortcut/);
 assert.match(home, /Update 3:<\/strong> up to three pins/);
-for (const [gameUpdate, version] of [[2, '1.0.0'], [3, '1.1.2']]) {
+for (const [gameUpdate, version] of [[2, '1.0.0'], [3, '1.2.0']]) {
   const zip = 'https://ahjephson.dev/star-rupture-overlay/downloads/starrupture-overlay-v' + version + '-windows-x64.zip';
   const release = 'https://github.com/ahjephson/star-rupture-overlay/releases/tag/v' + version;
   assert.ok(home.includes('href="' + zip + '">Download for Update ' + gameUpdate));
