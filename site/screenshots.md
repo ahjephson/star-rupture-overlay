@@ -1,6 +1,6 @@
 # Screenshot catalogue
 
-All captures were supplied by the owner. Preserve the originals; do not recreate application UI.
+In-game captures were supplied by the owner. Preserve the originals and use captures of the actual application UI.
 
 | Capture | Location | Status |
 | --- | --- | --- |
@@ -16,9 +16,9 @@ All captures were supplied by the owner. Preserve the originals; do not recreate
 
 ## Privacy-cleaned app controls
 
-The owner supplied nine tray/menu/settings captures and explicitly approved exact crops and masking. Eight unique cleaned assets are served from `website/assets/ui/`: `tray-waiting.png`, `menu-waiting.png`, `menu-connecting.png`, `menu-connected.png`, `settings-general.png`, `settings-wave-timer.png`, `settings-compass.png` and `settings-recipe-tracker.png`. The two Compass settings originals are duplicates. All Settings captures show Update 3.
+The tray and menu images are exact crops from owner-supplied screenshots. The five Settings images show the General, Wave timer, Compass, Recipe tracker and Codex tabs in version 1.2.0. They were captured directly from the overlay’s owned Windows dialogs with isolated defaults.
 
-Private originals and the crop provenance manifest are kept under ignored `local/website-screenshot-originals/`, outside the site source and served directory. Crops exclude desktop/game backgrounds and other tray icons. Transparent areas have their RGB cleared as well as their alpha; output PNGs contain no source metadata. `site/prepare-settings-images.py` reproduces the approved pixel crops and checks that visible UI pixels match the originals.
+Run the candidate executable with --self-test-dialogs and a fresh private output directory, then pass that directory to site/prepare-settings-images.py with --dialog-dir. For the tray and menu images, use --source-dir with the original clipboard captures. Keep originals outside the served website under ignored local/ storage.
 
 Still useful: an Update 2 single-recipe panel to illustrate the version difference.
 
