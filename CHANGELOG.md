@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.2.0 — 2026-11-22
+
+This Windows x64 update supports the public Steam release of StarRupture Update 3.
+
+### Codex and corporation deliveries
+
+- Corporation pages open at the next level and show live reputation progress, eligible delivery items, reputation per item and the quantity needed to reach the next level. Locked delivery items show a padlock.
+- Pin a corporation’s delivery options to the HUD. Quantities update as you earn reputation, and the pin clears when you reach the target.
+- Back and Forward follow links opened from the detail pane. Use the Codex controls, Alt+Left/Right or the mouse’s Back/Forward buttons.
+- Linked entries select the matching list item and show its details. Meteor Heart is searchable in Production and opens from Base Core. Search text is retained while browsing Equipment and Corporations.
+
+### Compass, timer and startup
+
+- The compass defaults to appearing after the in-game map unlock. Choose **From the start** in Settings to show it earlier.
+- Choose which rupture stages show the timer. Each stage has a tooltip, and **Select all stages** checks or clears the list. The timer keeps tracking hidden stages.
+- Click the waiting notification to start StarRupture through Steam.
+- Starting the overlay from a new folder updates its existing **Start with Windows** entry and app-created desktop shortcut.
+
 ## 1.1.2 — 2026-11-19
 
 This Windows x64 update supports the public Steam release of StarRupture Update 3.
