@@ -1308,6 +1308,7 @@ pub fn run() -> Result<()> {
         None
     };
     if app.preview.is_none() {
+        crate::desktop::refresh_launch_targets();
         app.startup.start();
         app.runtime = Some(runtime::Runtime::new(config));
     }

@@ -1,4 +1,4 @@
-//! User-scoped shell integration. These operations run only on explicit actions.
+//! User-scoped shell integration for Windows startup and desktop shortcuts.
 use anyhow::{Context, Result, bail, ensure};
 use std::{
     ffi::{OsStr, OsString},
@@ -175,12 +175,67 @@ pub fn startup_command(config: Option<&Path>) -> Result<Vec<u16>> {
         output.push(b' ' as u16);
         output.extend(args.encode_wide());
     }
+    finish_startup_command(output)
+}
+
+fn finish_startup_command(mut output: Vec<u16>) -> Result<Vec<u16>> {
     ensure!(
         output.len() <= 260,
         "Startup command exceeds Windows' 260-character limit. Move the app or configuration to a shorter path."
     );
     output.push(0);
     Ok(output)
+}
+
+fn relocated_startup_command(value: &[u16], executable: &Path) -> Result<Option<Vec<u16>>> {
+    let quote_unit = u16::from(b'"');
+    let command = value.split(|&unit| unit == 0).next().unwrap_or_default();
+    let Some(rest) = command.strip_prefix(&[quote_unit]) else {
+        return Ok(None);
+    };
+    let Some(end) = rest.iter().position(|&unit| unit == quote_unit) else {
+        return Ok(None);
+    };
+    let (target, suffix) = rest.split_at(end);
+    let target = OsString::from_wide(target);
+    let suffix = &suffix[1..];
+    let config_prefix: Vec<u16> = " --config ".encode_utf16().collect();
+    if !owned_executable(&target)
+        || paths_match(&target, executable)
+        || (!suffix.is_empty() && !suffix.starts_with(&config_prefix))
+    {
+        return Ok(None);
+    }
+    let mut updated = quote(executable.as_os_str());
+    updated.extend_from_slice(suffix);
+    finish_startup_command(updated).map(Some)
+}
+
+fn refresh_startup_target(executable: &Path) -> Result<()> {
+    if let Some(previous) = startup_value()?
+        && let Some(updated) = relocated_startup_command(&previous, executable)?
+        && startup_value()?.as_deref() == Some(previous.as_slice())
+    {
+        set_startup(Some(&updated))?;
+    }
+    Ok(())
+}
+
+pub fn refresh_launch_targets() {
+    let executable = match std::env::current_exe() {
+        Ok(executable) => executable,
+        Err(error) => {
+            eprintln!("Could not locate the overlay to refresh Windows launch targets: {error}");
+            return;
+        }
+    };
+    if let Err(error) = refresh_startup_target(&executable) {
+        eprintln!("Could not update Start with Windows: {error:#}");
+    }
+    if let Err(error) = shortcut_path().and_then(|path| refresh_shortcut_target(&path, &executable))
+    {
+        eprintln!("Could not update the desktop shortcut: {error:#}");
+    }
 }
 
 struct Com;
@@ -249,6 +304,26 @@ impl ShortcutState {
         }
     }
 }
+fn paths_match(target: &OsStr, executable: &Path) -> bool {
+    target.to_string_lossy().eq_ignore_ascii_case(&executable.to_string_lossy())
+}
+
+fn owned_executable(target: &OsStr) -> bool {
+    let path = Path::new(target);
+    path.is_absolute()
+        && path.file_name().is_some_and(|name| {
+            ["starrupture-overlay.exe", "starrupture-wave-overlay.exe"]
+                .iter()
+                .any(|known| name.to_string_lossy().eq_ignore_ascii_case(known))
+        })
+}
+
+struct Shortcut {
+    target: OsString,
+    arguments: OsString,
+    description: OsString,
+}
+
 fn shortcut_identity(
     target: &OsStr,
     args: &OsStr,
@@ -259,15 +334,10 @@ fn shortcut_identity(
     if args != arguments(config, true) {
         return ShortcutState::Other;
     }
-    if target.to_string_lossy().eq_ignore_ascii_case(&executable.to_string_lossy()) {
+    if paths_match(target, executable) {
         return ShortcutState::Current;
     }
-    let known_name = Path::new(target).file_name().is_some_and(|name| {
-        ["starrupture-overlay.exe", "starrupture-wave-overlay.exe"]
-            .iter()
-            .any(|known| name.to_string_lossy().eq_ignore_ascii_case(known))
-    });
-    if known_name && description == OsStr::new(SHORTCUT_DESCRIPTION) {
+    if owned_executable(target) && description == OsStr::new(SHORTCUT_DESCRIPTION) {
         ShortcutState::OtherCopy
     } else {
         ShortcutState::Other
@@ -277,6 +347,17 @@ pub fn shortcut_state(path: &Path, config: Option<&Path>) -> Result<ShortcutStat
     if !path.try_exists()? {
         return Ok(ShortcutState::Missing);
     }
+    let shortcut = read_shortcut(path)?;
+    Ok(shortcut_identity(
+        &shortcut.target,
+        &shortcut.arguments,
+        &shortcut.description,
+        &std::env::current_exe()?,
+        config,
+    ))
+}
+
+fn read_shortcut(path: &Path) -> Result<Shortcut> {
     let _com = Com::initialize()?;
     // SAFETY: The apartment COM guard lives through these calls; the ShellLink interfaces are owned
     // values and UTF-16 input/output buffers remain valid for every synchronous method.
@@ -295,15 +376,30 @@ pub fn shortcut_state(path: &Path, config: Option<&Path>) -> Result<ShortcutStat
                 &buffer[..buffer.iter().position(|u| *u == 0).unwrap_or(buffer.len())],
             )
         };
-        Ok(shortcut_identity(
-            &string(&target),
-            &string(&args),
-            &string(&description),
-            &std::env::current_exe()?,
-            config,
-        ))
+        Ok(Shortcut {
+            target: string(&target),
+            arguments: string(&args),
+            description: string(&description),
+        })
     }
 }
+fn refresh_shortcut_target(path: &Path, executable: &Path) -> Result<()> {
+    if !path.try_exists()? {
+        return Ok(());
+    }
+    let previous = std::fs::read(path)?;
+    let shortcut = read_shortcut(path)?;
+    let args = shortcut.arguments.to_string_lossy();
+    if owned_executable(&shortcut.target)
+        && shortcut.description == OsStr::new(SHORTCUT_DESCRIPTION)
+        && !paths_match(&shortcut.target, executable)
+        && (args == "--launch-game" || args.starts_with("--launch-game --config "))
+    {
+        replace_shortcut(path, executable, &shortcut.arguments, Some(&previous))?;
+    }
+    Ok(())
+}
+
 pub fn toggle_shortcut(config: Option<&Path>) -> Result<bool> {
     toggle_shortcut_at(&shortcut_path()?, config)
 }
@@ -323,10 +419,20 @@ fn toggle_shortcut_at(path: &Path, config: Option<&Path>) -> Result<bool> {
         None
     };
     let executable = std::env::current_exe()?;
+    replace_shortcut(path, &executable, &arguments(config, true), previous.as_deref())?;
+    Ok(true)
+}
+
+fn replace_shortcut(
+    path: &Path,
+    executable: &Path,
+    args: &OsStr,
+    previous: Option<&[u8]>,
+) -> Result<()> {
     let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
     ensure!(!temporary.try_exists()?, "A temporary shortcut already exists");
     let result = (|| -> Result<()> {
-        save_shortcut(&temporary, &executable, config)?;
+        save_shortcut(&temporary, executable, args)?;
         let flags = if let Some(previous) = previous {
             ensure!(
                 std::fs::read(path)? == previous,
@@ -354,17 +460,16 @@ fn toggle_shortcut_at(path: &Path, config: Option<&Path>) -> Result<bool> {
     if result.is_err() {
         let _ = std::fs::remove_file(temporary);
     }
-    result?;
-    Ok(true)
+    result
 }
-fn save_shortcut(path: &Path, executable: &Path, config: Option<&Path>) -> Result<()> {
+fn save_shortcut(path: &Path, executable: &Path, args: &OsStr) -> Result<()> {
     let _com = Com::initialize()?;
     // SAFETY: The apartment COM guard lives through these calls; the ShellLink interfaces are owned
     // values and UTF-16 input/output buffers remain valid for every synchronous method.
     unsafe {
         let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
         link.SetPath(PCWSTR(wide(executable).as_ptr()))?;
-        link.SetArguments(PCWSTR(wide(arguments(config, true)).as_ptr()))?;
+        link.SetArguments(PCWSTR(wide(args).as_ptr()))?;
         link.SetWorkingDirectory(PCWSTR(
             wide(executable.parent().context("Application directory unavailable")?).as_ptr(),
         ))?;
@@ -436,7 +541,7 @@ mod tests {
         {
             let target = old.join(name);
             assert!(!target.exists());
-            save_shortcut(&path, &target, Some(&config)).unwrap();
+            save_shortcut(&path, &target, &arguments(Some(&config), true)).unwrap();
             assert_eq!(shortcut_state(&path, Some(&config)).unwrap(), ShortcutState::OtherCopy);
             let before = std::fs::read(&path).unwrap();
             // A failed replacement leaves the previous shortcut intact.
@@ -465,12 +570,12 @@ mod tests {
         let path = root.join("Play StarRupture with Overlay.lnk");
         let target = root.join("starrupture-overlay.exe");
         let config = root.join("different.json");
-        save_shortcut(&path, &target, Some(&config)).unwrap();
+        save_shortcut(&path, &target, &arguments(Some(&config), true)).unwrap();
         let before = std::fs::read(&path).unwrap();
         assert_eq!(shortcut_state(&path, None).unwrap(), ShortcutState::Other);
         assert!(toggle_shortcut_at(&path, None).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), before);
-        save_shortcut(&path, &target, None).unwrap();
+        save_shortcut(&path, &target, &arguments(None, true)).unwrap();
         let _com = Com::initialize().unwrap();
         // SAFETY: The apartment COM guard lives through these calls; the ShellLink interfaces are
         // owned values and UTF-16 input/output buffers remain valid for every synchronous method.
@@ -489,6 +594,49 @@ mod tests {
         std::fs::remove_file(path).unwrap();
         std::fs::remove_dir(root).unwrap();
     }
+    #[test]
+    fn startup_relocation_preserves_configuration_and_skips_current_or_unowned_entries() {
+        let executable = Path::new(r"C:\New copy\starrupture-overlay.exe");
+        let previous = wide(
+            r#""C:\Old copy\starrupture-wave-overlay.exe" --config "D:\My Settings\overlay.json""#,
+        );
+        let expected =
+            wide(r#""C:\New copy\starrupture-overlay.exe" --config "D:\My Settings\overlay.json""#);
+        assert_eq!(
+            relocated_startup_command(&previous, executable).unwrap(),
+            Some(expected.clone())
+        );
+        assert_eq!(relocated_startup_command(&expected, executable).unwrap(), None);
+        let foreign = wide(r#""C:\Old copy\another-program.exe""#);
+        assert_eq!(relocated_startup_command(&foreign, executable).unwrap(), None);
+    }
+
+    #[test]
+    fn launch_refresh_retargets_only_owned_shortcuts_and_keeps_their_arguments() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../local/shortcut-tests")
+            .join(format!("refresh-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("Play StarRupture with Overlay.lnk");
+        let target = root.join("starrupture-overlay.exe");
+        let config = root.join("Different config.json");
+        let args = arguments(Some(&config), true);
+        let executable = std::env::current_exe().unwrap();
+        refresh_shortcut_target(&path, &executable).unwrap();
+        assert!(!path.exists());
+        save_shortcut(&path, &target, &args).unwrap();
+        refresh_shortcut_target(&path, &executable).unwrap();
+        let shortcut = read_shortcut(&path).unwrap();
+        assert!(paths_match(&shortcut.target, &executable));
+        assert_eq!(shortcut.arguments, args);
+        save_shortcut(&path, &target, OsStr::new("--different-action")).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        refresh_shortcut_target(&path, &executable).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
+
     #[test]
     fn startup_never_launches_the_game_and_quotes_configuration_paths() {
         let path = Path::new(r"D:\My config\overlay.json");
