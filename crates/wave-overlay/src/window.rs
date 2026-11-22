@@ -262,8 +262,11 @@ unsafe fn tick(window: HWND) {
     );
     *a.dialog_context.recipe_status.borrow_mut() = a.recipe.status.clone();
     a.dialogs.refresh_recipe_status();
-    a.countdown_eligible =
-        visible && wave_available && a.dialog_context.preferences.get().wave_enabled;
+    let preferences = a.dialog_context.preferences.get();
+    a.countdown_eligible = visible
+        && wave_available
+        && preferences.wave_enabled
+        && preferences.wave_stages.shows(a.frame.stage);
     if !a.countdown_eligible {
         // SAFETY: The UI thread uses owned overlay/menu HWNDs and borrowed comparison handles;
         // native position/style values are scalar, and referenced menu/state objects remain alive
@@ -836,18 +839,21 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
                 // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-
                 // thread access obeys app()'s exclusive-borrow contract and does not let the
                 // reference escape.
-                && let Some(context) = unsafe { app(window) }.map(|a| a.dialog_context.clone())
+                && let Some(a) = unsafe { app(window) }
             {
-                // SAFETY: The window stores the live boxed App installed at WM_NCCREATE; this UI-
-                // thread access obeys app()'s exclusive-borrow contract and does not let the
-                // reference escape.
-                unsafe {
-                    let kind = if l as u32 == NIN_BALLOONUSERCLICK {
+                let notification_clicked = l as u32 == NIN_BALLOONUSERCLICK;
+                if notification_clicked && a.startup.take_launch_notification() {
+                    // SAFETY: The window is live and the queued message carries only scalar IDs.
+                    unsafe { PostMessageW(window, LAUNCH_GAME, 0, 0) };
+                } else {
+                    let kind = if notification_clicked {
                         dialogs::ABOUT
                     } else {
                         dialogs::SETTINGS
                     };
-                    open_dialog(window, kind, context);
+                    let context = a.dialog_context.clone();
+                    // SAFETY: The App borrow has ended before the dialog accesses it.
+                    unsafe { open_dialog(window, kind, context) };
                 }
             };
             0

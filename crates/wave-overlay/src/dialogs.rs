@@ -26,6 +26,8 @@ pub const NOTICES: u16 = 103;
 pub const EXIT_PROMPT: u16 = 104;
 pub const OPEN_NOTICES: u32 = WM_APP + 11;
 const REFRESH_ICON: u32 = WM_APP + 12;
+const WAVE_SELECT_ALL: i32 = 195;
+const WAVE_STAGE_FIELDS: [i32; 7] = [196, 197, 198, 199, 200, 201, 202];
 #[derive(Clone)]
 pub struct Context {
     pub preferences: Rc<Cell<Preferences>>,
@@ -49,6 +51,7 @@ impl Context {
 }
 struct State {
     heading_font: Cell<windows_sys::Win32::Graphics::Gdi::HFONT>,
+    wave_tooltips: Cell<HWND>,
     window: Cell<HWND>,
     owner: HWND,
     kind: u16,
@@ -113,6 +116,7 @@ impl Dialogs {
         }
         let mut state = Box::new(State {
             heading_font: Cell::new(std::ptr::null_mut()),
+            wave_tooltips: Cell::new(std::ptr::null_mut()),
             window: Cell::new(std::ptr::null_mut()),
             owner,
             kind,
@@ -217,6 +221,18 @@ fn checked(window: HWND, id: i32) -> bool {
     // SAFETY: The owned checkbox is queried synchronously with scalar parameters.
     unsafe { SendDlgItemMessageW(window, id, BM_GETCHECK, 0, 0) as u32 == BST_CHECKED }
 }
+fn refresh_wave_select_all(window: HWND) {
+    let checked_count = WAVE_STAGE_FIELDS.into_iter().filter(|&id| checked(window, id)).count();
+    let check_state = if checked_count == 0 {
+        BST_UNCHECKED
+    } else if checked_count == WAVE_STAGE_FIELDS.len() {
+        BST_CHECKED
+    } else {
+        BST_INDETERMINATE
+    };
+    // SAFETY: This updates the owned aggregate checkbox using only scalar parameters.
+    unsafe { SendDlgItemMessageW(window, WAVE_SELECT_ALL, BM_SETCHECK, check_state as usize, 0) };
+}
 fn selected(state: &State) -> Preferences {
     // SAFETY: These synchronous messages target owned UI controls/windows; scalar parameters or
     // initialized text/message buffers remain live until the call returns, with no retained Rust
@@ -224,6 +240,18 @@ fn selected(state: &State) -> Preferences {
     let choice = unsafe { SendDlgItemMessageW(state.window.get(), 111, CB_GETCURSEL, 0, 0) };
     Preferences {
         wave_enabled: checked(state.window.get(), 180),
+        wave_stages: {
+            let window = state.window.get();
+            preferences::WaveStages {
+                stable: checked(window, 196),
+                pre_wave: checked(window, 197),
+                approaching: checked(window, 198),
+                incinerating: checked(window, 199),
+                cooling: checked(window, 200),
+                growback: checked(window, 201),
+                fadeout: checked(window, 202),
+            }
+        },
         startup_notification: checked(state.window.get(), 191),
         codex_enabled: checked(state.window.get(), 187),
         codex_shortcut: {
@@ -353,8 +381,62 @@ fn dirty(state: &State) {
         );
     }
 }
+fn create_wave_tooltips(window: HWND) -> HWND {
+    use windows_sys::w;
+
+    // SAFETY: Settings owns this popup. The class name is static and no creation data is passed.
+    let tooltip = unsafe {
+        CreateWindowExW(
+            WS_EX_TOPMOST,
+            TOOLTIPS_CLASSW,
+            std::ptr::null(),
+            WS_POPUP | TTS_NOPREFIX,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            window,
+            std::ptr::null_mut(),
+            GetModuleHandleW(std::ptr::null()),
+            std::ptr::null(),
+        )
+    };
+    if tooltip.is_null() {
+        return tooltip;
+    }
+
+    let descriptions = [
+        w!("The world is stable. The timer counts down to the next rupture."),
+        w!("The final warning before the rupture begins."),
+        w!("The rupture wave is underway and approaching."),
+        w!("The first seven seconds of the heat phase."),
+        w!("The rest of the heat phase, before the world starts to recover."),
+        w!("The world is recovering after the wave, before conditions stabilise."),
+        w!("The heat phase is active, but the overlay can't tell if it's incinerating or cooling."),
+    ];
+    for (id, description) in WAVE_STAGE_FIELDS.into_iter().zip(descriptions) {
+        // SAFETY: The tooltip and checkboxes belong to Settings on the same thread. Win32 reads
+        // the tool descriptor synchronously and can retain only the static, terminated text.
+        unsafe {
+            let mut tool = TTTOOLINFOW {
+                cbSize: std::mem::size_of::<TTTOOLINFOW>() as u32,
+                uFlags: TTF_IDISHWND | TTF_SUBCLASS,
+                hwnd: window,
+                uId: GetDlgItem(window, id) as usize,
+                lpszText: description.cast_mut(),
+                ..Default::default()
+            };
+            if tool.uId != 0 {
+                SendMessageW(tooltip, TTM_ADDTOOLW, 0, (&mut tool as *mut TTTOOLINFOW) as isize);
+            }
+        }
+    }
+    tooltip
+}
+
 fn settings_init(state: &State) {
     let window = state.window.get();
+    state.wave_tooltips.set(create_wave_tooltips(window));
     // Match labels, checkbox backgrounds and the dialog to the native tab surface.
     // Windows owns the theme brush and updates it when the system theme changes.
     // SAFETY: The UI/fixture owns the dialog and its resource-template child handles; only scalar
@@ -424,6 +506,20 @@ fn settings_init(state: &State) {
         );
     }
     let values = state.context.preferences.get();
+    let stages = values.wave_stages;
+    for (id, enabled) in WAVE_STAGE_FIELDS.into_iter().zip([
+        stages.stable,
+        stages.pre_wave,
+        stages.approaching,
+        stages.incinerating,
+        stages.cooling,
+        stages.growback,
+        stages.fadeout,
+    ]) {
+        // SAFETY: These scalar messages target the dialog's owned stage checkboxes.
+        unsafe { SendDlgItemMessageW(window, id, BM_SETCHECK, usize::from(enabled), 0) };
+    }
+    refresh_wave_select_all(window);
     // SAFETY: These controls belong to this live dialog; messages retain no pointers.
     unsafe {
         for label in ["From the start", "After map unlock"] {
@@ -589,9 +685,14 @@ fn settings_tab(state: &State) {
     let window = state.window.get();
     // SAFETY: The live tab control is queried synchronously with scalar parameters.
     let tab = unsafe { SendDlgItemMessageW(window, 155, TCM_GETCURSEL, 0, 0) };
+    let tooltips = state.wave_tooltips.get();
+    if !tooltips.is_null() {
+        // SAFETY: The Settings-owned popup takes a scalar message to dismiss its visible tip.
+        unsafe { SendMessageW(tooltips, TTM_POP, 0, 0) };
+    }
     let groups = [
         vec![110, 111, 112, 113, 160, 161, 162, 164, 165, 191],
-        vec![180, 170, 156],
+        [180, 170, 156, 194, WAVE_SELECT_ALL].into_iter().chain(WAVE_STAGE_FIELDS).collect(),
         vec![174, 192, 193, 175, 181, 182, 183, 184, 185, 186],
         std::iter::once(150).chain(RECIPE_FIELDS).collect(),
         vec![187, 188, 189, 190],
@@ -626,7 +727,7 @@ fn settings_tab(state: &State) {
     let has_status = !state.context.recipe_status.borrow().is_empty();
     let base_height = match tab {
         0 => 226,
-        1 => 146,
+        1 => 237,
         2 => 230,
         4 => 162,
         _ if has_status => 264,
@@ -1096,6 +1197,21 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: usize, l: isi
                 return 1;
             }
             match (state.kind, id) {
+                (SETTINGS, WAVE_SELECT_ALL) if notification == BN_CLICKED => {
+                    let enable = !WAVE_STAGE_FIELDS.into_iter().all(|id| checked(window, id));
+                    for id in WAVE_STAGE_FIELDS {
+                        // SAFETY: These scalar messages target the owned stage checkboxes.
+                        unsafe {
+                            SendDlgItemMessageW(window, id, BM_SETCHECK, usize::from(enable), 0)
+                        };
+                    }
+                    refresh_wave_select_all(window);
+                    dirty(state);
+                }
+                (SETTINGS, id) if notification == BN_CLICKED && WAVE_STAGE_FIELDS.contains(&id) => {
+                    refresh_wave_select_all(window);
+                    dirty(state);
+                }
                 (
                     SETTINGS,
                     110 | 111 | 150 | 151 | 152 | 153 | 156 | 157 | 174 | 180 | 181 | 183 | 185

@@ -26,12 +26,52 @@ pub struct Preferences {
     pub codex_enabled: bool,
     pub codex_shortcut: CodexShortcut,
     pub wave_enabled: bool,
+    pub wave_stages: WaveStages,
     pub startup_notification: bool,
     pub compass: CompassSettings,
     pub countdown_format: starrupture_observation_model::wave::CountdownFormat,
     pub game_exit: GameExit,
     pub recipe_tracker: RecipeSettings,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct WaveStages {
+    pub stable: bool,
+    pub pre_wave: bool,
+    pub approaching: bool,
+    pub incinerating: bool,
+    pub cooling: bool,
+    pub growback: bool,
+    pub fadeout: bool,
+}
+impl Default for WaveStages {
+    fn default() -> Self {
+        Self {
+            stable: true,
+            pre_wave: true,
+            approaching: true,
+            incinerating: true,
+            cooling: true,
+            growback: true,
+            fadeout: true,
+        }
+    }
+}
+impl WaveStages {
+    pub fn shows(self, stage: &str) -> bool {
+        match stage {
+            "STABLE" => self.stable,
+            "PRE-WAVE" => self.pre_wave,
+            "APPROACHING" => self.approaching,
+            "INCINERATING" => self.incinerating,
+            "COOLING" => self.cooling,
+            "GROWBACK" => self.growback,
+            "FADEOUT" => self.fadeout,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields, default)]
 pub struct CompassSettings {
@@ -123,6 +163,7 @@ impl Default for Preferences {
             codex_enabled: true,
             codex_shortcut: CodexShortcut::default(),
             wave_enabled: true,
+            wave_stages: WaveStages::default(),
             startup_notification: true,
             compass: CompassSettings::default(),
             countdown_format: Default::default(),
@@ -370,9 +411,15 @@ mod feature_preferences_tests {
         assert!(!old.compass_enabled);
         assert!(!old.recipe_tracker.enabled);
         assert!(old.wave_enabled);
+        assert_eq!(old.wave_stages, WaveStages::default());
         assert_eq!(old.compass, CompassSettings::default());
         let configured = Preferences {
             wave_enabled: false,
+            wave_stages: WaveStages {
+                stable: false,
+                cooling: false,
+                ..old.wave_stages
+            },
             compass: CompassSettings {
                 wait_for_map: false,
                 arrival_enabled: false,
@@ -383,6 +430,23 @@ mod feature_preferences_tests {
         };
         let bytes = serde_json::to_vec(&configured).unwrap();
         assert_eq!(serde_json::from_slice::<Preferences>(&bytes).unwrap(), configured);
+    }
+    #[test]
+    fn timer_stages_filter_hud_labels_independently() {
+        let stage_labels =
+            ["STABLE", "PRE-WAVE", "APPROACHING", "INCINERATING", "COOLING", "GROWBACK", "FADEOUT"];
+        for (setting, stage) in
+            ["stable", "preWave", "approaching", "incinerating", "cooling", "growback", "fadeout"]
+                .into_iter()
+                .zip(stage_labels)
+        {
+            let stages: WaveStages =
+                serde_json::from_value(serde_json::json!({ (setting): false })).unwrap();
+            for label in stage_labels {
+                assert_eq!(stages.shows(label), label != stage, "{setting} toggled {label}");
+            }
+        }
+        assert!(!WaveStages::default().shows("UNAVAILABLE"));
     }
     #[test]
     fn compass_can_wait_for_positive_map_unlock_evidence() {

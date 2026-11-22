@@ -10,9 +10,11 @@ Save applies feature changes without restarting the app. The overlays may briefl
 
 ## Rupture countdown
 
-The countdown shows the current rupture stage: STABLE, PRE-WAVE, APPROACHING, INCINERATING, COOLING or GROWBACK. It follows the game's simulation and pauses with verified game pause. The countdown panel hides when the wave system is unavailable. Stale readings in an active session show `--:--`.
+The countdown shows the current rupture stage: STABLE, PRE-WAVE, APPROACHING, INCINERATING, COOLING or GROWBACK. It follows the game's simulation and pauses with verified game pause. The countdown panel hides when the current stage is unavailable. A known stage without verified timing shows `--:--`.
 
 In **Settings > Wave timer > Countdown format**, choose hours when needed (`1:20:00`) or total minutes (`80:00`). Both choices keep the panel width fixed. Below an hour, the display uses `MM:SS`.
+
+Under **Visible stages**, choose when the timer panel appears. All stages are selected by default. Use **Select all stages** to check or clear the whole list. With the wave timer enabled, it keeps tracking the game through hidden stages and reappears at the next selected stage.
 
 The wave panel hides while the game reports waves stopped, including the observed tutorial state. INCINERATING lasts seven seconds before the display changes to COOLING.
 

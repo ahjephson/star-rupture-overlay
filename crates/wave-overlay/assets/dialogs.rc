@@ -22,6 +22,15 @@ BEGIN
     CONTROL "Enable wave &timer", 180, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 24, 54, 262, 10
     GROUPBOX "Countdown format", 170, 24, 72, 272, 38
     COMBOBOX 156, 34, 87, 252, 65, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    GROUPBOX "Visible stages", 194, 24, 116, 272, 88
+    CONTROL "Select &all stages", 195, "Button", BS_3STATE | WS_TABSTOP, 34, 130, 252, 10
+    CONTROL "Stable", 196, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 34, 146, 120, 10
+    CONTROL "Pre-wave", 197, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 160, 146, 126, 10
+    CONTROL "Approaching", 198, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 34, 160, 120, 10
+    CONTROL "Incinerating", 199, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 160, 160, 126, 10
+    CONTROL "Cooling", 200, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 34, 174, 120, 10
+    CONTROL "Growback", 201, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 160, 174, 126, 10
+    CONTROL "Fadeout (timing unavailable)", 202, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 34, 188, 252, 10
     CONTROL "Enable &compass", 174, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 24, 54, 262, 10
     LTEXT "Show compass", 192, 24, 76, 96, 10
     COMBOBOX 193, 132, 73, 154, 52, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP

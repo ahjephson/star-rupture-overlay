@@ -780,8 +780,20 @@ fn check_feature_tabs(state: &State, directory: &Path) -> Result<()> {
             SendDlgItemMessageW(window, 155, TCM_GETITEMCOUNT, 0, 0) == 5,
             "Expected five settings tabs"
         );
+        let tooltips = state.wave_tooltips.get();
+        ensure!(
+            !tooltips.is_null()
+                && SendMessageW(tooltips, TTM_GETTOOLCOUNT, 0, 0)
+                    == WAVE_STAGE_FIELDS.len() as isize,
+            "Expected one tooltip per timer stage"
+        );
         for (tab, toggle, fields, name) in [
-            (1, 180, &[170, 156][..], "wave"),
+            (
+                1,
+                180,
+                &[170, 156, 194, WAVE_SELECT_ALL, 196, 197, 198, 199, 200, 201, 202][..],
+                "wave",
+            ),
             (2, 174, &[175, 181, 182, 183, 184, 185, 186, 192, 193][..], "compass"),
             (4, 187, &[188, 189, 190][..], "codex"),
         ] {
@@ -809,6 +821,31 @@ fn check_feature_tabs(state: &State, directory: &Path) -> Result<()> {
                 );
             }
         }
+    }
+    // SAFETY: The diagnostic owns the checkboxes; all message parameters are scalars.
+    unsafe {
+        SendDlgItemMessageW(window, 155, TCM_SETCURSEL, 1, 0);
+        settings_tab(state);
+        let aggregate = || SendDlgItemMessageW(window, WAVE_SELECT_ALL, BM_GETCHECK, 0, 0) as u32;
+        ensure!(aggregate() == BST_CHECKED, "All stages should start selected");
+        SendDlgItemMessageW(window, WAVE_SELECT_ALL, BM_CLICK, 0, 0);
+        ensure!(aggregate() == BST_UNCHECKED, "Bulk clear did not update the aggregate");
+        ensure!(
+            !WAVE_STAGE_FIELDS.into_iter().any(|id| checked(window, id)),
+            "Bulk clear missed a stage"
+        );
+        ensure!(selected(state).wave_enabled, "Clearing stages disabled the timer itself");
+        SendDlgItemMessageW(window, 197, BM_CLICK, 0, 0);
+        ensure!(aggregate() == BST_INDETERMINATE, "One selected stage should be mixed");
+        let stages = selected(state).wave_stages;
+        ensure!(stages.shows("PRE-WAVE") && !stages.shows("STABLE"), "Wrong stage selection");
+        ensure!(IsWindowEnabled(GetDlgItem(window, IDOK)) != 0, "Stage change did not enable Save");
+        SendDlgItemMessageW(window, WAVE_SELECT_ALL, BM_CLICK, 0, 0);
+        ensure!(aggregate() == BST_CHECKED, "Bulk select did not update the aggregate");
+        ensure!(
+            WAVE_STAGE_FIELDS.into_iter().all(|id| checked(window, id)),
+            "Bulk select missed a stage"
+        );
     }
     ensure!(
         selected(state).compass == preferences::CompassSettings::default(),

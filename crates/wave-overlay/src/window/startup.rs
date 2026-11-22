@@ -8,6 +8,7 @@ const STARTUP_LIMIT: Duration = Duration::from_secs(3);
 pub(super) struct Startup {
     began: Option<Instant>,
     splash: Option<Splash>,
+    launch_notification: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -62,30 +63,43 @@ impl Readiness {
         }
     }
 
-    fn notification(self, starting_game: bool) -> (&'static str, &'static str, u32) {
+    fn notification(self, starting_game: bool) -> (&'static str, &'static str, u32, bool) {
         let status = match self {
             Self::Checking => "Checking StarRupture status.",
             Self::Connecting => "StarRupture detected. Connecting in the background.",
             Self::Waiting if starting_game => "Waiting for StarRupture to start.",
-            Self::Waiting => "Waiting for StarRupture.",
-            Self::Attached => return ("", "Connected to StarRupture", NIIF_NONE),
+            Self::Waiting => {
+                return (
+                    "StarRupture Overlay ready",
+                    "Waiting for StarRupture. Click this notification to start the game.",
+                    NIIF_USER,
+                    true,
+                );
+            }
+            Self::Attached => return ("", "Connected to StarRupture", NIIF_NONE, false),
             Self::FeaturesDisabled => "HUD features can be enabled in Settings.",
             Self::Unsupported => {
                 return (
                     "StarRupture Overlay needs attention",
                     "This StarRupture build is unsupported. Open About for compatibility details.",
                     NIIF_WARNING,
+                    false,
                 );
             }
         };
-        ("StarRupture Overlay ready", status, NIIF_USER)
+        ("StarRupture Overlay ready", status, NIIF_USER, false)
     }
 }
 
 impl Startup {
     pub fn start(&mut self) {
+        self.launch_notification = false;
         self.splash = Splash::open();
         self.began = Some(Instant::now());
+    }
+
+    pub fn take_launch_notification(&mut self) -> bool {
+        std::mem::take(&mut self.launch_notification)
     }
 
     pub fn update(
@@ -104,8 +118,8 @@ impl Startup {
             self.began = None;
             self.splash = None;
             if preferences.startup_notification {
-                let (title, message, flags) = readiness.notification(starting_game);
-                notify(owner, title, message, flags);
+                let (title, message, flags, starts_game) = readiness.notification(starting_game);
+                self.launch_notification = notify(owner, title, message, flags) && starts_game;
             }
             return;
         }
@@ -115,7 +129,7 @@ impl Startup {
     }
 }
 
-fn notify(owner: HWND, title: &str, message: &str, flags: u32) {
+fn notify(owner: HWND, title: &str, message: &str, flags: u32) -> bool {
     let mut icon = NOTIFYICONDATAW {
         cbSize: size_of::<NOTIFYICONDATAW>() as u32,
         hWnd: owner,
@@ -131,7 +145,7 @@ fn notify(owner: HWND, title: &str, message: &str, flags: u32) {
         *dest = source;
     }
     // SAFETY: The initialized message belongs to the owner's existing tray icon.
-    unsafe { Shell_NotifyIconW(NIM_MODIFY, &icon) };
+    unsafe { Shell_NotifyIconW(NIM_MODIFY, &icon) != 0 }
 }
 
 const WIDTH: i32 = 420;
@@ -440,17 +454,30 @@ mod tests {
         connection.ready(42);
         let attached = Readiness::from_connection(&connection);
         assert_eq!(attached, Readiness::Attached);
-        assert_eq!(attached.notification(false), ("", "Connected to StarRupture", NIIF_NONE));
+        assert_eq!(
+            attached.notification(false),
+            ("", "Connected to StarRupture", NIIF_NONE, false)
+        );
         assert_eq!(
             Readiness::Waiting.notification(false),
-            ("StarRupture Overlay ready", "Waiting for StarRupture.", NIIF_USER)
+            (
+                "StarRupture Overlay ready",
+                "Waiting for StarRupture. Click this notification to start the game.",
+                NIIF_USER,
+                true,
+            )
+        );
+        assert_eq!(
+            Readiness::Waiting.notification(true),
+            ("StarRupture Overlay ready", "Waiting for StarRupture to start.", NIIF_USER, false)
         );
         assert_eq!(
             Readiness::Unsupported.notification(false),
             (
                 "StarRupture Overlay needs attention",
                 "This StarRupture build is unsupported. Open About for compatibility details.",
-                NIIF_WARNING
+                NIIF_WARNING,
+                false,
             )
         );
     }
