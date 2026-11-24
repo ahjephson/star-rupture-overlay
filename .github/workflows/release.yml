@@ -8,8 +8,8 @@ on:
         description: Existing reviewed tag; update3 requires vMAJOR.MINOR.PATCH-update3.N
         required: true
         type: string
-      live_verified:
-        description: This tag's candidate passed the supported-game live checks
+      release_checks_confirmed:
+        description: Applicable release checks passed. Live game checks apply to game integration changes.
         required: true
         default: false
         type: boolean
@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   package:
-    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/update3') && inputs.live_verified
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/update3') && inputs.release_checks_confirmed
     runs-on: windows-2022
     timeout-minutes: 30
     defaults:
