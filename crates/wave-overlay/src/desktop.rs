@@ -47,6 +47,7 @@ impl Drop for Key {
 }
 const RUN: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const VALUE: &str = "StarRuptureOverlay";
+pub const WINDOWS_STARTUP_ARG: &str = "--windows-startup";
 pub fn startup_value() -> Result<Option<Vec<u16>>> {
     let mut size = 0;
     // SAFETY: Registry strings are terminated and live for each call; output pointers reference
@@ -170,6 +171,8 @@ pub fn arguments(config: Option<&Path>, launch: bool) -> OsString {
 }
 pub fn startup_command(config: Option<&Path>) -> Result<Vec<u16>> {
     let mut output = quote(std::env::current_exe()?.as_os_str());
+    output.push(u16::from(b' '));
+    output.extend(WINDOWS_STARTUP_ARG.encode_utf16());
     let args = arguments(config, false);
     if !args.is_empty() {
         output.push(b' ' as u16);
@@ -198,16 +201,20 @@ fn relocated_startup_command(value: &[u16], executable: &Path) -> Result<Option<
     };
     let (target, suffix) = rest.split_at(end);
     let target = OsString::from_wide(target);
+    let startup_flag: Vec<u16> = format!(" {WINDOWS_STARTUP_ARG}").encode_utf16().collect();
     let suffix = &suffix[1..];
+    let marked = suffix.strip_prefix(startup_flag.as_slice());
+    let config = marked.unwrap_or(suffix);
     let config_prefix: Vec<u16> = " --config ".encode_utf16().collect();
     if !owned_executable(&target)
-        || paths_match(&target, executable)
-        || (!suffix.is_empty() && !suffix.starts_with(&config_prefix))
+        || (marked.is_some() && paths_match(&target, executable))
+        || (!config.is_empty() && !config.starts_with(&config_prefix))
     {
         return Ok(None);
     }
     let mut updated = quote(executable.as_os_str());
-    updated.extend_from_slice(suffix);
+    updated.extend_from_slice(&startup_flag);
+    updated.extend_from_slice(config);
     finish_startup_command(updated).map(Some)
 }
 
@@ -595,18 +602,29 @@ mod tests {
         std::fs::remove_dir(root).unwrap();
     }
     #[test]
-    fn startup_relocation_preserves_configuration_and_skips_current_or_unowned_entries() {
+    fn startup_refresh_marks_legacy_entries_and_preserves_configuration() {
         let executable = Path::new(r"C:\New copy\starrupture-overlay.exe");
         let previous = wide(
             r#""C:\Old copy\starrupture-wave-overlay.exe" --config "D:\My Settings\overlay.json""#,
         );
-        let expected =
-            wide(r#""C:\New copy\starrupture-overlay.exe" --config "D:\My Settings\overlay.json""#);
+        let expected = wide(
+            r#""C:\New copy\starrupture-overlay.exe" --windows-startup --config "D:\My Settings\overlay.json""#,
+        );
         assert_eq!(
             relocated_startup_command(&previous, executable).unwrap(),
             Some(expected.clone())
         );
         assert_eq!(relocated_startup_command(&expected, executable).unwrap(), None);
+        let legacy_current = wide(r#""C:\New copy\starrupture-overlay.exe""#);
+        let updated_current = wide(r#""C:\New copy\starrupture-overlay.exe" --windows-startup"#);
+        assert_eq!(
+            relocated_startup_command(&legacy_current, executable).unwrap(),
+            Some(updated_current)
+        );
+        let marked_old = wide(
+            r#""C:\Old copy\starrupture-overlay.exe" --windows-startup --config "D:\My Settings\overlay.json""#,
+        );
+        assert_eq!(relocated_startup_command(&marked_old, executable).unwrap(), Some(expected));
         let foreign = wide(r#""C:\Old copy\another-program.exe""#);
         assert_eq!(relocated_startup_command(&foreign, executable).unwrap(), None);
     }

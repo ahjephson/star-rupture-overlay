@@ -4,7 +4,7 @@ A rupture countdown, compass and recipe research sidebar for StarRupture. Extrac
 
 Right-click the overlay icon in the Windows notification area for Settings, positioning controls, About and Exit. Double-click it to open Settings. The icon may be under the hidden icons arrow. You can start the game from the tray menu or create a Play StarRupture with Overlay desktop shortcut in Settings.
 
-The overlay shows a brief splash at launch and sends a Windows notification when ready. If StarRupture is closed, click the notification to start it through Steam. Turn off **Show startup notification** in Settings under **General → Startup**.
+When you open the overlay manually, it shows a brief splash and sends a Windows notification when ready. With **Start with Windows**, it starts quietly in the notification area when you sign in. If StarRupture is closed, click the notification to start it through Steam. Turn off **Show startup notification** in Settings under **General → Startup**.
 
 ## Recipe tracker
 

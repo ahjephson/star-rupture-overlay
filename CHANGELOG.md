@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.1 — 2026-11-24
+
+- The overlay now starts quietly in the notification area when Windows launches it at sign-in. When you open it manually, the optional startup notification can still launch StarRupture through Steam.
+- Open the updated overlay once to apply this change to an existing **Start with Windows** entry.
+
 ## 1.2.0 — 2026-11-22
 
 This Windows x64 update supports the public Steam release of StarRupture Update 3.

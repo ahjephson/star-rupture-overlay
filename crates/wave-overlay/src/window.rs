@@ -922,6 +922,7 @@ pub fn run() -> Result<()> {
     let mut path: Option<PathBuf> = None;
     let mut preview_phase = None;
     let mut launch_game = false;
+    let mut windows_startup = false;
     if let Some(first) = args.next() {
         if first == "--prepare-recipe-assets"
             || first == "--prepare-codex-assets"
@@ -1099,9 +1100,10 @@ pub fn run() -> Result<()> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--launch-game" => launch_game = true,
+            crate::desktop::WINDOWS_STARTUP_ARG => windows_startup = true,
             "--config" => path = Some(args.next().ok_or("Missing configuration path")?.into()),
             "--preview-stage" => preview_phase = Some(args.next().ok_or("Missing preview phase")?),
-            _ => return Err("Usage: starrupture-overlay [--config FILE] [--launch-game] [--preview-stage waiting|PreWave|Moving|FadeoutEarly|FadeoutCooling|Fadeout|Growback|unavailable]".into()),
+            _ => return Err("Usage: starrupture-overlay [--config FILE] [--launch-game] [--windows-startup] [--preview-stage waiting|PreWave|Moving|FadeoutEarly|FadeoutCooling|Fadeout|Growback|unavailable]".into()),
         }
     }
     if let Some(phase) = &preview_phase
@@ -1309,7 +1311,9 @@ pub fn run() -> Result<()> {
     };
     if app.preview.is_none() {
         crate::desktop::refresh_launch_targets();
-        app.startup.start();
+        if !windows_startup {
+            app.startup.start();
+        }
         app.runtime = Some(runtime::Runtime::new(config));
     }
     // SAFETY: These UI-thread APIs use scalar IDs or documented Win32 pseudo-handles;
