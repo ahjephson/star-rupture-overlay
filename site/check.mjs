@@ -40,12 +40,15 @@ for (const path of ['index.html', ...pages.map(page => `guides/${page.slug}.html
 const home = await readFile(new URL('index.html', root), 'utf8');
 assert.match(home, /Update 2:<\/strong> one pinned recipe, controlled by keyboard shortcut/);
 assert.match(home, /Update 3:<\/strong> up to three pins/);
-for (const [gameUpdate, version] of [[2, '1.0.0'], [3, '1.2.0']]) {
-  const zip = 'https://ahjephson.dev/star-rupture-overlay/downloads/starrupture-overlay-v' + version + '-windows-x64.zip';
-  const release = 'https://github.com/ahjephson/star-rupture-overlay/releases/tag/v' + version;
-  assert.ok(home.includes('href="' + zip + '">Download for Update ' + gameUpdate));
-  assert.ok(home.includes('href="' + release + '">See what’s changed in ' + version));
-}
+const publicSite = 'https://ahjephson.dev/star-rupture-overlay/';
+const latestNotes = publicSite + 'releases/latest';
+assert.ok(home.includes('href="' + publicSite + 'downloads/starrupture-overlay-v1.0.0-windows-x64.zip">Download for Update 2'));
+assert.ok(home.includes('href="https://github.com/ahjephson/star-rupture-overlay/releases/tag/v1.0.0">See what’s changed in 1.0.0'));
+assert.ok(home.includes('href="' + publicSite + 'downloads/latest.zip">Download for Update 3'));
+assert.ok(home.includes('href="' + latestNotes + '">See what’s changed ↗'));
+const install = await readFile(new URL('guides/install.html', root), 'utf8');
+assert.ok(install.includes('href="' + latestNotes + '">latest Update 3 release'));
+assert.doesNotMatch(home, /latest\.json|latest-release-links/);
 assert.doesNotMatch(home, /v1\.1\.0-update3\.1|UPDATE 3 PREVIEW|UPDATE 3 PRE-RELEASE/);
 const codexTabs = [...home.matchAll(/<input type="radio" name="codex-tab" id="codex-tab-([a-z]+)"( checked)?>/g)];
 assert.deepEqual(codexTabs.map(match => match[1]), ['production', 'buildings', 'interiors', 'equipment', 'corporations']);
