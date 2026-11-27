@@ -23,12 +23,12 @@ iced-x86 = "1.20.0"
 itertools = "0.12.0"
 memchr = "2.7.1"
 msvc-demangler = "0.9.0"
-object = { version = "0.32.2", default-features = false, features = ["read", "std"] }
+object = { version = "0.41.0", default-features = false, features = ["read", "std"] }
 pdb = "0.8.0"
 prettytable-rs = "0.10.0"
 rayon = "1.8.0"
 regex = "1.10.2"
 serde = "1.0.195"
 strum = {version = "0.25.0", features = ["strum_macros", "derive"]}
-windows = { version = "0.52.0" }
+windows = { version = "0.62.2" }
 

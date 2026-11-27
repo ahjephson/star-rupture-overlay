@@ -291,7 +291,7 @@
     },
     {
       "path": "third-party/patternsleuth/Cargo.toml",
-      "sha256": "7b4f58d95713a698eab4755ef522806a38255e01e74b1256f430bcda8cfb860f"
+      "sha256": "6b3ddf4d9244c4240b8f9d8c8d24c9b5fc26e80ed32dcd00a07a24c281a7671d"
     },
     {
       "path": "third-party/patternsleuth/patternsleuth_scanner/benches/scan.rs",
@@ -327,7 +327,7 @@
     },
     {
       "path": "third-party/patternsleuth/patternsleuth/src/lib.rs",
-      "sha256": "1751268193e467304cbeb526efa4f88c7af8e931f82de8c2d36c76a00143ce87"
+      "sha256": "5113343a4da7563858be202bb67f017b431d1e6f9b07d7ed9a3deab032ee321e"
     },
     {
       "path": "third-party/patternsleuth/patternsleuth/src/process/external.rs",
@@ -431,7 +431,7 @@
     },
     {
       "path": "third-party/repak/Cargo.toml",
-      "sha256": "cc27ca417c1cbea9de14d3d77eb8d707ce3f7eb35bdad7695f230d961c287614",
+      "sha256": "cf695daf2d2aeb12f46291520986ea8724459760d00ccdd1dfbe60ee54a8e2fc",
       "originalSha256": "7eca56334aca512efbdd074cb43f88e497b23aba1f408dbcbad57a6dc0e1f15a"
     },
     {
@@ -484,7 +484,7 @@
     },
     {
       "path": "third-party/retoc/Cargo.toml",
-      "sha256": "e3e7d1a08880bf61105b6a503b00de20041de2cd0e7e73e6bab9daa1ac4c2738",
+      "sha256": "63c3abde4a26aea00f4f38e73a361bff4b16b36e46d52ba1181b1ebb27f3f3a7",
       "originalSha256": "a90aa9525c68e25a2f2e212c2f5b88628137ffddfa3d93a9f4c7e27ee13afed3"
     },
     {
@@ -1025,6 +1025,30 @@
     "Nineteen retained gospel source files use rustfmt formatting without semantic changes; originalHashes and files record the upstream and retained SHA256 values."
   ],
   "localPatches": [
+    {
+      "path": "third-party/patternsleuth/Cargo.toml",
+      "originalSha256": "7b4f58d95713a698eab4755ef522806a38255e01e74b1256f430bcda8cfb860f",
+      "reason": "Bump object to 0.41.0 and Windows bindings to 0.62.2, retaining the existing object feature selection.",
+      "date": "2026-11-27"
+    },
+    {
+      "path": "third-party/patternsleuth/patternsleuth/src/lib.rs",
+      "originalSha256": "1751268193e467304cbeb526efa4f88c7af8e931f82de8c2d36c76a00143ce87",
+      "reason": "Adapt PE and ELF section flag matching to the typed object 0.41 API while preserving the existing readability and allocation masks.",
+      "date": "2026-11-27"
+    },
+    {
+      "path": "third-party/repak/Cargo.toml",
+      "originalSha256": "cc27ca417c1cbea9de14d3d77eb8d707ce3f7eb35bdad7695f230d961c287614",
+      "reason": "Bump SHA-1 to 0.11 for the existing PAK hashing code.",
+      "date": "2026-11-27"
+    },
+    {
+      "path": "third-party/retoc/Cargo.toml",
+      "originalSha256": "e3e7d1a08880bf61105b6a503b00de20041de2cd0e7e73e6bab9daa1ac4c2738",
+      "reason": "Bump SHA-1 to 0.11 for the existing shader group hashing code.",
+      "date": "2026-11-27"
+    },
     {
       "path": "third-party/README.md",
       "originalSha256": "5bd2ec9cfc1f9aa288cef40e80c14866690d71064ebcc261c331ed1348cf7748",

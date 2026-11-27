@@ -335,8 +335,8 @@ pub struct Memory<'data> {
 impl<'data> Memory<'data> {
     fn is_section_scannable(section_flags: SectionFlags) -> bool {
         match section_flags {
-            SectionFlags::Coff { characteristics } => (characteristics & IMAGE_SCN_MEM_READ) != 0,
-            SectionFlags::Elf { sh_flags } => (sh_flags & SHF_ALLOC as u64) != 0,
+            SectionFlags::Coff { characteristics } => (characteristics & IMAGE_SCN_MEM_READ).0 != 0,
+            SectionFlags::Elf { sh_flags, .. } => (sh_flags & SHF_ALLOC).0 != 0,
             _ => true,
         }
     }
