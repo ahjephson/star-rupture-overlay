@@ -223,10 +223,9 @@ pub(super) fn folder_key(path: &Path) -> Result<String> {
     let metadata = std::fs::metadata(&path)?;
     ensure!(metadata.is_dir(), "World path is not a directory");
     let created = metadata.created()?.duration_since(UNIX_EPOCH)?.as_nanos();
-    Ok(format!(
-        "{:x}",
-        Sha256::digest(format!("{}\0{created}", path.to_string_lossy().to_lowercase()).as_bytes())
-    ))
+    Ok(hex::encode(Sha256::digest(
+        format!("{}\0{created}", path.to_string_lossy().to_lowercase()).as_bytes(),
+    )))
 }
 struct TextGuard {
     header: [u8; 16],

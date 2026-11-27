@@ -12,7 +12,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 fn digest(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    hex::encode(Sha256::digest(bytes))
 }
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]

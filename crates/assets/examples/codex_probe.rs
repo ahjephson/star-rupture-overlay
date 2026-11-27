@@ -120,7 +120,7 @@ fn main() -> Result<()> {
         fs::write(
             output.join("source.json"),
             serde_json::to_vec_pretty(
-                &json!({"gameHash":request.game_hash,"paks":request.paks,"mappingsSha256":format!("{:x}",Sha256::digest(bounded(&request.mappings,16*1024*1024)?)),"archives":archives,"readOnlyGameAccess":true,"processMemoryRead":false,"gameCodeInvoked":false}),
+                &json!({"gameHash":request.game_hash,"paks":request.paks,"mappingsSha256":hex::encode(Sha256::digest(bounded(&request.mappings,16*1024*1024)?)),"archives":archives,"readOnlyGameAccess":true,"processMemoryRead":false,"gameCodeInvoked":false}),
             )?,
         )?;
         println!("{}", json!({"paths":paths.len(),"output":output}));
@@ -213,7 +213,7 @@ fn write_research_texture(
     bytes.extend_from_slice(&(height as u32).to_le_bytes());
     bytes.extend_from_slice(&pixels);
     fs::write(
-        icons.join(format!("{}.bgra", &format!("{:x}", Sha256::digest(id.as_bytes()))[..24])),
+        icons.join(format!("{}.bgra", &hex::encode(Sha256::digest(id.as_bytes()))[..24])),
         bytes,
     )?;
     Ok(())

@@ -115,7 +115,7 @@ pub(crate) fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
 }
 fn hash_file(path: &Path) -> Result<String> {
     let bytes = read_bounded(path, 4 * 1024 * 1024 + 8)?;
-    Ok(format!("{:x}", Sha256::digest(bytes)))
+    Ok(hex::encode(Sha256::digest(bytes)))
 }
 fn catalogue(directory: &Path) -> Result<Arc<Catalogue>> {
     let value: Catalogue =

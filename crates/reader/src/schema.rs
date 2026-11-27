@@ -64,7 +64,7 @@ impl Store {
             std::fs::File::open(p)?.take(16 * 1024 * 1024 + 1).read_to_end(&mut b)?;
             ensure!(b.len() <= 16 * 1024 * 1024, "Schema grew beyond read bound");
             ensure!(
-                format!("{:x}", Sha256::digest(&b)) == r.sha256 && b.get(3) == Some(&0),
+                hex::encode(Sha256::digest(&b)) == r.sha256 && b.get(3) == Some(&0),
                 "Schema integrity"
             );
             Ok(b)
@@ -96,7 +96,7 @@ impl Store {
                     version: 1,
                     game_hash: hash.into(),
                     file: generation,
-                    sha256: format!("{:x}", Sha256::digest(&b)),
+                    sha256: hex::encode(Sha256::digest(&b)),
                 };
                 let temp = file.with_extension(format!("{}.tmp", std::process::id()));
                 let publish = (|| -> Result<()> {

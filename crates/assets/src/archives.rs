@@ -71,7 +71,7 @@ fn validate(bytes: &[u8], data_len: u64) -> Result<Value> {
         ensure!(meta[20] & !2 == 0, "Unsupported archive chunk flags");
     }
     Ok(
-        json!({"tocVersion":8,"chunks":entries,"blocks":blocks,"compression":"none","tocSha256":format!("{:x}",Sha256::digest(bytes))}),
+        json!({"tocVersion":8,"chunks":entries,"blocks":blocks,"compression":"none","tocSha256":hex::encode(Sha256::digest(bytes))}),
     )
 }
 pub(super) fn preflight(paks: &Path) -> Result<Vec<Value>> {

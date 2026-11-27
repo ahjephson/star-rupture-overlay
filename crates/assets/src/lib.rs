@@ -300,7 +300,7 @@ fn extract(request: &Request) -> Result<()> {
                     let icon = asset(&props["ItemIcon"]["ResourceObject"])?;
                     icons.insert(icon.clone());
                     Ok(
-                        json!({"name":text(&props["ItemName"])?,"image":format!("{}.bgra",&format!("{:x}",Sha256::digest(icon.as_bytes()))[..24])}),
+                        json!({"name":text(&props["ItemName"])?,"image":format!("{}.bgra",&hex::encode(Sha256::digest(icon.as_bytes()))[..24])}),
                     )
                 }
             })();
@@ -394,8 +394,7 @@ fn extract(request: &Request) -> Result<()> {
                     *c = ((*c as u32 * a + 127) / 255) as u8;
                 }
             }
-            let filename =
-                format!("{}.bgra", &format!("{:x}", Sha256::digest(id.as_bytes()))[..24]);
+            let filename = format!("{}.bgra", &hex::encode(Sha256::digest(id.as_bytes()))[..24]);
             let mut bytes = Vec::new();
             bytes.extend_from_slice(&(width as u32).to_le_bytes());
             bytes.extend_from_slice(&(height as u32).to_le_bytes());
@@ -418,8 +417,7 @@ fn extract(request: &Request) -> Result<()> {
     let font = &wrapped[4..wrapped.len() - 4];
     fs::write(output.join("Nippo-Regular.otf"), font)?;
     ensure!(font.len() <= 4 * 1024 * 1024, "Font size bound");
-    let image =
-        |id: &str| format!("{}.bgra", &format!("{:x}", Sha256::digest(id.as_bytes()))[..24]);
+    let image = |id: &str| format!("{}.bgra", &hex::encode(Sha256::digest(id.as_bytes()))[..24]);
     let catalogue = serde_json::json!({"gameHash":request.game_hash,"recipes":recipes,"items":items,"tick":image("/Game/Chimera/UI/Research/Textures/T_SR_unlockedItemIcon_128x128"),"frame":image("/Game/Chimera/UI/Research/RecipeTable/Textures/SR_recipeTableRecipeIcon_frame"),"background":image("/Game/Chimera/UI/Research/RecipeTable/Textures/SR_recipeTableRecipeIcon_bkgd"),"font":"Nippo-Regular.otf"});
     let validated: starrupture_observation_model::recipe::Catalogue =
         serde_json::from_value(catalogue.clone())?;
@@ -428,7 +426,7 @@ fn extract(request: &Request) -> Result<()> {
     fs::write(
         output.join("extraction.json"),
         serde_json::to_vec_pretty(
-            &json!({"schema":1,"archives":archives,"recipeCandidates":candidates.len(),"excludedRecipes":excluded.len(),"stringTables":table_candidates.len(),"recipes":recipes.len(),"items":items.len(),"graphics":texture_results.len(),"schemaSha256":format!("{:x}",Sha256::digest(&schema_bytes)),"elapsedMs":started.elapsed().as_millis(),"recipeHeadingDifferences":name_differences,"failures":failures}),
+            &json!({"schema":1,"archives":archives,"recipeCandidates":candidates.len(),"excludedRecipes":excluded.len(),"stringTables":table_candidates.len(),"recipes":recipes.len(),"items":items.len(),"graphics":texture_results.len(),"schemaSha256":hex::encode(Sha256::digest(&schema_bytes)),"elapsedMs":started.elapsed().as_millis(),"recipeHeadingDifferences":name_differences,"failures":failures}),
         )?,
     )?;
     ensure!(

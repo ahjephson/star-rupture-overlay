@@ -144,7 +144,7 @@ fn open_checked(pid: u32, budget: Arc<ReadBudget>, expected: Option<&Identity>) 
             }
             hash.update(&buffer[..n]);
         }
-        format!("{:x}", hash.finalize())
+        hex::encode(hash.finalize())
     };
     let p = Process {
         identity: Identity {

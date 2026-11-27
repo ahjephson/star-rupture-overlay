@@ -13,6 +13,7 @@ anyhow = "1"
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+hex.workspace = true
 retoc = { path = "../../third-party/retoc/retoc" }
 repak = { path = "../../third-party/repak/repak", default-features = false }
 usmap = { path = "../../third-party/jmap/usmap" }
